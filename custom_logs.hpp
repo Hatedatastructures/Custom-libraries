@@ -620,6 +620,7 @@ namespace custom_log
         explicit log(const file_name& file): foundation_log<custom_log_type>()
         {
             log::foundation_log::foundation_log(file);
+            con::string::const_iterator
         }
 
         ~log() override = default;

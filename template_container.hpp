@@ -5,6 +5,33 @@
 #include <mutex>
 namespace custom_exception
 {
+    /*
+     * @brief  自定义异常类
+
+    *   - 用于抛出带消息、函数名、行号信息的异常 
+
+     * 带参构造参数: `message_target`, `function_name_target` , `line_number_target`
+
+     * * - `message_target` : 异常信息
+
+     * * - `function_name_target` : 异常出现所在的函数
+
+     * * - `line_number_target` : 异常发生行数
+
+     * `what()`函数:返回异常信息
+
+     * `function_name_get()`函数:返回异常发生函数
+
+     * `line_number_get()`函数:返回异常发生行数
+
+     * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md 
+
+     * 不支持移动赋值，移动构造，拷贝赋值，拷贝构造
+
+     * 不可被继承
+
+     * 该类自动清理资源
+    */
     class  customize_exception final : public std::exception
     {
     private:
@@ -494,9 +521,23 @@ namespace template_container
         }
     }
 
-    /*############################     string容器     ############################*/
     namespace string_container
     {
+        /*
+        * @brief 动态扩容动态字符数组
+
+        *   - 支持迭代器遍历、字符串修改、子串操作等功能。( 当前`反向`迭代器未实现 ) 
+
+        * #### 注意 : 扩容或修改数据时，所有迭代器和引用失效
+
+        * 类参数 ：`char*` : 字符串指针 `size_t` : 字符串长度 `size_t` : 字符串容量
+
+        * 其他函数参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md 
+
+        * 重载流式输出
+
+        * 该类自动清理资源
+        */
         class string
         {
         private:
@@ -504,14 +545,23 @@ namespace template_container
             size_t _size;
             size_t _capacity;
         public:
-            //创建迭代器
+            /*
+            * `string` 反向 `const` 迭代器
+            */
             using iterator = char*;
+            /*
+            * `string const` 迭代器
+            */
             using const_iterator = const char*;
-    
+            /*
+            * `string` 反向迭代器
+            */
             using reverse_iterator = iterator;
+            /*
+            * `string` 反向 `const` 迭代器
+            */
             using const_reverse_iterator = const_iterator;
-            //反向迭代器
-            //限定字符串最大值
+            //字符串最大值
             constexpr static const size_t nops = -1;
             [[nodiscard]] iterator begin()const noexcept
             {
@@ -6083,13 +6133,7 @@ namespace con
     using namespace template_container::tree_container;
     using namespace template_container::base_class_container;
     using namespace template_container::bloom_filter_container;
-}
-namespace ptr
-{
+    using namespace custom_exception;
     using namespace smart_pointer;
 }
 
-namespace exc
-{
-    using namespace custom_exception;
-}
