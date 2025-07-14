@@ -6,7 +6,7 @@
 namespace custom_exception
 {
     /*
-     * @brief  自定义异常类
+     * @brief  #### `customize_exception` 类
 
     *   - 用于抛出带消息、函数名、行号信息的异常 
 
@@ -121,9 +121,18 @@ namespace smart_pointer
             return *this;
         }
     };
+    /*
+    * #### `unique_ptr` 类
+    * 
+    * - 用于独占指针管理所有权
+    * - 不支持拷贝构造，拷贝赋值
+    * - `swap()` 函数交换所有权
+    * - `get_ptr()` 函数返回指针
+    * - 自动管理指针资源
+    */
     template <typename unique_ptr_type>
     class unique_ptr
-    {     //独占指针所有权
+    {    
     private:
         unique_ptr_type* _ptr;
         using Ref = unique_ptr_type&;
@@ -140,7 +149,7 @@ namespace smart_pointer
                 delete _ptr;
                 _ptr = nullptr;
             }
-        }//重载swap放弃所有权转移指针，移动语义
+        }
         Ref operator*() noexcept
         {
             return *(_ptr);
@@ -153,9 +162,40 @@ namespace smart_pointer
         {
             return _ptr;
         }
+        unique_ptr<unique_ptr_type>& swap(const unique_ptr& ptr_type_data) noexcept
+        {
+            if(&ptr_type_data != this)
+            {
+                if( _ptr != nullptr)
+                {
+                    delete _ptr;
+                    _ptr = nullptr;
+                }
+                _ptr = ptr_type_data._ptr;
+                ptr_type_data._ptr = nullptr;
+            }
+            return *this;
+        }
         unique_ptr(const unique_ptr& ptr_type_data) noexcept = delete;
-        unique_ptr<unique_ptr_type>& operator= (const unique_ptr& ptr_type_data) noexcept = delete;
-        //禁止拷贝
+        unique_ptr<unique_ptr_type>& operator= (const unique_ptr<unique_ptr_type>& ptr_type_data) noexcept = delete;
+        unique_ptr<unique_ptr_type>& operator= (unique_ptr<unique_ptr_type>&& ptr_type_data) noexcept
+        {
+            if(&ptr_type_data != this)
+            {
+                if( _ptr != nullptr)
+                {
+                    delete _ptr;
+                    _ptr = nullptr;
+                }
+                _ptr = ptr_type_data->_ptr;
+                ptr_type_data->_ptr = nullptr;
+            }
+        }
+        unique_ptr(unique_ptr&& ptr_type_data) noexcept
+        {
+            _ptr = ptr_type_data._ptr;
+            ptr_type_data._ptr = nullptr;
+        }
     };
     template <typename shared_ptr_type>
     class shared_ptr
@@ -1159,7 +1199,7 @@ namespace template_container
                 return return_string_object;    //不能转为右值，编译器会再做一次优化
             }
         };
-        inline std::istream& operator>>(std::istream& string_istream,string& str_data)
+        std::istream& operator>>(std::istream& string_istream,string& str_data)
         {
             while(true)
             {
@@ -6120,7 +6160,6 @@ namespace template_container
 namespace con
 {
     using namespace template_container::imitation_functions;
-    using namespace template_container::algorithm;
     using namespace template_container::algorithm::hash_algorithm;
     using namespace template_container::practicality;
     using namespace template_container::string_container;
@@ -6134,6 +6173,8 @@ namespace con
     using namespace template_container::base_class_container;
     using namespace template_container::bloom_filter_container;
     using namespace custom_exception;
-    using namespace smart_pointer;
+    namespace algorithm = template_container::algorithm;
+    namespace smart_pointer = smart_pointer;
+    using namespace template_container::string_container::string;
 }
 
