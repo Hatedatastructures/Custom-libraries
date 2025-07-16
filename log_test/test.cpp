@@ -45,21 +45,21 @@ int main()
     std::cout << custom_log::file_exists(file_name) << std::endl;
     std::cout << custom_log::file_exists(storehouse_file_name) << std::endl;
     std::cout << std::endl;
-    {
-        if(con::string name = "text_log_.txt"; custom_log::file_exists(name))
-        {
-            custom_log::foundation_log test_log (name);
-            custom_log::information::information temp_information;
-            temp_information.debugging_message_input("测试日志,进入作用域");
-            temp_information.warning_message_input("非法操作");
+    // {
+    //     if(con::string name = "text_log_.txt"; custom_log::file_exists(name))
+    //     {
+    //         custom_log::foundation_log test_log (name);
+    //         custom_log::information::information temp_information;
+    //         temp_information.debugging_message_input("测试日志,进入作用域");
+    //         temp_information.warning_message_input("非法操作");
 
-            test_log.write_file(temp_information,custom_log::log_timestamp_class::now());
-        }
-        else
-        {
-            std::cout << "文件不存在" << std::endl ;
-        }
-    }
+    //         test_log.write_file(temp_information,custom_log::log_timestamp_class::now());
+    //     }
+    //     else
+    //     {
+    //         std::cout << "文件不存在" << std::endl ;
+    //     }
+    // }
     con::vector<con::string> debugging = 
     {"开始计算权重","进入**函数","开始调用**函数","进行合并数据","输入样本"};
     con::vector<con::string> general = 
@@ -76,7 +76,7 @@ int main()
         // {
         //     std::cout << "文件缓冲区调整成功" << std::endl;
         // }
-        for(size_t list = 0; list < 1000; list++)
+        for(size_t list = 0; list < 100; list++)
         {
             custom_log::information::information temp_information;
             temp_information.debugging_message_input(debugging[generate_random_size_t(1763824,347632485789)% debugging.size()]);
@@ -89,33 +89,33 @@ int main()
             std::cout << "###进度 :" << static_cast<double>(list)/10 << "% / 100%" << "..." << std::endl;
         }
         std::cout << "暂存没问题" << std::endl;
-        test_log.push();
+        test_log.push_to_console();
         std::cout << "写入文件成功" << std::endl;
     }
-    {
-        test_log v1_(con::string("测试日志,进入作用域"),1,2);
-        custom_log::foundation_log<test_log> two_test_log(file_name);
-        custom_log::information::information<test_log> temp_information;
-        test_log test_(con::string("测试日志,进入作用域"),1,2);
-        temp_information.custom_log_message_input(test_); 
-        // std::cout << temp_information.to_custom_string() << std::endl;
-        two_test_log.staging(temp_information,default_timestamp_macros);
-        two_test_log.push();
-    }
-    {
-        custom_log::foundation_log _v2(file_name);
-        _v2.staging(custom_log::information::information().custom_log_macro_function_input("测试日志,进入作用域"),default_timestamp_macros);
-        _v2.push_to_console();
-        _v2.push_to_file();
-        _v2.push();
-    }
-    system("pause");
-    std::thread test([&]    {   std::cout << "hello,word!" << file_name << std::endl;   } );
-    test.join();
-    std::cout << "程序结束" << std::endl;
-    system("pause");
-    std::unique_ptr<con::string> string_ptr(new con::string("hello,word!"));
-    //独占指针所有权
-    std::cout << *string_ptr << std::endl;
+    // {
+    //     test_log v1_(con::string("测试日志,进入作用域"),1,2);
+    //     custom_log::foundation_log<test_log> two_test_log(file_name);
+    //     custom_log::information::information<test_log> temp_information;
+    //     test_log test_(con::string("测试日志,进入作用域"),1,2);
+    //     temp_information.custom_log_message_input(test_); 
+    //     // std::cout << temp_information.to_custom_string() << std::endl;
+    //     two_test_log.staging(temp_information,default_timestamp_macros);
+    //     two_test_log.push();
+    // }
+    // {
+    //     custom_log::foundation_log _v2(file_name);
+    //     _v2.staging(custom_log::information::information().custom_log_macro_function_input("测试日志,进入作用域"),default_timestamp_macros);
+    //     _v2.push_to_console();
+    //     _v2.push_to_file();
+    //     _v2.push();
+    // }
+    // system("pause");
+    // std::thread test([&]    {   std::cout << "hello,word!" << file_name << std::endl;   } );
+    // test.join();
+    // std::cout << "程序结束" << std::endl;
+    // system("pause");
+    // std::unique_ptr<con::string> string_ptr(new con::string("hello,word!"));
+    // //独占指针所有权
+    // std::cout << *string_ptr << std::endl;
     return 0;
 }

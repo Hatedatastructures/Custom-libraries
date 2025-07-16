@@ -94,14 +94,15 @@ namespace custom_log
     {
         class double_buffer_queue
         {
-            std::ofstream* file_ptr;
-            std::mutex swap_locks;
-            std::mutex switch_mutex;
-            size_t file_buffer_size = 0;
-            size_t console_line_number = 1;
-            std::thread background_threads;
-            con::queue<con::string> produce_queue;
-            con::queue<con::string> consume_queue;
+            std::ofstream* file_ptr;        //文件流指针
+            std::mutex swap_locks;          //交换锁
+            std::mutex switch_mutex;        //交换锁
+            size_t file_buffer_size = 0;    //文件缓冲区
+            size_t console_buffer_size = 0; //控制台缓冲区
+            size_t console_line_number = 1; //控制台行号
+            std::thread background_threads; //后台线程
+            con::queue<con::string> produce_queue; //生产队列
+            con::queue<con::string> consume_queue; //消费队列
             std::atomic<con::queue<con::string>*> read_queue{};
             std::atomic<con::queue<con::string>*> write_queue{};
             void switch_queues() 
@@ -133,7 +134,7 @@ namespace custom_log
                 }
             }
         public:
-            static inline size_t produce_payload_size = 100;
+            static inline size_t produce_payload_size = 10;
             explicit double_buffer_queue(std::ofstream* external_file)
             :file_ptr(external_file)
             {
@@ -152,6 +153,7 @@ namespace custom_log
                     {
                         switch_queues();
                         file_buffer();
+                        console_buffer();
                     }
                 }
             }
@@ -172,10 +174,10 @@ namespace custom_log
             }
             void enqueue_console(con::string&& built_string_data)
             {
-                if( file_buffer_size >= produce_payload_size)
+                if( console_buffer_size >= produce_payload_size)
                 {
                     switch_queues();
-                    file_buffer_size = 0;
+                    console_buffer_size = 0;
                     background_threads = std::thread([&]{console_buffer();});
                     if(background_threads.joinable())
                     {
@@ -183,7 +185,7 @@ namespace custom_log
                     }
                 }
                 write_queue.load()->push(std::move(built_string_data));
-                ++file_buffer_size;
+                ++console_buffer_size;
             }
             void refresh_buffer_queue()
             {
@@ -620,7 +622,6 @@ namespace custom_log
         explicit log(const file_name& file): foundation_log<custom_log_type>()
         {
             log::foundation_log::foundation_log(file);
-            con::string::const_iterator
         }
 
         ~log() override = default;
@@ -631,3 +632,37 @@ namespace rec
     using namespace custom_log;
     using namespace custom_log::configurator::placeholders;
 }
+// Tags: double-buffering, thread-safe, producer-consumer, logging, lock-based-synchronization, condition-variable, asynchronous-flush, resource-cleanup, C++17
+#pragma once
+
+/*
+问题清单：
+| 序号 | 问题类别           | 具体描述                                                         |
+|------|------------------|----------------------------------------------------------------|
+| 1    | 命名规范           | 私有成员变量未统一使用 `_` 前缀或驼峰，混用 `_mtx` 与 `_produce_q` 等。       |
+| 2    | 资源管理           | 构造函数直接启动线程，析构中才停止，若构造异常可能造成资源泄漏。             |
+| 3    | 线程安全           | 队列操作在多个函数中未统一加锁（如 swap_queues_locked 未加锁调用）。        |
+| 4    | 锁粒度             | 在 process_read_queue 中打印阻塞在 I/O，上持有锁，导致 enqueue 阻塞。       |
+| 5    | 条件变量使用       | notify_one 可能遗漏唤醒所有消费场景，建议改为 notify_all。                |
+| 6    | 阈值设计           | `_threshold` 硬编码为 10，无法动态调整，无外部接口。                     |
+| 7    | 时间格式化         | `localtime_s` Windows 专用，不跨平台；建议使用 `std::localtime` 并加锁。   |
+| 8    | 错误处理           | 文件写入未检查 `ofstream` 状态，可能静默失败。                           |
+| 9    | 头文件依赖         | 包含了 `<atomic>` 而未实际使用原子操作，可删除；`<ctime>` 可精简。         |
+| 10   | 日志拼接           | 直接 `<< msg` 未处理异常字符编码或换行，建议统一格式化接口。              |
+| 11   | 文档注释           | 缺少类、函数注释，难以理解设计意图；公有接口未说明线程模型与异常安全。    |
+| 12   | 代码结构           | 将 `double_buffer_queue` 与其他组件写在同一文件，建议拆分单一职责文件。    |
+*/
+
+// 文件实现大纲：
+// 1. 公共头与工具函数
+//    - file_exists: 判断文件是否存在
+//    - format_time: 时间点格式化
+// 2. buffer_queues 命名空间
+//    - class double_buffer_queue:
+//      • 构造：初始化队列与后台线程
+//      • 析构：通知停止、join 线程、flush 剩余数据
+//      • enqueue_console / enqueue_file: 入队并触发阈值交换
+//      • worker_thread: 后台循环等待并处理队列
+//      • process_read_queue: 实际的文件或控制台输出
+//      • flush_all: 析构时双缓冲区全部 flush
+// 3. 其他组件（略）

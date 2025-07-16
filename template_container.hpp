@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include <mutex>
+#include <memory>
 namespace custom_exception
 {
     /*
@@ -6163,18 +6164,18 @@ namespace con
     using namespace template_container::algorithm::hash_algorithm;
     using namespace template_container::practicality;
     using namespace template_container::string_container;
-    using namespace template_container::vector_container;
-    using namespace template_container::list_container;
+    using template_container::vector_container::vector;
+    using template_container::list_container::list;
     using namespace template_container::stack_adapter;
     using namespace template_container::queue_adapter;
     using namespace template_container::map_container;
     using namespace template_container::set_container;
     using namespace template_container::tree_container;
     using namespace template_container::base_class_container;
-    using namespace template_container::bloom_filter_container;
+    using template_container::bloom_filter_container::bloom_filter;
     using namespace custom_exception;
     namespace algorithm = template_container::algorithm;
     namespace smart_pointer = smart_pointer;
-    using namespace template_container::string_container::string;
+    using template_container::string_container::string;
 }
 
