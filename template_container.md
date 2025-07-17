@@ -106,8 +106,7 @@ namespace set_container             { ... }
 namespace base_class_container      { ... }
 namespace bloom_filter_container    { ... }
 namespace con                       { using namespace template_container; }
-namespace ptr                       { using namespace smart_pointer;      }
-namespace exc                       { using namespace custom_exception;   }
+
 ```
 
 >各模块实现互相调用，结构清晰。但是对于map和set那块比较复杂，会在他们的文档里详细介绍

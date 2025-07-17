@@ -73,11 +73,12 @@ namespace custom_exception
 }
 namespace smart_pointer
 {
-    template<typename smart_ptr_type>
+    template<typename smart_ptr_types,typename deleter = std::default_delete<smart_ptr_types>>
     class smart_ptr
     {
     private:
         smart_ptr_type* _ptr;
+        deleter _deleter;
         using Ref = smart_ptr_type&;
         using Ptr = smart_ptr_type*;
     public:
