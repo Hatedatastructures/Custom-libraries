@@ -85,18 +85,18 @@ namespace con::smart_pointer
             _ptr = ptr;
         }
         smart_ptr(const smart_ptr&) = delete;
-        smart_ptr& operator=(const smart_ptr*& other) = delete;
-        smart_ptr(smart_ptr&& other) noexcept
+        smart_ptr& operator=(const smart_ptr*& smart_ptr_data) = delete;
+        smart_ptr(smart_ptr&& smart_ptr_data) noexcept
         {
-            _ptr = other._ptr;
-            other._ptr = nullptr;
+            _ptr = smart_ptr_data._ptr;
+            smart_ptr_data._ptr = nullptr;
         }
-        smart_ptr& operator=(smart_ptr&& other) noexcept
+        smart_ptr& operator=(smart_ptr&& smart_ptr_data) noexcept
         {
-            if(&other != this)
+            if(&smart_ptr_data != this)
             {
-                _ptr = other._ptr;
-                other._ptr = nullptr;
+                _ptr = smart_ptr_data._ptr;
+                smart_ptr_data._ptr = nullptr;
             }
             return *this;
         }
@@ -211,65 +211,108 @@ namespace con::smart_pointer
         {
             return _ptr;
         }
-        unique_ptr(const unique_ptr& ptr_type_data) noexcept = delete;
-        unique_ptr<unique_ptr_type>& operator= (const unique_ptr<unique_ptr_type,deleter>& ptr_type_data) noexcept = delete;
-        unique_ptr<unique_ptr_type>& operator= (unique_ptr<unique_ptr_type,deleter>&& ptr_type_data) noexcept
+        unique_ptr(const unique_ptr& unique_ptr_data) noexcept = delete;
+        unique_ptr<unique_ptr_type>& operator= (const unique_ptr<unique_ptr_type,deleter>& unique_ptr_data) noexcept = delete;
+        unique_ptr<unique_ptr_type>& operator= (unique_ptr<unique_ptr_type,deleter>&& unique_ptr_data) noexcept
         {
-            if(&ptr_type_data != this)
+            if(&unique_ptr_data != this)
             {
                 if( _ptr != nullptr)
                 {
                     _deleter(_ptr);
                     _ptr = nullptr;
                 }
-                _ptr = ptr_type_data._ptr;
-                ptr_type_data._ptr = nullptr;
+                _ptr = unique_ptr_data._ptr;
+                unique_ptr_data._ptr = nullptr;
             }
             return *this;
         }
-        unique_ptr(unique_ptr&& ptr_type_data) noexcept
+        unique_ptr(unique_ptr&& unique_ptr_data) noexcept
         {
-            _ptr = ptr_type_data._ptr;
-            ptr_type_data._ptr = nullptr;
+            _ptr = unique_ptr_data._ptr;
+            unique_ptr_data._ptr = nullptr;
         }
     };
-    template <typename shared_ptr_type,typename deleter = std::default_delete<unique_ptr_type>>
+    /*
+     * @brief  #### `shared_ptr` 类
+
+    *   - 实现共享式资源管理的智能指针，通过引用计数实现资源的自动释放
+
+    *   - 多个指针可共享同一资源，最后一个指针释放时资源才被销毁
+
+     * 模板参数:
+
+     * * - `shared_ptr_type`: 管理的对象类型
+
+     * * - `deleter`: 资源释放器类型，默认为 `std::default_delete<shared_ptr_type>`
+
+     * 构造函数:
+
+     * * - `explicit shared_ptr(shared_ptr_type* ptr = nullptr)`: 从原始指针构造
+
+     * * - 拷贝构造函数: 增加引用计数并共享资源
+
+     * * - 移动构造函数: 转移资源所有权，原指针重置
+
+     * 核心机制:
+
+     * * - 引用计数(`shared_pcount`): 记录共享同一资源的指针数量
+
+     * * - 线程安全: 使用互斥锁(`_pmutex`)保护引用计数操作
+
+     * 提供的操作符:
+
+     * * - `operator*()`: 解引用管理的对象
+
+     * * - `operator->()`: 访问管理对象的成员
+
+     * * - 拷贝赋值、移动赋值: 管理引用计数的增减
+
+     * 关键方法:
+
+     * * - `get_count()`: 返回当前引用计数
+
+     * * - `get_ptr()`: 返回原始指针（不释放所有权）
+
+     * 资源管理:
+
+     * * - 最后一个指针释放时调用删除器销毁资源
+
+     * * - 支持自定义删除器处理特殊资源（如文件句柄、网络连接）
+
+     * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md 
+
+     * 线程安全性:
+
+     * * - 引用计数操作是线程安全的
+
+     * * - 但不保证被管理对象的线程安全，需用户自行同步
+
+     * 注意事项:
+
+     * * - 避免循环引用（会导致内存泄漏，需配合 `weak_ptr` 使用）
+
+     * * - 不要用同一个原始指针创建多个独立的 shared_ptr
+
+     * * - 管理数组时需使用自定义删除器
+    */
+    template <typename shared_ptr_type,typename deleter = std::default_delete<shared_ptr_type>>
     class shared_ptr
     {
     private:
         shared_ptr_type* _ptr;
+        deleter _deleter;
         int* shared_pcount;
         std::mutex* _pmutex;
         using Ref = shared_ptr_type&;
         using ptr = shared_ptr_type*;
-    public:
-        explicit shared_ptr(shared_ptr_type* ptr = nullptr)
-        {
-            _ptr = ptr;
-            shared_pcount = new int(1);
-            _pmutex = new std::mutex;
-        }
-        shared_ptr(const shared_ptr& shared_ptr_data) noexcept
-        {
-            _ptr = shared_ptr_data._ptr;
-            shared_pcount = shared_ptr_data.shared_pcount;
-            _pmutex = shared_ptr_data._pmutex;
-            //上锁
-            _pmutex->lock();
-            (*shared_pcount)++;
-            _pmutex->unlock();
-        }
-        ~shared_ptr() noexcept
-        {
-           release();
-        }
         void release() noexcept
         {
             _pmutex->lock();
             bool flag = false;
             if(--(*shared_pcount) == 0 && _ptr != nullptr)
             {
-                delete _ptr;
+                _deleter(_ptr);
                 _ptr = nullptr;
                 delete shared_pcount;
                 shared_pcount = nullptr;
@@ -282,6 +325,71 @@ namespace con::smart_pointer
                 _pmutex = nullptr;
             }
         }
+        void swap(shared_ptr& deliver_value) noexcept
+        {
+            _ptr = deliver_value._ptr;
+            shared_pcount = deliver_value.shared_pcount;
+            _pmutex = deliver_value._pmutex;
+            _deleter = deliver_value._deleter;
+
+        }
+    public:
+        explicit shared_ptr(shared_ptr_type* ptr = nullptr)
+        : _deleter(deleter())
+        {
+            _ptr = ptr;
+            shared_pcount = new int(1);
+            _pmutex = new std::mutex;
+        }
+        shared_ptr(shared_ptr& shared_ptr_data) noexcept
+        {
+            swap(shared_ptr_data);
+            _pmutex->lock();
+            (*shared_pcount)++;
+            _pmutex->unlock();
+        }
+        shared_ptr(shared_ptr&& shared_ptr_data) noexcept
+        {
+            swap(shared_ptr_data);         
+            shared_ptr_data._ptr = nullptr;
+            shared_ptr_data.shared_pcount = new int(1);  
+            shared_ptr_data._pmutex = new std::mutex;   
+        }
+        ~shared_ptr() noexcept
+        {
+           release();
+        }
+        shared_ptr<shared_ptr_type>& operator=(const shared_ptr& shared_ptr_data) noexcept
+        {
+            if(&shared_ptr_data != this)
+            {
+                if(_ptr != shared_ptr_data._ptr)
+                {
+                    release();
+                    swap(shared_ptr_data);
+                    _pmutex->lock();
+                    (*shared_pcount)++;
+                    _pmutex->unlock();
+                }
+            }
+            return *this;
+        }
+        shared_ptr<shared_ptr_type>& operator=(shared_ptr&& shared_ptr_data) noexcept
+        {
+            if(&shared_ptr_data != this)
+            {
+                release();
+                swap(shared_ptr_data);
+                shared_ptr_data._ptr = nullptr;
+                shared_ptr_data.shared_pcount = new int(1);
+                shared_ptr_data._pmutex = new std::mutex;
+            }
+            return *this;
+        }
+        [[nodiscard]] int get_count() const noexcept
+        {
+            return *shared_pcount;
+        }
         Ref operator*() noexcept
         {
             return *(_ptr);
@@ -293,28 +401,6 @@ namespace con::smart_pointer
         ptr get_ptr() const noexcept
         {
             return _ptr;
-        }
-        shared_ptr<shared_ptr_type>& operator=(const shared_ptr& shared_ptr_data) noexcept
-        {
-            if(&shared_ptr_data != this)
-            {
-                if(_ptr != shared_ptr_data._ptr)
-                {
-                    release();
-                    _ptr = shared_ptr_data._ptr;
-                    shared_pcount = shared_ptr_data.shared_pcount;
-                    _pmutex = shared_ptr_data._pmutex;
-                    //上锁
-                    _pmutex->lock();
-                    (*shared_pcount)++;
-                    _pmutex->unlock();
-                }
-            }
-            return *this;
-        }
-        [[nodiscard]] int get_sharedp_count() const noexcept
-        {
-            return *shared_pcount;
         }
     };
     template <typename weak_ptr_type>
@@ -348,8 +434,4 @@ namespace con::smart_pointer
             return *this;
         }
     };
-}
-namespace con
-{
-
 }

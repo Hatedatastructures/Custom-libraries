@@ -1,5 +1,7 @@
 #include "smart_pointers.hpp"
-#include <print>
+#include "imitation_functions.hpp"
+#include "algorithm.hpp"
+// #include <print>
 using namespace con::smart_pointer;
 struct ptr_test
 {
@@ -24,10 +26,28 @@ void unique_ptr_test()
     con::smart_pointer::unique_ptr<ptr_test> up4(new ptr_test());
     // std::println("hello,C++23!");
 }
+void shared_ptr_test(con::smart_pointer::shared_ptr<int> sp)
+{
+    std::cout << *sp << std::endl;
+    std::cout << sp.get_count() << std::endl;
+    con::smart_pointer::shared_ptr<int> sp2 = sp;
+    std::cout << sp.get_count() << std::endl;
+    con::smart_pointer::shared_ptr<int> sp3 = std::move(sp2);
+    std::cout << sp.get_count() << std::endl;
+}
+void function_test()
+{
+    con::imitation_functions::less<int> less_test;
+    std::cout << less_test(1, 2) << std::endl;
+    con::algorithm::hash_algorithm::hash_function<int> hash_test;
+}
 int main()
 {
     con::customize_exception ex("test","main", __LINE__);
     smart_ptr_test(); 
     unique_ptr_test();
+    con::smart_pointer::shared_ptr<int> sp(new int(10));
+    shared_ptr_test(sp);
+    std::cout << sp.get_count() << std::endl;
     return 0;
 }
