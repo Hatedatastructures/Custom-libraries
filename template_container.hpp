@@ -1612,13 +1612,13 @@ namespace template_container
                     _data = data;
                 }
             };
-            template <typename listNodeTypeIterator ,typename Ref ,typename Ptr >
+            template <typename list_node_type_iterator ,typename Ref ,typename Ptr >
             class list_iterator
             {
             public:
                 //迭代器类
-                using container_node = list_container_node<listNodeTypeIterator> ;
-                using iterator  = list_iterator<listNodeTypeIterator ,listNodeTypeIterator& ,listNodeTypeIterator*>;
+                using container_node = list_container_node<list_node_type_iterator> ;
+                using iterator  = list_iterator<list_node_type_iterator ,list_node_type_iterator& ,list_node_type_iterator*>;
                 using reference = Ref ;
                 using pointer   = Ptr ;
                 container_node* _node;

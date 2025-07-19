@@ -3,6 +3,9 @@
 #include "./Algorithm.hpp"
 #include "./Practicality.hpp"
 #include "./String.hpp"
+#include "./Vector.hpp"
+#include "./List.hpp"
+#include "./Stack.hpp"
 // #include <print>
 using namespace con::smart_pointer;
 struct ptr_test
@@ -59,6 +62,26 @@ void function_test()
     std::cout << p.first << " " << p.second << std::endl;
     std::cout << con::make_pair<int, int>(1, 2) << std::endl;
 }
+void vector_test()
+{
+    con::vector<int> v(10, 1);
+    std::cout << v.size() << std::endl;
+}
+void list_test()
+{
+    con::list<int> l{1,2,3,4};
+    std::cout << l.size() << std::endl;
+}
+void stack_test()
+{
+    con::stack<int> s;
+    s.push(1);
+    s.push(2);
+    s.push(3);
+    std::cout << s.top() << std::endl;
+    s.pop();
+    std::cout << s.top() << std::endl;
+}
 int main()
 {
     try
@@ -78,5 +101,11 @@ int main()
     con::pair<int, int> p(1, 2);
     con::string str = "hello";
     // weak_ptr_test();
+    con::string str2 = "world"; 
+    std::cout << str + str2 << std::endl;   
+    vector_test();   
+    list_test(); 
+    std::cout << std::endl;
+    stack_test();
     return 0;
 }

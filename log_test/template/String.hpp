@@ -1,3 +1,4 @@
+#pragma once
 #include "Custom_exception.hpp"
 #include "Algorithm.hpp"
 namespace string_container
@@ -298,7 +299,7 @@ namespace string_container
             _size = str_data.size();
             _capacity = _size;
             _data = new char[_capacity + 1];
-            template_container::algorithm::copy(str_data.begin(), str_data.end(), _data);
+            con::algorithm::copy(str_data.begin(), str_data.end(), _data);
             _data[_size] = '\0';
         }
         ~string() noexcept
@@ -555,9 +556,9 @@ namespace string_container
         }
         string &swap(string &str_data) noexcept
         {
-            template_container::algorithm::swap(_data, str_data._data);
-            template_container::algorithm::swap(_size, str_data._size);
-            template_container::algorithm::swap(_capacity, str_data._capacity);
+            con::algorithm::swap(_data, str_data._data);
+            con::algorithm::swap(_size, str_data._size);
+            con::algorithm::swap(_capacity, str_data._capacity);
             return *this;
         }
         [[nodiscard]] string reverse() const
@@ -751,7 +752,7 @@ namespace string_container
                 }
             }
             catch (const custom_exception::customize_exception &access_exception)
-            {
+            {                                                           
                 std::cerr << access_exception.what() << " " << access_exception.function_name_get() << " " << access_exception.line_number_get() << std::endl;
                 throw;
             }
@@ -762,7 +763,7 @@ namespace string_container
             const size_t object_len = _size + string_array._size;
             return_string_object.allocate_resources(object_len);
             std::strncpy(return_string_object._data, _data, size());
-            std::strncpy(return_string_object._data + _size, string_array._data, string_array.size());
+            std::strncpy(return_string_object._data + _size, string_array._data, string_array.size()); 
             return_string_object._size = _size + string_array._size;
             return_string_object._data[return_string_object._size] = '\0';
             return return_string_object; // 不能转为右值，编译器会再做一次优化
