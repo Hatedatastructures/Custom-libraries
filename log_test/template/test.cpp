@@ -49,7 +49,10 @@ void function_test()
 {
     con::imitation_functions::less<int> less_test;
     std::cout << less_test(1, 2) << std::endl;
-    con::algorithm::hash_algorithm::hash_function<int> hash_test;
+    // con::algorithm::hash_algorithm::hash_function<int> hash_test;
+    std::string str = "hello";
+    std::string res;
+    std::cout << con::algorithm::copy(str.begin(), str.end(),res.begin()) << std::endl; 
 }
 int main()
 {
@@ -66,7 +69,7 @@ int main()
     con::smart_pointer::shared_ptr<int> sp(new int(10));
     shared_ptr_test(sp);
     std::cout << sp.get_count() << std::endl;
-    // function_test();
-    weak_ptr_test();
+    function_test();
+    // weak_ptr_test();
     return 0;
 }
