@@ -1,6 +1,6 @@
-#include "smart_pointers.hpp"
-#include "imitation_functions.hpp"
-#include "algorithm.hpp"
+#include "Smart_pointers.hpp"
+#include "Imitation_functions.hpp"
+#include "Algorithm.hpp"
 // #include <print>
 using namespace con::smart_pointer;
 struct ptr_test
@@ -35,6 +35,16 @@ void shared_ptr_test(con::smart_pointer::shared_ptr<int> sp)
     con::smart_pointer::shared_ptr<int> sp3 = std::move(sp2);
     std::cout << sp.get_count() << std::endl;
 }
+void weak_ptr_test()
+{
+    con::smart_pointer::shared_ptr<ptr_test> sh (new ptr_test());
+    con::smart_pointer::weak_ptr<ptr_test> wp(sh);
+    std::cout << wp->value << std::endl;
+    con::smart_pointer::weak_ptr<ptr_test> wp2 = wp;
+    std::cout << wp2->value << std::endl;
+    con::smart_pointer::weak_ptr<ptr_test> wp3(std::move(wp2));
+    std::cout << wp3->value << std::endl;
+}
 void function_test()
 {
     con::imitation_functions::less<int> less_test;
@@ -43,11 +53,20 @@ void function_test()
 }
 int main()
 {
-    con::customize_exception ex("test","main", __LINE__);
+    try
+    {
+        throw con::customize_exception("test","main", __LINE__);
+    }
+    catch(const con::customize_exception& exc)
+    {
+        std::cerr << exc.what() << std::endl;
+    }
     smart_ptr_test(); 
     unique_ptr_test();
     con::smart_pointer::shared_ptr<int> sp(new int(10));
     shared_ptr_test(sp);
     std::cout << sp.get_count() << std::endl;
+    // function_test();
+    weak_ptr_test();
     return 0;
 }

@@ -1,5 +1,5 @@
 #pragma once
-#include "custom_exception.hpp"
+#include "Custom_exception.hpp"
 #include <memory>
 namespace con
 {
@@ -80,10 +80,7 @@ namespace con::smart_pointer
         using Ptr = smart_ptr_type*;
     public:
         explicit smart_ptr(smart_ptr_type* ptr = nullptr)
-        :_deleter(deleter())
-        {
-            _ptr = ptr;
-        }
+        :_deleter(deleter())    {   _ptr = ptr; }
         smart_ptr(const smart_ptr&) = delete;
         smart_ptr& operator=(const smart_ptr*& smart_ptr_data) = delete;
         smart_ptr(smart_ptr&& smart_ptr_data) noexcept
@@ -109,13 +106,9 @@ namespace con::smart_pointer
             }
         }
         Ptr operator->()const noexcept
-        {
-            return _ptr;
-        }
+        {   return _ptr;    }
         Ref operator*() noexcept
-        {
-            return *(_ptr);
-        }
+        {   return *(_ptr);    }
     };
     /*
      * @brief  #### `unique_ptr` 类
@@ -200,17 +193,11 @@ namespace con::smart_pointer
             }
         }
         Ref operator*() noexcept
-        {
-            return *(_ptr);
-        }
+        {return *(_ptr);    }
         Ptr operator->() noexcept
-        {
-            return _ptr;
-        }
+        {   return _ptr;    }
         unique_ptr_type* get_ptr() const noexcept
-        {
-            return _ptr;
-        }
+        {   return _ptr;    }
         unique_ptr(const unique_ptr& unique_ptr_data) noexcept = delete;
         unique_ptr<unique_ptr_type>& operator= (const unique_ptr<unique_ptr_type,deleter>& unique_ptr_data) noexcept = delete;
         unique_ptr<unique_ptr_type>& operator= (unique_ptr<unique_ptr_type,deleter>&& unique_ptr_data) noexcept
@@ -302,7 +289,7 @@ namespace con::smart_pointer
     private:
         shared_ptr_type* _ptr;
         deleter _deleter;
-        int* shared_pcount;
+        int* _shared_count;
         std::mutex* _pmutex;
         using Ref = shared_ptr_type&;
         using ptr = shared_ptr_type*;
@@ -310,12 +297,12 @@ namespace con::smart_pointer
         {
             _pmutex->lock();
             bool flag = false;
-            if(--(*shared_pcount) == 0 && _ptr != nullptr)
+            if(--(*_shared_count) == 0 && _ptr != nullptr)
             {
                 _deleter(_ptr);
                 _ptr = nullptr;
-                delete shared_pcount;
-                shared_pcount = nullptr;
+                delete _shared_count;
+                _shared_count = nullptr;
                 flag = true;
             }
             _pmutex->unlock();
@@ -325,10 +312,10 @@ namespace con::smart_pointer
                 _pmutex = nullptr;
             }
         }
-        void swap(shared_ptr& deliver_value) noexcept
+        void assignment(shared_ptr& deliver_value) noexcept
         {
             _ptr = deliver_value._ptr;
-            shared_pcount = deliver_value.shared_pcount;
+            _shared_count = deliver_value._shared_count;
             _pmutex = deliver_value._pmutex;
             _deleter = deliver_value._deleter;
 
@@ -338,21 +325,21 @@ namespace con::smart_pointer
         : _deleter(deleter())
         {
             _ptr = ptr;
-            shared_pcount = new int(1);
+            _shared_count = new int(1);
             _pmutex = new std::mutex;
         }
         shared_ptr(shared_ptr& shared_ptr_data) noexcept
         {
-            swap(shared_ptr_data);
+            assignment(shared_ptr_data);
             _pmutex->lock();
-            (*shared_pcount)++;
+            (*_shared_count)++;
             _pmutex->unlock();
         }
         shared_ptr(shared_ptr&& shared_ptr_data) noexcept
         {
-            swap(shared_ptr_data);         
+            assignment(shared_ptr_data);         
             shared_ptr_data._ptr = nullptr;
-            shared_ptr_data.shared_pcount = new int(1);  
+            shared_ptr_data._shared_count = new int(1);  
             shared_ptr_data._pmutex = new std::mutex;   
         }
         ~shared_ptr() noexcept
@@ -366,9 +353,9 @@ namespace con::smart_pointer
                 if(_ptr != shared_ptr_data._ptr)
                 {
                     release();
-                    swap(shared_ptr_data);
+                    assignment(shared_ptr_data);
                     _pmutex->lock();
-                    (*shared_pcount)++;
+                    (*_shared_count)++;
                     _pmutex->unlock();
                 }
             }
@@ -379,47 +366,143 @@ namespace con::smart_pointer
             if(&shared_ptr_data != this)
             {
                 release();
-                swap(shared_ptr_data);
+                assignment(shared_ptr_data);
                 shared_ptr_data._ptr = nullptr;
-                shared_ptr_data.shared_pcount = new int(1);
+                shared_ptr_data._shared_count = new int(1);
                 shared_ptr_data._pmutex = new std::mutex;
             }
             return *this;
         }
         [[nodiscard]] int get_count() const noexcept
-        {
-            return *shared_pcount;
-        }
+        {    return _shared_count ? *_shared_count : -1;  }
         Ref operator*() noexcept
-        {
-            return *(_ptr);
-        }
+        {    return *(_ptr);     }
         ptr operator->() noexcept
-        {
-            return _ptr;
-        }
+        {    return _ptr;       }
         ptr get_ptr() const noexcept
-        {
-            return _ptr;
-        }
+        {    return _ptr;       }
     };
+    /*
+        * @brief  #### `weak_ptr` 类
+
+        *   - 弱引用智能指针，用于观察 `shared_ptr` 管理的资源但不增加引用计数
+
+        *   - 解决 `shared_ptr` 的循环引用问题，避免资源无法释放的内存泄漏
+
+        * 模板参数:
+
+        * * - `weak_ptr_type`: 观察的对象类型，需与关联的 `shared_ptr` 管理的类型一致
+
+        * 构造函数:
+
+        * * - 默认构造函数: 初始化空弱指针，不关联任何资源
+
+        * * - `explicit weak_ptr(const shared_ptr<weak_ptr_type>& weak_ptr_data)`: 从 `shared_ptr` 构造，关联其管理的资源（不增加引用计数）
+
+        * * - 拷贝构造函数: 复制另一个弱指针的关联关系（共享观察同一资源）
+
+        * * - 移动构造函数: 转移另一个弱指针的关联关系，原指针置空
+
+        * * - 禁用从 `shared_ptr` 右值构造: 避免关联临时 `shared_ptr` 导致的悬空引用
+
+        * 赋值运算符:
+
+        * * - 拷贝赋值: 复制另一个弱指针的关联关系
+        * 
+        * * - 移动赋值: 转移另一个弱指针的关联关系，原指针置空
+        * 
+        * * - 从 `shared_ptr` 赋值: 重新关联到 `shared_ptr` 管理的资源
+
+        * 核心方法:
+
+        * * - `expired() const noexcept`: 检查关联的资源是否已被释放（引用计数为 0 时返回 `true`）
+
+        * * - `get_count() const noexcept`: 返回关联资源的当前引用计数（未关联时返回 -1）
+
+        * * - `operator*()`: 解引用观察的对象（需先通过 `expired()` 确认资源有效）
+        * 
+        * * - `operator->()`: 访问观察对象的成员（需先确认资源有效）
+
+        * 资源管理:
+
+        * * - 不拥有资源所有权，不影响 `shared_ptr` 的引用计数
+        * 
+        * * - 析构时仅重置内部指针，不涉及资源释放
+        * 
+        * * - 当关联的 `shared_ptr` 引用计数归 0 时，弱指针自动变为无效状态
+
+        * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md 
+
+        * 注意事项:
+
+        * * - `weak_ptr` 创建的指针的生命周期要小于 `shared_ptr`，否则会出现悬空指针，导致资源提前释放
+        * 
+        * * - 使用 `operator*()` 或 `operator->()` 前必须通过 `expired()` 检查资源有效性，否则可能访问已释放内存
+        * 
+        * * - 不能直接通过 `weak_ptr` 管理资源生命周期，需配合 `shared_ptr` 使用
+        * 
+        * * - 适用于观察者模式、缓存管理等需临时访问资源但不延长其生命周期的场景
+        * 
+        * * - 线程安全性：内部指针操作非线程安全，多线程环境下需外部同步
+    */
     template <typename weak_ptr_type>
     class weak_ptr
     {
     private:
         weak_ptr_type* _ptr;
+        smart_pointer::shared_ptr<weak_ptr_type>* _shared_ptr;
         using Ref = weak_ptr_type&;
         using ptr = weak_ptr_type*;
     public:
-        weak_ptr() = default;
-        explicit weak_ptr(smart_pointer::shared_ptr<weak_ptr_type>& ptr) noexcept
+        weak_ptr() noexcept
+        :_ptr(nullptr), _shared_ptr(nullptr){}
+        explicit weak_ptr(shared_ptr<weak_ptr_type>& weak_ptr_data) noexcept
+        :_ptr(weak_ptr_data.get_ptr()), _shared_ptr(&weak_ptr_data){}
+        weak_ptr(const weak_ptr& weak_ptr_data) noexcept
+        : _ptr(weak_ptr_data._ptr), _shared_ptr(weak_ptr_data._shared_ptr){}
+        weak_ptr(weak_ptr&& weak_ptr_data) noexcept
+        : _ptr(weak_ptr_data._ptr), _shared_ptr(weak_ptr_data._shared_ptr)
         {
-            _ptr = ptr.get_ptr();
+            weak_ptr_data._ptr = nullptr;
+            weak_ptr_data._shared_ptr = nullptr;
         }
-        weak_ptr(const weak_ptr& ptr_type_data) noexcept
+        weak_ptr(shared_ptr<weak_ptr_type>&& shared_ptr_data) = delete;
+        weak_ptr& operator=(const weak_ptr& weak_ptr_data) noexcept
         {
-            _ptr = ptr_type_data._ptr;
+            if(&weak_ptr_data != this)
+            {
+                _ptr = weak_ptr_data._ptr;
+                _shared_ptr = weak_ptr_data._shared_ptr;
+            }
+            return *this;
         }
+        weak_ptr& operator=(weak_ptr&& weak_ptr_data) noexcept
+        {
+            if(&weak_ptr_data != this)
+            {
+                _ptr = weak_ptr_data._ptr;
+                _shared_ptr = weak_ptr_data._shared_ptr;
+                weak_ptr_data._ptr = nullptr;
+                weak_ptr_data._shared_ptr = nullptr;
+            }
+            return *this;
+        }
+        weak_ptr& operator=(const shared_ptr<weak_ptr_type>& shared_ptr_data) noexcept
+        {
+            _ptr = shared_ptr_data.get_ptr();
+            _shared_ptr = &shared_ptr_data;
+            return *this;
+        }
+        ~weak_ptr() noexcept
+        {
+            if(_shared_ptr == nullptr)
+            {
+                delete _ptr;
+            }
+            _ptr = nullptr;
+            _shared_ptr = nullptr;
+        }
+
         Ref operator*() noexcept
         {
             return *(_ptr);
@@ -428,10 +511,13 @@ namespace con::smart_pointer
         {
             return _ptr;
         }
-        weak_ptr<weak_ptr_type>& operator=(smart_pointer::shared_ptr<weak_ptr_type>& ptr) noexcept
+        bool expired() const noexcept
         {
-            _ptr = ptr.get_ptr();
-            return *this;
+            return _shared_ptr->get_count() == 0;
+        }
+        int get_count() const noexcept
+        {
+            return _shared_ptr ? _shared_ptr->get_count() : -1;
         }
     };
 }

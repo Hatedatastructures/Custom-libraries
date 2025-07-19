@@ -1,4 +1,5 @@
-#include "custom_exception.hpp"
+#pragma once
+#include "Custom_exception.hpp"
 namespace con
 {
     namespace imitation_functions{}
