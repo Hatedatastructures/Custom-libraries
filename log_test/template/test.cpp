@@ -1,6 +1,8 @@
-#include "Smart_pointers.hpp"
-#include "Imitation_functions.hpp"
-#include "Algorithm.hpp"
+#include "./Smart_pointers.hpp"
+#include "./Imitation_functions.hpp"
+#include "./Algorithm.hpp"
+#include "./Practicality.hpp"
+#include "./String.hpp"
 // #include <print>
 using namespace con::smart_pointer;
 struct ptr_test
@@ -53,6 +55,9 @@ void function_test()
     std::string str = "hello";
     std::string res;
     std::cout << con::algorithm::copy(str.begin(), str.end(),res.begin()) << std::endl; 
+    con::pair<int, int> p(1, 2);
+    std::cout << p.first << " " << p.second << std::endl;
+    std::cout << con::make_pair<int, int>(1, 2) << std::endl;
 }
 int main()
 {
@@ -70,6 +75,8 @@ int main()
     shared_ptr_test(sp);
     std::cout << sp.get_count() << std::endl;
     function_test();
+    con::pair<int, int> p(1, 2);
+    con::string str = "hello";
     // weak_ptr_test();
     return 0;
 }

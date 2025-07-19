@@ -4,6 +4,7 @@ namespace con
 {
     /*
     * @brief  #### `imitation_functions` 仿函数命名空间
+    
     *     *   - 包含自定义的仿函数（函数对象）实现，用于实现比较操作
     */
     namespace imitation_functions{}
