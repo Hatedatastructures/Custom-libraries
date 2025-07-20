@@ -1,11 +1,4 @@
-#include "./Smart_pointers.hpp"
-#include "./Imitation_functions.hpp"
-#include "./Algorithm.hpp"
-#include "./Practicality.hpp"
-#include "./String.hpp"
-#include "./Vector.hpp"
-#include "./List.hpp"
-#include "./Stack.hpp"
+#include "Template.hpp"
 // #include <print>
 using namespace con::smart_pointer;
 struct ptr_test
@@ -82,6 +75,58 @@ void stack_test()
     s.pop();
     std::cout << s.top() << std::endl;
 }
+void queue_test()
+{
+    con::queue<int> q;
+    std::cout << q.back() << std::endl;
+    std::cout << q.front() << std::endl;
+    q.push(1);
+    q.push(2);
+    q.push(3);
+    std::cout << q.front() << std::endl;
+    q.pop();
+    std::cout << q.front() << std::endl;
+    con::priority_queue<int,con::imitation_functions::greater<int>> pq;
+    pq.push(1);
+    pq.push(2);
+    pq.push(3);
+    std::cout << pq.top() << std::endl;
+    pq.pop();
+    std::cout << pq.top() << std::endl;
+}
+using key_val_type = con::pair<int, con::string>;
+struct key_val
+{
+    const int& operator()(const key_val_type& key_value)
+    {
+        return key_value.first;
+    }
+};
+void tree_test()
+{
+    con::adelson_velsky_landis_tree<int,con::string> tree;
+    tree.push(1, "hello,world!");
+    std::cout << tree.find(1)->_data->second << std::endl;
+    con::binary_search_tree<int> bst;
+}
+void base_test()
+{
+    con::red_black_tree<int,key_val_type,key_val> tree;
+    tree.push(con::pair(1, con::string("hello,world!")));
+    std::cout << tree.find(con::pair(1, con::string("hello,world!")))->second << std::endl;
+    tree.push(con::pair(2, con::string("hello,world!")));
+    std::cout << tree.find(con::pair(1, con::string("hello,world!")))->second << std::endl;
+    con::hash_table<int, key_val_type, key_val> hash_table;
+    con::bit_set bit_set(10);
+}
+void map_test()
+{
+    con::tree_map<int, con::string> tree_map;
+    tree_map.push(con::pair<int,con::string>(1, con::string("hello,world!")));
+    std::cout << tree_map.find(con::pair<int,con::string>(1, con::string("hello,world!")))->second << std::endl;
+    // con::hash_map<int, con::string> hash_map;
+    // hash_map.push(con::pair<int,con::string>(1, con::string("hello,world!")));
+}
 int main()
 {
     try
@@ -107,5 +152,8 @@ int main()
     list_test(); 
     std::cout << std::endl;
     stack_test();
+    queue_test();
+    tree_test();
+    base_test();
     return 0;
 }

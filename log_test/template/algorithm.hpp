@@ -244,7 +244,7 @@ namespace con::algorithm
             * 
             * * - 自定义类型需确保基础哈希仿函数能正确处理，或提供自定义类型哈希仿函数
         */
-        template <typename hash_algorithm_type ,typename hash_if = con::imitation_functions::hash_imitation_functions>
+        template <typename hash_algorithm_type, typename hash_if = con::imitation_functions::hash_imitation_functions>
         class hash_function
         {
         public:
