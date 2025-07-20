@@ -13,8 +13,8 @@ namespace con
     *   - `swap`: 交换函数，交换两个变量的值
 
     *   - `hash_algorithm`: 哈希算法命名空间，提供多种哈希算法实现
-*/
-    namespace algorithm{}
+    */
+   namespace algorithm{}
 }
 namespace con::algorithm
 {
