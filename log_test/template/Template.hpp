@@ -13,3 +13,4 @@
 #include "./String.hpp"
 #include "./Tree.hpp"
 #include "./Vector.hpp"
+#include "./Hash_imitation_functions.hpp"
