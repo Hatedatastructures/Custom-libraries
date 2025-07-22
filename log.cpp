@@ -1,16 +1,16 @@
-#include <iostream>
-#include <fstream>
-#include <string>
+#include <list>
 #include <ctime>
-#include <vector>
 #include <queue>
 #include <mutex>
 #include <thread>
 #include <chrono>
 #include <atomic>
 #include <memory>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <iostream>
 #include <functional>
-#include <list>
 #include <boost/circular_buffer.hpp>
 enum class situation_level
 {
@@ -23,19 +23,19 @@ using custom_string = std::string;
 class queue_buffer
 {
   public:
-    std::mutex swap_mutex; //锁
-    std::mutex consume_mutex; //消费锁
-    // std::thread consume_thread; //写线程
-    size_t single_container_capacity; //单个容器容量
-    boost::circular_buffer<custom_string> first;
-    boost::circular_buffer<custom_string> second;
-    static constexpr size_t default_container_capacity = 10;
-    std::function<void(const custom_string&)> write_function; //写函数
-    std::atomic<boost::circular_buffer<custom_string>*> produce; //生产者
-    std::atomic<boost::circular_buffer<custom_string>*> consume; //消费者
+    std::mutex swap_mutex;                                       //交换锁
+    std::mutex consume_mutex;                                    //输出锁
+    std::thread consume_thread;                                  //后台输出线程
+    size_t single_container_capacity;                            //单个容器容量
+    static constexpr size_t default_container_capacity = 10;     //默认容量
+    std::function<void(const custom_string&)> write_function;    //输出函数
+    boost::circular_buffer<custom_string> loop_buffer_primary;
+    boost::circular_buffer<custom_string> loop_buffer_secondary;
+    std::atomic<boost::circular_buffer<custom_string>*> produce; //生产
+    std::atomic<boost::circular_buffer<custom_string>*> consume; //消费
     void container_exchange()
     {
-      std::cout << "队列交换" << std::endl;
+      // std::cout << "队列交换" << std::endl;
       std::lock_guard<std::mutex> lock(swap_mutex);
       boost::circular_buffer<custom_string>* tmp = produce.load();
       produce.store(consume.load());
@@ -52,24 +52,27 @@ class queue_buffer
     }
     void export_value()
     {
-      // consume_thread = std::thread(consume_value);
-      // consume_thread.join();
-      consume_value();
+      std::thread consume_thread = std::thread([this](){this->consume_value();});
+      consume_thread.join();
+      // consume_value();
     }
   public:
     queue_buffer(const size_t& container_capacity = default_container_capacity)
     :single_container_capacity(container_capacity),
-    produce(&first),consume(&second)
+    produce(&loop_buffer_primary),consume(&loop_buffer_secondary)
     {
-      first. resize(container_capacity);
-      second.resize(container_capacity);
+      loop_buffer_primary. set_capacity(container_capacity);
+      loop_buffer_secondary.set_capacity(container_capacity);
     }
     void push(const custom_string& string_value)
     {
       if(produce.load()->full())
       {
         container_exchange();
-        export_value();
+        if(!consume.load()->empty())
+        {
+          export_value();
+        }
       }
       produce.load()->push_back(string_value);
     }
@@ -79,10 +82,10 @@ class queue_buffer
     }
     // bool set_capacity(const size_t& new_container_capacity)
     // { //调整双队列大小
-    //   if(first.empty() && second.empty())
+    //   if(loop_buffer_primary.empty() && loop_buffer_secondary.empty())
     //   {
-    //     first.resize(size);
-    //     second.resize(size);
+    //     loop_buffer_primary.resize(size);
+    //     loop_buffer_secondary.resize(size);
     //     return true;
     //   }
     //   return false;
@@ -124,11 +127,11 @@ class file_configurator : public abstract_file_console
     }
     virtual void write(const custom_string& string_value) override
     {
-      file_stream << string_value << std::endl;
+      file_stream << string_value << "\n";
     }
     virtual void input_function(const custom_string& container_data) override
     {
-      file_stream << container_data << std::endl;
+      file_stream << container_data << "\n";
     }
     ~file_configurator()
     {
@@ -152,7 +155,11 @@ class console_configurator : public abstract_file_console
     }
     virtual void input_function(const custom_string& container_data) override
     {
-      stream << container_data << std::endl;
+      // if(!container_data.empty())
+      // {
+      //   stream << container_data << std::endl;
+      // }
+      stream << container_data << "\n";
     }
     ~console_configurator()
     {
@@ -204,7 +211,7 @@ int main()
 {
   //std::cout << "Hello World!" << std::endl;
   data_processor log(std::make_unique<console_configurator>());
-  for(int i = 0;i < 100;++i)
+  for(int i = 0;i < 10;++i)
   {
     custom_string tmp = "Hello World! " + std::to_string(i);
     log.push(tmp);
