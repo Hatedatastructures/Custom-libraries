@@ -11,7 +11,10 @@
 #include <fstream>
 #include <iostream>
 #include <functional>
+#include <unordered_map>
 #include <boost/circular_buffer.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
+#define console std::make_unique<console_configurator>()
 enum class situation_level
 {
   info,
@@ -20,7 +23,7 @@ enum class situation_level
   fatal
 };
 using custom_string = std::string;
-class queue_buffer
+class alternating_ring_buffer
 {
   public:
     std::mutex swap_mutex;                                       //交换锁
@@ -29,10 +32,12 @@ class queue_buffer
     size_t single_container_capacity;                            //单个容器容量
     static constexpr size_t default_container_capacity = 10;     //默认容量
     std::function<void(const custom_string&)> write_function;    //输出函数
-    boost::circular_buffer<custom_string> loop_buffer_primary;
-    boost::circular_buffer<custom_string> loop_buffer_secondary;
+    boost::circular_buffer<custom_string> loop_buffer_primary;   //主队列
+    boost::circular_buffer<custom_string> loop_buffer_secondary; //副队列
     std::atomic<boost::circular_buffer<custom_string>*> produce; //生产
     std::atomic<boost::circular_buffer<custom_string>*> consume; //消费
+    std::unordered_map<custom_string,std::function<void(const custom_string&)>> write_function_map;
+    // boost::unordered_flat_map<custom_string,situation_level> situation_level_map;
     void container_exchange()
     {
       // std::cout << "队列交换" << std::endl;
@@ -46,7 +51,11 @@ class queue_buffer
       std::lock_guard<std::mutex> lock(consume_mutex);
       for(auto& value : *(consume.load()))
       {
-        write_function(value);
+        // write_function(value);
+        for(auto& function_value : write_function_map)
+        {
+          function_value.second(value);
+        }
       }
       consume.load()->clear();
     }
@@ -57,7 +66,7 @@ class queue_buffer
       // consume_value();
     }
   public:
-    queue_buffer(const size_t& container_capacity = default_container_capacity)
+    alternating_ring_buffer(const size_t& container_capacity = default_container_capacity)
     :single_container_capacity(container_capacity),
     produce(&loop_buffer_primary),consume(&loop_buffer_secondary)
     {
@@ -80,17 +89,18 @@ class queue_buffer
     {
       export_value();
     }
-    // bool set_capacity(const size_t& new_container_capacity)
-    // { //调整双队列大小
-    //   if(loop_buffer_primary.empty() && loop_buffer_secondary.empty())
-    //   {
-    //     loop_buffer_primary.resize(size);
-    //     loop_buffer_secondary.resize(size);
-    //     return true;
-    //   }
-    //   return false;
-    // }
-    ~queue_buffer()
+    bool set_capacity(const size_t& new_container_capacity)
+    { //调整双队列大小
+      if(new_container_capacity > produce.load()->size() && new_container_capacity > consume.load()->size())
+      {
+        single_container_capacity = new_container_capacity;
+        loop_buffer_primary.set_capacity(new_container_capacity);
+        loop_buffer_secondary.set_capacity(new_container_capacity);
+        return true;
+      }
+      return false;
+    }
+    ~alternating_ring_buffer()
     {
       if(consume.load()->size() > 0)
       {
@@ -111,9 +121,9 @@ class queue_buffer
 class abstract_file_console
 {
   public:
+    static constexpr custom_string identifier_characters = "abstract";
     virtual void write(const custom_string& string_value) = 0;
     virtual void flush() = 0;
-    virtual void input_function(const custom_string& container_data) = 0;
     virtual ~abstract_file_console() = default;
 };
 class file_configurator : public abstract_file_console
@@ -121,6 +131,7 @@ class file_configurator : public abstract_file_console
   private:
     std::ofstream file_stream;
   public:
+    static constexpr custom_string identifier_characters = "file";
     file_configurator(const custom_string& file_name)
     {
       file_stream.open(file_name);
@@ -128,10 +139,6 @@ class file_configurator : public abstract_file_console
     virtual void write(const custom_string& string_value) override
     {
       file_stream << string_value << "\n";
-    }
-    virtual void input_function(const custom_string& container_data) override
-    {
-      file_stream << container_data << "\n";
     }
     ~file_configurator()
     {
@@ -143,6 +150,7 @@ class console_configurator : public abstract_file_console
   private:
     std::ostream& stream;
   public:
+    static constexpr custom_string identifier_characters = "console";
     console_configurator()
     :stream(std::cout){}
     virtual void write(const custom_string& string_value) override
@@ -153,14 +161,6 @@ class console_configurator : public abstract_file_console
     {
       stream.flush();
     }
-    virtual void input_function(const custom_string& container_data) override
-    {
-      // if(!container_data.empty())
-      // {
-      //   stream << container_data << std::endl;
-      // }
-      stream << container_data << "\n";
-    }
     ~console_configurator()
     {
       stream.flush();
@@ -169,23 +169,31 @@ class console_configurator : public abstract_file_console
 class data_processor
 {
   private:
-    std::unique_ptr<abstract_file_console> configurator;
-    queue_buffer buffer;
+    std::unordered_map<custom_string,std::unique_ptr<abstract_file_console>> configurator_map;
+    alternating_ring_buffer ringbuffer;
     std::function<void(const custom_string&)> write_function;
   public:
-    data_processor(std::unique_ptr<abstract_file_console> ptr_value)
+    data_processor() = default;
+    void add_configurator(std::unique_ptr<abstract_file_console> ptr_value)
     {
-      configurator = std::move(ptr_value);
-      write_function = [this](const custom_string& string_value)
+      custom_string temporary_identifiers = ptr_value->identifier_characters;
+      if(configurator_map.find(ptr_value->identifier_characters) == configurator_map.end())
       {
-        this->configurator->input_function(string_value);
-      };
-      buffer.write_function = std::move(write_function);
+        configurator_map.insert({ptr_value->identifier_characters,std::move(ptr_value)});
+      }
+      if(ringbuffer.write_function_map.find(temporary_identifiers) == ringbuffer.write_function_map.end())
+      {
+        auto temporary_function = [this,temporary_identifiers](const custom_string& string_value)
+        {
+          (this->configurator_map[temporary_identifiers])->write(string_value);
+        };
+        ringbuffer.write_function_map.insert({std::move(temporary_identifiers),std::move(temporary_function)});
+      }
     }
     void push(const custom_string& string_value)
     {
-      buffer.push(string_value);
-      configurator->flush();
+      ringbuffer.push(string_value);
+      // configurator->flush();
     }
 };
 class staging_area
@@ -203,14 +211,17 @@ class diary
     data_processor processor;
     staging_area staging_area;
   public:
-    diary()
-    :processor(std::make_unique<console_configurator>())
-    {}
+    diary() = default;
+    void add(std::unique_ptr<abstract_file_console> ptr)
+    {
+      processor.add_configurator(std::move(ptr));
+    }
 };
 int main()
 {
   //std::cout << "Hello World!" << std::endl;
-  data_processor log(std::make_unique<console_configurator>());
+  data_processor log;
+  log.add_configurator(console);
   for(int i = 0;i < 10;++i)
   {
     custom_string tmp = "Hello World! " + std::to_string(i);
