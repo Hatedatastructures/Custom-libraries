@@ -16,7 +16,8 @@
 #include <condition_variable>
 #include <boost/circular_buffer.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
-#define console std::make_unique<console_configurator>()
+#define console std::make_unique<console_controller>()
+#define file std::make_unique<file_controller>()
 enum class situation_level
 {
   info,
@@ -25,7 +26,7 @@ enum class situation_level
   fatal
 };
 using custom_string = std::string;
-class alternating_ring_buffer
+class underlying_cache
 {
 public:
   std::mutex produce_mutex;                                                                   // 生产锁
@@ -33,15 +34,13 @@ public:
   std::mutex consume_flags_mutex;                                                             // 消费标识锁
   std::atomic<bool> run_flags{true};                                                          // 运行标志
   std::atomic<bool> consume_flags{true};                                                      // 消费标识
-  std::thread consume_thread;                                                                 // 后台输出线程
   size_t single_container_capacity;                                                           // 单个容器容量
-  static constexpr size_t default_container_capacity = 100;                                    // 默认容量
+  std::thread background_consumption;                                                         // 后台输出线程
+  static constexpr size_t default_capacity = 1000;                                            // 默认容量
   std::condition_variable conditional_variables;                                              // 条件变量
-  boost::circular_buffer<custom_string> loop_buffer_primary;                                  // 主队列
-  boost::circular_buffer<custom_string> loop_buffer_secondary;                                // 副队列
-  std::atomic<boost::circular_buffer<custom_string> *> produce;                               // 生产
-  std::atomic<boost::circular_buffer<custom_string> *> consume;                               // 消费
-  std::unordered_map<custom_string, std::function<void(const custom_string &)>> function_map; // 哈希表
+  boost::circular_buffer<custom_string> primary,secondary;                                    // 队列
+  std::atomic<boost::circular_buffer<custom_string> *> produce,consume;                       // 生产消费
+  std::unordered_map<custom_string, std::function<void(const custom_string &)>> function_map; // 回调函数映射表
   // boost::unordered_flat_map<custom_string,situation_level> situation_level_map;
   void container_exchange()
   {
@@ -83,13 +82,12 @@ public:
   }
 
 public:
-  alternating_ring_buffer(const size_t &container_capacity = default_container_capacity)
-      : single_container_capacity(container_capacity), produce(&loop_buffer_primary),
-        consume(&loop_buffer_secondary)
+  underlying_cache(const size_t &container_capacity = default_capacity)
+  : single_container_capacity(container_capacity), produce(&primary),consume(&secondary)
   {
-    loop_buffer_primary.set_capacity(container_capacity);
-    loop_buffer_secondary.set_capacity(container_capacity);
-    consume_thread = std::thread(&alternating_ring_buffer::background_functions, this);
+    primary.set_capacity(container_capacity);
+    secondary.set_capacity(container_capacity);
+    background_consumption = std::thread(&underlying_cache::background_functions, this);
   }
   void push(const custom_string &string_value)
   {
@@ -122,41 +120,41 @@ public:
     if (new_container_capacity > produce.load()->size() && new_container_capacity > consume.load()->size())
     {
       single_container_capacity = new_container_capacity;
-      loop_buffer_primary.set_capacity(new_container_capacity);
-      loop_buffer_secondary.set_capacity(new_container_capacity);
+      primary.set_capacity(new_container_capacity);
+      secondary.set_capacity(new_container_capacity);
       return true;
     }
     return false;
   }
-  ~alternating_ring_buffer()
+  ~underlying_cache()
   {
     run_flags = false;
     {
       std::lock_guard<std::mutex> produce_lock(consume_mutex);
       conditional_variables.notify_one(); // 唤醒线程
     }
-    if (consume_thread.joinable())
+    if(background_consumption.joinable())
     {
-      consume_thread.join();
+      background_consumption.join();
     }
   }
 };
-class abstract_file_console
+class abstract_controller
 {
 public:
   static constexpr custom_string identifier_characters = "abstract";
   virtual void write(const custom_string &string_value) = 0;
   virtual void flush() = 0;
-  virtual ~abstract_file_console() = default;
+  virtual ~abstract_controller() = default;
 };
-class file_configurator : public abstract_file_console
+class file_controller : public abstract_controller
 {
 private:
   std::ofstream file_stream;
 
 public:
   static constexpr custom_string identifier_characters = "file";
-  file_configurator(const custom_string &file_name)
+  file_controller(const custom_string &file_name)
   {
     file_stream.open(file_name);
   }
@@ -164,20 +162,20 @@ public:
   {
     file_stream << string_value << "\n";
   }
-  ~file_configurator()
+  ~file_controller()
   {
     file_stream.close();
   }
 };
-class console_configurator : public abstract_file_console
+class console_controller : public abstract_controller
 {
 private:
   std::ostream &stream;
 
 public:
   static constexpr custom_string identifier_characters = "console";
-  console_configurator()
-      : stream(std::cout) {}
+  console_controller()
+  : stream(std::cout) {}
   virtual void write(const custom_string &string_value) override
   {
     stream << string_value << std::endl;
@@ -186,39 +184,38 @@ public:
   {
     stream.flush();
   }
-  ~console_configurator()
+  ~console_controller()
   {
     stream.flush();
   }
 };
-class central_control_processing
+class workflow_coordinator
 {
 private:
-  std::unordered_map<custom_string, std::unique_ptr<abstract_file_console>> configurator_map;
-  alternating_ring_buffer ringbuffer;
-  std::function<void(const custom_string &)> write_function;
+  std::unordered_map<custom_string, std::unique_ptr<abstract_controller>> stream_map;
+  underlying_cache cushioning_object;
 
 public:
-  central_control_processing() = default;
-  void add_configurator(std::unique_ptr<abstract_file_console> smart_pointer_value)
+  workflow_coordinator() = default;
+  void add_configurator(std::unique_ptr<abstract_controller> smart_pointer_value)
   {
     custom_string temporary_identifiers = smart_pointer_value->identifier_characters;
-    if (configurator_map.find(smart_pointer_value->identifier_characters) == configurator_map.end())
+    if (stream_map.find(smart_pointer_value->identifier_characters) == stream_map.end())
     {
-      configurator_map.insert({smart_pointer_value->identifier_characters, std::move(smart_pointer_value)});
+      stream_map.insert({smart_pointer_value->identifier_characters, std::move(smart_pointer_value)});
     }
-    if (ringbuffer.function_map.find(temporary_identifiers) == ringbuffer.function_map.end())
+    if (cushioning_object.function_map.find(temporary_identifiers) == cushioning_object.function_map.end())
     {
       auto temporary_function = [this, temporary_identifiers](const custom_string &string_value)
       {
-        (this->configurator_map[temporary_identifiers])->write(string_value);
+        (this->stream_map[temporary_identifiers])->write(string_value);
       };
-      ringbuffer.function_map.insert({std::move(temporary_identifiers), std::move(temporary_function)});
+      cushioning_object.function_map.insert({std::move(temporary_identifiers), std::move(temporary_function)});
     }
   }
   void push(const custom_string &string_value)
   {
-    ringbuffer.push(string_value);
+    cushioning_object.push(string_value);
     // configurator->flush();
   }
 };
@@ -234,13 +231,13 @@ public:
 class diary
 {
 private:
-  // auto ptr = std::make_unique<console_configurator>();
-  central_control_processing processor;
+  // auto ptr = std::make_unique<console_controller>();
+  workflow_coordinator processor;
   staging_area staging_area;
 
 public:
   diary() = default;
-  void add(std::unique_ptr<abstract_file_console> ptr)
+  void add(std::unique_ptr<abstract_controller> ptr)
   {
     processor.add_configurator(std::move(ptr));
   }
@@ -248,11 +245,11 @@ public:
 int main()
 {
   // std::cout << "Hello World!" << std::endl;
-  central_control_processing log;
+  workflow_coordinator log;
   log.add_configurator(console);
   //计算时间
   auto time_start = std::chrono::high_resolution_clock::now();
-  for (int i = 0; i < 10000; ++i)
+  for (int i = 0; i < 1000000; ++i)
   {
     custom_string tmp = "Hello World! " + std::to_string(i);
     // Sleep(1);
