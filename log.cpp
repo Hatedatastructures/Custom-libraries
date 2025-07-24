@@ -16,7 +16,7 @@
 #include <boost/circular_buffer.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #define console std::make_unique<console_controller>()
-#define file std::make_unique<file_controller>()
+#define file(file_name) std::make_unique<file_controller>(file_name)
 enum class situation_level
 {
   info,
@@ -178,6 +178,51 @@ public:
   virtual void flush() = 0;
   virtual ~abstract_controller() = default;
 };
+struct time_processor
+{ 
+  //线程安全的获取当前时间
+  //通过时间戳转化
+  //通过时间戳生成日历时间
+  //重载运算符
+  //转秒级
+  //转毫秒级
+  //重载流式输出
+  std::chrono::microseconds microseconds_value;
+  time_processor()
+  {
+    auto nowadays = std::chrono::high_resolution_clock::now();
+    auto nowadays_epoch = nowadays.time_since_epoch();
+    microseconds_value = std::chrono::duration_cast<std::chrono::microseconds>(nowadays_epoch);
+  }
+  explicit time_processor(const std::chrono::high_resolution_clock::time_point& tp) 
+  {
+    auto epoch = tp.time_since_epoch();
+    microseconds_value = std::chrono::duration_cast<std::chrono::microseconds>(epoch);
+  }
+  explicit time_processor(const uint64_t us) : microseconds_value(std::chrono::microseconds(us)) {}
+  uint64_t get_microseconds() const
+  {
+    return static_cast<uint64_t>(microseconds_value.count());
+  }
+  custom_string to_string() const 
+  {
+    // 先转换为秒级时间戳，用于生成日历时间
+    auto sec = std::chrono::duration_cast<std::chrono::seconds>(microseconds_value);
+    std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::time_point(sec));
+    // 生成年月日时分秒
+    std::tm tm = *std::localtime(&t);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
+    // 补充微秒部分（秒的小数部分）
+    uint64_t us = microseconds_value.count() % 1000000; // 取微秒部分（0-999999）
+    return custom_string(buf) + ":" + std::to_string(us);
+  }
+  friend std::ostream& operator<<(std::ostream& time_os, const time_processor& tp);
+};
+std::ostream& operator<<(std::ostream& time_os, const time_processor& tp)
+{
+  return time_os << tp.to_string();
+}
 class file_controller : public abstract_controller
 {
 private:
@@ -270,6 +315,14 @@ public:
   {
     cushioning_object.push(string_value);
   }
+  void flush()
+  {
+    cushioning_object.flush();
+    for(auto& smart_pointer_value : stream_map)
+    {
+      smart_pointer_value.second->flush();
+    }
+  }
 };
 class staging_area
 {
@@ -297,22 +350,23 @@ public:
 int main()
 {
   // std::cout << "Hello World!" << std::endl;
-  workflow_coordinator log;
-  log.insert_controller(console);
-  //计算时间
-   std::vector<custom_string> log_test;
-  for (int i = 0; i < 100000; ++i)
-  {
-    custom_string tmp = "Hello World! " + std::to_string(i);
-    log_test.push_back(tmp);
-    // Sleep(1);
-    // log.push(tmp);
-    // std::cerr << log.usage_rate() << std::endl;
-  }
-  auto time_start = std::chrono::high_resolution_clock::now();
-  log.push_batch(std::move(log_test));
-  auto time_end = std::chrono::high_resolution_clock::now();
-  Sleep(7000);
-  std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
+  // workflow_coordinator log;
+  // log.insert_controller(console);
+  // //计算时间
+  //  std::vector<custom_string> log_test;
+  // for (int i = 0; i < 100000; ++i)
+  // {
+  //   custom_string tmp = "Hello World! " + std::to_string(i);
+  //   log_test.push_back(tmp);
+  //   // Sleep(1);
+  //   // log.push(tmp);
+  //   // std::cerr << log.usage_rate() << std::endl;
+  // }
+  // auto time_start = std::chrono::high_resolution_clock::now();
+  // log.push_batch(std::move(log_test));
+  // auto time_end = std::chrono::high_resolution_clock::now();
+  // Sleep(7000);
+  // std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
+  std::cout << time_processor() << std::endl;
   return 0;
 }
