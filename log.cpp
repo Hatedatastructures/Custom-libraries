@@ -25,9 +25,9 @@ enum class situation_level
   fatal
 };
 using custom_string = std::string;
-class underlying_cache
+class underlying_cache 
 {
-public:
+private:
   std::mutex produce_mutex,consume_mutex;                                                     // 生产消费锁
   std::atomic<bool> running_identifier,consume_identifier;                                    // 运行消费标识
   size_t single_container_capacity;                                                           // 单个容器容量
@@ -37,7 +37,6 @@ public:
   boost::circular_buffer<custom_string> primary,secondary;                                    // 队列
   std::atomic<boost::circular_buffer<custom_string> *> produce,consume;                       // 生产消费
   std::unordered_map<custom_string, std::function<void(const custom_string &)>> function_map; // 回调函数映射表
-  // boost::unordered_flat_map<custom_string,situation_level> situation_level_map;
   void container_exchange()
   {
     boost::circular_buffer<custom_string> *tmp = produce.load();
@@ -135,7 +134,7 @@ public:
     size_t using_size = produce.load()->size() + consume.load()->size();
     return static_cast<float>(using_size) / (2 * single_container_capacity);
   }
-  bool set_capacity(const size_t &new_container_capacity)
+  bool adjust_capacity(const size_t &new_container_capacity)
   { // 调整双队列大小
     if (new_container_capacity > produce.load()->size() && new_container_capacity > consume.load()->size())
     {
@@ -145,6 +144,18 @@ public:
       return true;
     }
     return false;
+  }
+  void insert_callback(const custom_string &controller_id, const std::function<void(const custom_string &)> &function_value)
+  {
+    function_map[controller_id] = function_value;
+  }
+  void remove_callback(const custom_string &controller_id)
+  {
+    function_map.erase(controller_id);
+  }
+  bool lookup_callback(const custom_string &controller_id)const
+  {
+    return function_map.find(controller_id) != function_map.end();
   }
   ~underlying_cache()
   {
@@ -191,14 +202,13 @@ class console_controller : public abstract_controller
 {
 private:
   std::ostream &stream;
-
 public:
   static constexpr custom_string identifier_characters = "console";
   console_controller()
   : stream(std::cout) {}
   virtual void write(const custom_string &string_value) override
   {
-    stream << string_value << std::endl;
+    stream << string_value << "\n";
   }
   virtual void flush() override
   {
@@ -212,7 +222,7 @@ public:
 class workflow_coordinator
 {
 private:
-  std::unordered_map<custom_string, std::unique_ptr<abstract_controller>> stream_map;
+  std::unordered_map<custom_string, std::unique_ptr<abstract_controller>> stream_map; //当前启用的输出流
   underlying_cache cushioning_object;
 
 public:
@@ -225,21 +235,36 @@ public:
   {
     cushioning_object.push_batch(std::forward<std::vector<custom_string>>(vector_string_value));
   }
-  void add_configurator(std::unique_ptr<abstract_controller> smart_pointer_value)
+  bool insert_controller(std::unique_ptr<abstract_controller>&& smart_pointer_value)
   {
-    custom_string temporary_identifiers = smart_pointer_value->identifier_characters;
-    if (stream_map.find(smart_pointer_value->identifier_characters) == stream_map.end())
+    if (!smart_pointer_value) return false; 
+    const custom_string controller_id = smart_pointer_value->identifier_characters;
+    stream_map.insert({controller_id, std::move(smart_pointer_value)});
+    auto function_value = [this, controller_id](const custom_string &string_value)
     {
-      stream_map.insert({smart_pointer_value->identifier_characters, std::move(smart_pointer_value)});
-    }
-    if (cushioning_object.function_map.find(temporary_identifiers) == cushioning_object.function_map.end())
+      stream_map.at(controller_id)->write(string_value);
+    };
+    cushioning_object.insert_callback(controller_id, function_value);
+    return lookup_controller(controller_id);
+  }
+  bool remove_controller(std::unique_ptr<abstract_controller>&& smart_pointer_value)
+  {
+    custom_string controller_id = smart_pointer_value->identifier_characters;
+    stream_map.erase(controller_id);
+    cushioning_object.remove_callback(controller_id);
+    if(!cushioning_object.lookup_callback(controller_id) && !stream_map.contains(controller_id))
     {
-      auto temporary_function = [this, temporary_identifiers](const custom_string &string_value)
-      {
-        (this->stream_map[temporary_identifiers])->write(string_value);
-      };
-      cushioning_object.function_map.insert({std::move(temporary_identifiers), std::move(temporary_function)});
+      return true;
     }
+    return false;
+  }
+  bool lookup_controller(const custom_string &controller_id)const
+  {
+    if(cushioning_object.lookup_callback(controller_id) && stream_map.contains(controller_id))
+    {
+      return true;
+    }
+    return false;
   }
   void push(const custom_string &string_value)
   {
@@ -266,14 +291,14 @@ public:
   diary() = default;
   void add(std::unique_ptr<abstract_controller> ptr)
   {
-    processor.add_configurator(std::move(ptr));
+    processor.insert_controller(std::move(ptr));
   }
 };
 int main()
 {
   // std::cout << "Hello World!" << std::endl;
   workflow_coordinator log;
-  log.add_configurator(console);
+  log.insert_controller(console);
   //计算时间
    std::vector<custom_string> log_test;
   for (int i = 0; i < 100000; ++i)
@@ -287,7 +312,7 @@ int main()
   auto time_start = std::chrono::high_resolution_clock::now();
   log.push_batch(std::move(log_test));
   auto time_end = std::chrono::high_resolution_clock::now();
-  Sleep(4000);
+  Sleep(7000);
   std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
   return 0;
 }
