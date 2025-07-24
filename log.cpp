@@ -1,6 +1,5 @@
 #include <list>
 #include <ctime>
-#include <queue>
 #include <mutex>
 #include <thread>
 #include <chrono>
@@ -29,14 +28,11 @@ using custom_string = std::string;
 class underlying_cache
 {
 public:
-  std::mutex produce_mutex;                                                                   // 生产锁
-  std::mutex consume_mutex;                                                                   // 输出锁
-  std::mutex consume_flags_mutex;                                                             // 消费标识锁
-  std::atomic<bool> run_flags{true};                                                          // 运行标志
-  std::atomic<bool> consume_flags{true};                                                      // 消费标识
+  std::mutex produce_mutex,consume_mutex;                                                     // 生产消费锁
+  std::atomic<bool> running_identifier,consume_identifier;                                    // 运行消费标识
   size_t single_container_capacity;                                                           // 单个容器容量
   std::thread background_consumption;                                                         // 后台输出线程
-  static constexpr size_t default_capacity = 1000;                                            // 默认容量
+  static constexpr size_t default_capacity = 10;                                              // 默认容量
   std::condition_variable conditional_variables;                                              // 条件变量
   boost::circular_buffer<custom_string> primary,secondary;                                    // 队列
   std::atomic<boost::circular_buffer<custom_string> *> produce,consume;                       // 生产消费
@@ -58,32 +54,31 @@ public:
       }
     }
     consume.load()->clear();
-    {
-      std::lock_guard<std::mutex> lock(consume_flags_mutex);
-      consume_flags = true;
-    }
+    consume_identifier = true;
     conditional_variables.notify_one();
   }
   void background_functions()
   {
     std::unique_lock<std::mutex> lock(consume_mutex);
-    while (run_flags)
+    while (running_identifier)
     {
-      auto tmp_func = [&]()
-      { return !run_flags || !consume.load()->empty(); };
+      auto tmp_func = [&](){ return !running_identifier || !consume.load()->empty(); };
       conditional_variables.wait(lock, tmp_func);
-      if (run_flags == false)
+      if (running_identifier == false)
       {
         break;
       }
       consume_value();
     }
-    consume_value();
+    if(!consume.load()->empty())
+    {
+      consume_value();
+    }
   }
-
 public:
   underlying_cache(const size_t &container_capacity = default_capacity)
-  : single_container_capacity(container_capacity), produce(&primary),consume(&secondary)
+  :running_identifier(true),consume_identifier(true),
+  single_container_capacity(container_capacity), produce(&primary),consume(&secondary)
   {
     primary.set_capacity(container_capacity);
     secondary.set_capacity(container_capacity);
@@ -92,28 +87,53 @@ public:
   void push(const custom_string &string_value)
   {
     std::unique_lock<std::mutex>  produce_lock(produce_mutex);
-    if (produce.load()->full())
+    if(produce.load()->full())
     {
-      std::unique_lock<std::mutex> consume_flags_lock(consume_flags_mutex);
-      conditional_variables.wait(consume_flags_lock,[&]{return consume_flags.load();});
-      consume_flags = false;
-      {
-        std::lock_guard<std::mutex> consume_lock(consume_mutex);
-        container_exchange();
-        conditional_variables.notify_one();
-      }
-      conditional_variables.wait(consume_flags_lock,[&]{return consume_flags.load();});
+      std::unique_lock<std::mutex> consume_lock(consume_mutex);
+      conditional_variables.wait(consume_lock,[&]{return consume_identifier.load();});
+      consume_identifier = false;
+      container_exchange();
+      conditional_variables.notify_one();
     }
     produce.load()->push_back(string_value);
   }
+  void push_batch(std::vector<custom_string>&& vector_string_value)
+  {
+    std::unique_lock<std::mutex> produce_lock(produce_mutex);
+   for (const auto& string_value : vector_string_value) 
+   {
+      if (produce.load()->full()) 
+      {
+        std::unique_lock<std::mutex> consume_lock(consume_mutex);
+        conditional_variables.wait(consume_lock, [&]() { return consume_identifier.load(); });
+        consume_identifier = false;
+        container_exchange();
+        conditional_variables.notify_one();
+      }
+      produce.load()->push_back(string_value);
+    }
+  }
   void flush()
   {
-    std::lock_guard<std::mutex> lock(produce_mutex); // 交换缓冲区，强制消费线程处理剩余数据
+    std::lock_guard<std::mutex> lock(produce_mutex);
+    // 如果生产缓冲区非空，交换并通知消费
     if (!produce.load()->empty())
     {
-      container_exchange();
-      conditional_variables.notify_one(); // 通知消费线程
+      {
+        std::lock_guard<std::mutex> consume_lock(consume_mutex);
+        container_exchange();
+      }
+      conditional_variables.notify_one();
+      // 等待当前数据处理完成
+      std::unique_lock<std::mutex> consume_lock(consume_mutex);
+      conditional_variables.wait(consume_lock, [&]() { return consume_identifier.load();});
     }
+  }
+  double usage_rate()
+  {
+    std::lock_guard<std::mutex> lock(produce_mutex);
+    size_t using_size = produce.load()->size() + consume.load()->size();
+    return static_cast<float>(using_size) / (2 * single_container_capacity);
   }
   bool set_capacity(const size_t &new_container_capacity)
   { // 调整双队列大小
@@ -128,9 +148,9 @@ public:
   }
   ~underlying_cache()
   {
-    run_flags = false;
+    flush();
+    running_identifier = false;
     {
-      std::lock_guard<std::mutex> produce_lock(consume_mutex);
       conditional_variables.notify_one(); // 唤醒线程
     }
     if(background_consumption.joinable())
@@ -197,6 +217,14 @@ private:
 
 public:
   workflow_coordinator() = default;
+  double usage_rate()
+  {
+    return cushioning_object.usage_rate();
+  }
+  void push_batch(std::vector<custom_string>&& vector_string_value)
+  {
+    cushioning_object.push_batch(std::forward<std::vector<custom_string>>(vector_string_value));
+  }
   void add_configurator(std::unique_ptr<abstract_controller> smart_pointer_value)
   {
     custom_string temporary_identifiers = smart_pointer_value->identifier_characters;
@@ -216,7 +244,6 @@ public:
   void push(const custom_string &string_value)
   {
     cushioning_object.push(string_value);
-    // configurator->flush();
   }
 };
 class staging_area
@@ -248,14 +275,19 @@ int main()
   workflow_coordinator log;
   log.add_configurator(console);
   //计算时间
-  auto time_start = std::chrono::high_resolution_clock::now();
-  for (int i = 0; i < 1000000; ++i)
+   std::vector<custom_string> log_test;
+  for (int i = 0; i < 100000; ++i)
   {
     custom_string tmp = "Hello World! " + std::to_string(i);
+    log_test.push_back(tmp);
     // Sleep(1);
-    log.push(tmp);
+    // log.push(tmp);
+    // std::cerr << log.usage_rate() << std::endl;
   }
+  auto time_start = std::chrono::high_resolution_clock::now();
+  log.push_batch(std::move(log_test));
   auto time_end = std::chrono::high_resolution_clock::now();
-  std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
+  Sleep(4000);
+  std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
   return 0;
 }
