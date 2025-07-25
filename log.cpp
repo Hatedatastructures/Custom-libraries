@@ -38,16 +38,16 @@ private:
   std::atomic<bool> running_identifier,consume_identifier;                                    // 运行消费标识
   size_t single_container_capacity;                                                           // 单个容器容量
   std::thread background_consumption;                                                         // 后台输出线程
-  static constexpr size_t default_capacity = 10;                                               // 默认容量
+  static constexpr size_t default_capacity = 10;                                              // 默认容量
   std::condition_variable conditional_variables;                                              // 条件变量
   boost::circular_buffer<custom_string> primary,secondary;                                    // 队列
   std::atomic<boost::circular_buffer<custom_string> *> produce,consume;                       // 生产消费
-  std::unordered_map<custom_string, std::function<void(const custom_string &)>> function_map; // 回调函数映射表
+  std::unordered_map<custom_string, std::function<void(custom_string &&)>> function_map;      // 回调函数映射表
   void container_exchange()
   {
-    boost::circular_buffer<custom_string> *tmp = produce.load();
-    produce.store(consume.load());
-    consume.store(tmp);
+    boost::circular_buffer<custom_string> *tmp = produce.load(std::memory_order_acquire);
+    produce.store(consume.load(std::memory_order_acquire),std::memory_order_release);
+    consume.store(tmp,std::memory_order_release);
   }
   void consume_value()
   {
@@ -55,7 +55,7 @@ private:
     {
       for (auto &function_value : function_map)
       {
-        function_value.second(value);
+        function_value.second(std::move(value));
       }
     }
     consume.load()->clear();
@@ -100,7 +100,7 @@ public:
       container_exchange();
       conditional_variables.notify_one();
     }
-    produce.load()->push_back(string_value);
+    produce.load()->push_back(std::move(string_value));
   }
   void push_batch(std::vector<custom_string>&& vector_string_value)
   {
@@ -115,7 +115,7 @@ public:
         container_exchange();
         conditional_variables.notify_one();
       }
-      produce.load()->push_back(string_value);
+      produce.load()->push_back(std::move(string_value));
     }
   }
   void flush()
@@ -151,7 +151,7 @@ public:
     }
     return false;
   }
-  void insert_callback(const custom_string &controller_id, const std::function<void(const custom_string &)> &function_value)
+  void insert_callback(const custom_string &controller_id, const std::function<void(custom_string &&)> &function_value)
   {
     function_map[controller_id] = function_value;
   }
@@ -180,7 +180,7 @@ class abstract_controller
 {
 public:
   static constexpr custom_string identifier_characters = "abstract";
-  virtual void write(const custom_string &string_value) = 0;
+  virtual void write(custom_string&& string_value) = 0;
   virtual void flush() = 0;
   virtual ~abstract_controller() = default;
 };
@@ -331,9 +331,10 @@ public:
       check_stream_error("刷新失败");
     }
   }
-  virtual void write(const custom_string &string_value) override
+  virtual void write(custom_string &&string_value) override
   {
-    file_stream << string_value << "\n";
+    file_stream << string_value ;
+    file_stream.put('\n');
   }
   ~file_controller()
   {
@@ -357,7 +358,7 @@ public:
   static constexpr custom_string identifier_characters = "console";
   console_controller()
   : stream(std::cout) {}
-  virtual void write(const custom_string &string_value) override
+  virtual void write(custom_string &&string_value) override
   {
     stream << string_value << "\n";
   }
@@ -391,9 +392,9 @@ public:
     if (!smart_pointer_value) return false; 
     const custom_string controller_id = smart_pointer_value->identifier_characters;
     stream_map.insert({controller_id, std::move(smart_pointer_value)});
-    auto function_value = [this, controller_id](const custom_string &string_value)
+    auto function_value = [this, controller_id](custom_string &&string_value)
     {
-      stream_map.at(controller_id)->write(string_value);
+      stream_map.at(controller_id)->write(std::move(string_value));
     };
     cushioning_object.insert_callback(controller_id, function_value);
     return lookup_controller(controller_id);
