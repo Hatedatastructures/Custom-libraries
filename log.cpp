@@ -17,12 +17,18 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #define console std::make_unique<console_controller>()
 #define file(file_name) std::make_unique<file_controller>(file_name)
+#define file_mode(file,mode) std::make_unique<file_controller>(file,mode)
 enum class situation_level
 {
   info,
   warning,
   error,
   fatal
+};
+enum class open_mode
+{
+  append,
+  overwrite
 };
 using custom_string = std::string;
 class underlying_cache 
@@ -32,7 +38,7 @@ private:
   std::atomic<bool> running_identifier,consume_identifier;                                    // 运行消费标识
   size_t single_container_capacity;                                                           // 单个容器容量
   std::thread background_consumption;                                                         // 后台输出线程
-  static constexpr size_t default_capacity = 10;                                              // 默认容量
+  static constexpr size_t default_capacity = 10;                                               // 默认容量
   std::condition_variable conditional_variables;                                              // 条件变量
   boost::circular_buffer<custom_string> primary,secondary;                                    // 队列
   std::atomic<boost::circular_buffer<custom_string> *> produce,consume;                       // 生产消费
@@ -178,48 +184,81 @@ public:
   virtual void flush() = 0;
   virtual ~abstract_controller() = default;
 };
-struct time_processor
+class chronix
 { 
-  //线程安全的获取当前时间
-  //通过时间戳转化
-  //通过时间戳生成日历时间
-  //重载运算符
-  //转秒级
-  //转毫秒级
-  //重载流式输出
-  std::chrono::microseconds microseconds_value;
-  time_processor()
+private:
+  std::atomic<uint64_t> microseconds_value;
+  static std::tm localtime_thread_safe(std::time_t t) 
+  {
+    std::tm struct_tm;
+#ifndef _WIN32
+    localtime_r(&t, &struct_tm); 
+#else
+    localtime_s(&struct_tm, &t);  
+#endif
+    return struct_tm;
+  }
+public:
+  chronix()
   {
     auto nowadays = std::chrono::high_resolution_clock::now();
     auto nowadays_epoch = nowadays.time_since_epoch();
-    microseconds_value = std::chrono::duration_cast<std::chrono::microseconds>(nowadays_epoch);
+    uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(nowadays_epoch).count();
+    microseconds_value.store(us, std::memory_order_relaxed); 
   }
-  explicit time_processor(const std::chrono::high_resolution_clock::time_point& tp) 
+  explicit chronix(const std::chrono::high_resolution_clock::time_point& tp) 
   {
     auto epoch = tp.time_since_epoch();
-    microseconds_value = std::chrono::duration_cast<std::chrono::microseconds>(epoch);
+    uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count();
+    microseconds_value.store(us, std::memory_order_relaxed);
   }
-  explicit time_processor(const uint64_t us) : microseconds_value(std::chrono::microseconds(us)) {}
+  explicit chronix(const uint64_t us) 
+  : microseconds_value(us) {}
   uint64_t get_microseconds() const
   {
-    return static_cast<uint64_t>(microseconds_value.count());
+    return microseconds_value.load(std::memory_order_relaxed);
+  }
+  uint64_t to_seconds() const 
+  {
+    return get_microseconds() / 1000000;
+  }
+  uint64_t to_milliseconds() const 
+  {
+    return get_microseconds() / 1000;
   }
   custom_string to_string() const 
   {
-    // 先转换为秒级时间戳，用于生成日历时间
-    auto sec = std::chrono::duration_cast<std::chrono::seconds>(microseconds_value);
-    std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::time_point(sec));
+    uint64_t us = microseconds_value.load(std::memory_order_relaxed);
+    std::time_t t = static_cast<std::time_t>(us / 1000000);
     // 生成年月日时分秒
-    std::tm tm = *std::localtime(&t);
+    std::tm tm = localtime_thread_safe(t);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
     // 补充微秒部分（秒的小数部分）
-    uint64_t us = microseconds_value.count() % 1000000; // 取微秒部分（0-999999）
-    return custom_string(buf) + ":" + std::to_string(us);
+    uint64_t tail_us = us % 1000000; // 取微秒部分（0-999999）
+    return custom_string(buf) + "." + std::to_string(tail_us);
   }
-  friend std::ostream& operator<<(std::ostream& time_os, const time_processor& tp);
+  chronix(const chronix& other) 
+  : microseconds_value(other.microseconds_value.load(std::memory_order_relaxed)) {}
+
+  chronix& operator=(const chronix& other) 
+  {
+    if (this != &other) 
+    {
+      microseconds_value.store(other.microseconds_value.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    }
+    return *this;
+  }
+
+  chronix operator-(const chronix& other) const 
+  {
+    uint64_t this_us = microseconds_value.load(std::memory_order_relaxed);
+    uint64_t other_us = other.microseconds_value.load(std::memory_order_relaxed);
+    return chronix(this_us - other_us);
+  }
+  friend std::ostream& operator<<(std::ostream& time_os, const chronix& tp);
 };
-std::ostream& operator<<(std::ostream& time_os, const time_processor& tp)
+std::ostream& operator<<(std::ostream& time_os, const chronix& tp)
 {
   return time_os << tp.to_string();
 }
@@ -227,12 +266,70 @@ class file_controller : public abstract_controller
 {
 private:
   std::ofstream file_stream;
-
+  open_mode mode;
+  custom_string file_name;
+  std::mutex file_mutex;
+  std::ios::openmode mode_to_flag(open_mode tmp_mode)
+  {
+    switch (tmp_mode)
+    {
+    case open_mode::overwrite:
+      return std::ios::out;
+    case open_mode::append:
+      return std::ios::app;
+    default:
+      return std::ios::out;
+    }
+  }
+  static custom_string mode_to_string(open_mode tmp_mode) 
+  {
+    switch (tmp_mode) 
+    {
+      case open_mode::append :
+        return "append";
+      case open_mode::overwrite :
+        return "overwrite";
+      default:
+        return "unknown";
+    }
+    return "unknown";
+  }
+  void check_stream_error(const custom_string& action) const 
+  {
+    if (file_stream.fail()) 
+    {
+      throw std::runtime_error(action + ":" + file_name);
+    }
+  }
 public:
   static constexpr custom_string identifier_characters = "file";
-  file_controller(const custom_string &file_name)
+  file_controller(const custom_string &tmp_file_name,const open_mode& tmp_mode = open_mode::overwrite)
+  :mode(tmp_mode),file_name(tmp_file_name)
   {
-    file_stream.open(file_name);
+    std::ios::openmode flag = mode_to_flag(tmp_mode);
+    file_stream.open(tmp_file_name,flag);
+    if (!file_stream.is_open()) 
+    {
+      throw std::runtime_error("无法打开文件: " + file_name + "(模式：" + mode_to_string(tmp_mode) + ")");
+    }
+  }
+  file_controller(const custom_string& tmp_file_name, std::ios::openmode custom_flags)
+  : file_name(tmp_file_name) 
+  {
+    file_stream.open(tmp_file_name, custom_flags);
+    if (!file_stream.is_open()) 
+    {
+      throw std::runtime_error("无法打开文件: " + file_name + "（自定义模式）");
+    }
+  }
+  virtual void flush() override
+  {
+    if (file_stream.is_open()) 
+    {
+      std::lock_guard<std::mutex> lock(file_mutex);
+      file_stream.flush();
+      check_stream_error("刷新失败");
+    }
   }
   virtual void write(const custom_string &string_value) override
   {
@@ -240,8 +337,17 @@ public:
   }
   ~file_controller()
   {
-    file_stream.close();
+     
+    if (file_stream.is_open()) 
+    {
+      file_stream.flush();
+      file_stream.close();
+    }
   }
+  file_controller(const file_controller&) = delete;
+  file_controller& operator=(const file_controller&) = delete;
+  file_controller(file_controller&&) = default;
+  file_controller& operator=(file_controller&&) = default;
 };
 class console_controller : public abstract_controller
 {
@@ -349,24 +455,41 @@ public:
 };
 int main()
 {
-  // std::cout << "Hello World!" << std::endl;
-  // workflow_coordinator log;
-  // log.insert_controller(console);
-  // //计算时间
-  //  std::vector<custom_string> log_test;
-  // for (int i = 0; i < 100000; ++i)
+  std::cout << "Hello World!" << std::endl;
+  workflow_coordinator log;
+  log.insert_controller(file("test.txt"));
+  //计算时间
+  std::vector<chronix> log_test;
+  // for (int i = 0; i < 1000; ++i)
   // {
-  //   custom_string tmp = "Hello World! " + std::to_string(i);
+  //   custom_string tmp = chronix().to_string() + "  Hello World! " + std::to_string(i);
   //   log_test.push_back(tmp);
   //   // Sleep(1);
   //   // log.push(tmp);
   //   // std::cerr << log.usage_rate() << std::endl;
   // }
-  // auto time_start = std::chrono::high_resolution_clock::now();
+  // for(int i = 0; i < 1000; ++i)
+  // {
+  //   custom_string tmp = chronix().to_string() + "  Hello World! " + std::to_string(i);
+  //   log.push(tmp);
+  // }
+  auto time_start = std::chrono::high_resolution_clock::now();
+  for(int i = 0; i < 1000000; ++i)
+  {
+    chronix time_s;
+    log_test.push_back(time_s);
+    custom_string tmp = time_s.to_string() + "  Hello World! " + std::to_string(i);
+    log.push(tmp);
+  }
   // log.push_batch(std::move(log_test));
-  // auto time_end = std::chrono::high_resolution_clock::now();
+  auto time_end = std::chrono::high_resolution_clock::now();
+  // for(auto& tmp : log_test)
+  // {
+  //   std::cout << tmp << std::endl;
+  // }
+  std::cout << log_test.begin()->to_string() << std::endl << log_test.back().to_string() << std::endl;
   // Sleep(7000);
-  // std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
-  std::cout << time_processor() << std::endl;
+  std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
+  // std::cout << chronix() << std::endl;
   return 0;
 }
