@@ -18,6 +18,13 @@
 #define console std::make_unique<console_controller>()
 #define file(file_name) std::make_unique<file_controller>(file_name)
 #define file_mode(file,mode) std::make_unique<file_controller>(file,mode)
+
+#if defined(__cpp_lib_hardware_interference_size)
+  static constexpr size_t CACHE_LINE = std::hardware_destructive_interference_size;
+#else
+  static constexpr size_t CACHE_LINE = 64;
+#endif
+
 enum class situation_level
 {
   info,
@@ -31,18 +38,19 @@ enum class open_mode
   overwrite
 };
 using custom_string = std::string;
+using callback_function = std::function<void(custom_string &&)>;
 class underlying_cache 
 {
 private:
   std::mutex produce_mutex,consume_mutex;                                                     // 生产消费锁
-  std::atomic<bool> running_identifier,consume_identifier;                                    // 运行消费标识
   size_t single_container_capacity;                                                           // 单个容器容量
   std::thread background_consumption;                                                         // 后台输出线程
   static constexpr size_t default_capacity = 10;                                              // 默认容量
   std::condition_variable conditional_variables;                                              // 条件变量
-  boost::circular_buffer<custom_string> primary,secondary;                                    // 队列
-  std::atomic<boost::circular_buffer<custom_string> *> produce,consume;                       // 生产消费
-  std::unordered_map<custom_string, std::function<void(custom_string &&)>> function_map;      // 回调函数映射表
+  alignas(CACHE_LINE) std::atomic<bool> running_identifier,consume_identifier;                // 运行消费标识
+  alignas(CACHE_LINE) boost::circular_buffer<custom_string> primary,secondary;                // 队列
+  alignas(CACHE_LINE) std::atomic<boost::circular_buffer<custom_string>*> produce,consume;    // 生产消费
+  std::unordered_map<custom_string,callback_function> function_map;                           // 回调函数映射表
   void container_exchange()
   {
     boost::circular_buffer<custom_string> *tmp = produce.load(std::memory_order_acquire);
@@ -82,8 +90,8 @@ private:
   }
 public:
   underlying_cache(const size_t &container_capacity = default_capacity)
-  :running_identifier(true),consume_identifier(true),
-  single_container_capacity(container_capacity), produce(&primary),consume(&secondary)
+  :single_container_capacity(container_capacity),running_identifier(true),consume_identifier(true),
+  produce(&primary),consume(&secondary)
   {
     primary.set_capacity(container_capacity);
     secondary.set_capacity(container_capacity);
@@ -151,15 +159,15 @@ public:
     }
     return false;
   }
-  void insert_callback(const custom_string &controller_id, const std::function<void(custom_string &&)> &function_value)
+  inline void insert_callback(const custom_string &controller_id, const callback_function &function_value)
   {
     function_map[controller_id] = function_value;
   }
-  void remove_callback(const custom_string &controller_id)
+  inline void remove_callback(const custom_string &controller_id)
   {
     function_map.erase(controller_id);
   }
-  bool lookup_callback(const custom_string &controller_id)const
+  inline bool lookup_callback(const custom_string &controller_id)const
   {
     return function_map.find(controller_id) != function_map.end();
   }
