@@ -15,16 +15,16 @@
 #include <condition_variable>
 #include <boost/circular_buffer.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
-#define console std::make_unique<console_controller>()
-#define file(file_name) std::make_unique<file_controller>(file_name)
-#define file_mode(file,mode) std::make_unique<file_controller>(file,mode)
+#define console std::make_unique<controller::console_controller>()
+#define file(file_name) std::make_unique<controller::file_controller>(file_name)
+#define file_mode(file,mode) std::make_unique<controller::file_controller>(file,mode)
+
 
 #if defined(__cpp_lib_hardware_interference_size)
   static constexpr size_t CACHE_LINE = std::hardware_destructive_interference_size;
 #else
   static constexpr size_t CACHE_LINE = 64;
 #endif
-
 enum class situation_level
 {
   info,
@@ -38,352 +38,398 @@ enum class open_mode
   overwrite
 };
 using custom_string = std::string;
-using callback_function = std::function<void(custom_string &&)>;
-class underlying_cache 
+namespace instrument
 {
-private:
-  std::mutex produce_mutex,consume_mutex;                                                     // 生产消费锁
-  size_t single_container_capacity;                                                           // 单个容器容量
-  std::thread background_consumption;                                                         // 后台输出线程
-  static constexpr size_t default_capacity = 10;                                              // 默认容量
-  std::condition_variable conditional_variables;                                              // 条件变量
-  alignas(CACHE_LINE) std::atomic<bool> running_identifier,consume_identifier;                // 运行消费标识
-  alignas(CACHE_LINE) boost::circular_buffer<custom_string> primary,secondary;                // 队列
-  alignas(CACHE_LINE) std::atomic<boost::circular_buffer<custom_string>*> produce,consume;    // 生产消费
-  std::unordered_map<custom_string,callback_function> function_map;                           // 回调函数映射表
-  void container_exchange()
-  {
-    boost::circular_buffer<custom_string> *tmp = produce.load(std::memory_order_acquire);
-    produce.store(consume.load(std::memory_order_acquire),std::memory_order_release);
-    consume.store(tmp,std::memory_order_release);
-  }
-  void consume_value()
-  {
-    for (auto &value : *consume.load())
+  class chronix
+  { 
+  private:
+    std::atomic<uint64_t> microseconds_value;
+    static std::tm localtime_thread_safe(std::time_t t) 
     {
-      for (auto &function_value : function_map)
+      std::tm struct_tm;
+  #ifndef _WIN32
+      localtime_r(&t, &struct_tm); 
+  #else
+      localtime_s(&struct_tm, &t);  
+  #endif
+      return struct_tm;
+    }
+  public:
+    chronix()
+    {
+      auto nowadays = std::chrono::high_resolution_clock::now();
+      auto nowadays_epoch = nowadays.time_since_epoch();
+      uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(nowadays_epoch).count();
+      microseconds_value.store(us, std::memory_order_relaxed); 
+    }
+    explicit chronix(const std::chrono::high_resolution_clock::time_point& tp) 
+    {
+      auto epoch = tp.time_since_epoch();
+      uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count();
+      microseconds_value.store(us, std::memory_order_relaxed);
+    }
+    explicit chronix(const uint64_t us) 
+    : microseconds_value(us) {}
+    uint64_t get_microseconds() const
+    {
+      return microseconds_value.load(std::memory_order_relaxed);
+    }
+    uint64_t to_seconds() const 
+    {
+      return get_microseconds() / 1000000;
+    }
+    uint64_t to_milliseconds() const 
+    {
+      return get_microseconds() / 1000;
+    }
+    custom_string to_string() const 
+    {
+      uint64_t us = microseconds_value.load(std::memory_order_relaxed);
+      std::time_t t = static_cast<std::time_t>(us / 1000000);
+      // 生成年月日时分秒
+      std::tm tm = localtime_thread_safe(t);
+      char buf[32];
+      std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
+      // 补充微秒部分（秒的小数部分）
+      uint64_t tail_us = us % 1000000; // 取微秒部分（0-999999）
+      return custom_string(buf) + "." + std::to_string(tail_us);
+    }
+    chronix(const chronix& other) 
+    : microseconds_value(other.microseconds_value.load(std::memory_order_relaxed)) {}
+
+    chronix& operator=(const chronix& other) 
+    {
+      if (this != &other) 
       {
-        function_value.second(std::move(value));
+        microseconds_value.store(other.microseconds_value.load(std::memory_order_relaxed), std::memory_order_relaxed);
       }
+      return *this;
     }
-    consume.load()->clear();
-    consume_identifier = true;
-    conditional_variables.notify_one();
-  }
-  void background_functions()
-  {
-    std::unique_lock<std::mutex> lock(consume_mutex);
-    while (running_identifier)
+
+    chronix operator-(const chronix& other) const 
     {
-      auto tmp_func = [&](){ return !running_identifier || !consume.load()->empty(); };
-      conditional_variables.wait(lock, tmp_func);
-      if (running_identifier == false)
+      uint64_t this_us = microseconds_value.load(std::memory_order_relaxed);
+      uint64_t other_us = other.microseconds_value.load(std::memory_order_relaxed);
+      return chronix(this_us - other_us);
+    }
+    friend std::ostream& operator<<(std::ostream& time_os, const chronix& tp);
+  };
+  std::ostream& operator<<(std::ostream& time_os, const chronix& tp)
+  {
+    return time_os << tp.to_string();
+  }
+}
+static std::unordered_map<situation_level, std::string> level_string = 
+{
+  {situation_level::info, "INFO"},
+  {situation_level::warning, "WARNING"},
+  {situation_level::error, "ERROR"},
+  {situation_level::fatal, "FATAL"}
+};
+struct synthesis
+{
+  instrument::chronix time;
+  situation_level level;
+  custom_string message;
+  synthesis(instrument::chronix time, situation_level level, custom_string message)
+  : time(time), level(level), message(message) {}
+  synthesis()
+  {time = instrument::chronix();level = situation_level::info;message = "";}
+  synthesis& operator=(const synthesis& other)
+  {
+    time = other.time;level = other.level;message = other.message;
+    return *this;
+  }
+  synthesis(const synthesis& other)
+  : time(other.time), level(other.level), message(other.message) {}
+  synthesis(synthesis&& other) noexcept
+  : time(std::move(other.time)), level(std::move(other.level)), 
+  message(std::move(other.message)) {}
+  synthesis& operator=(synthesis&& other) noexcept
+  {
+    time = std::move(other.time);level = std::move(other.level);
+    message = std::move(other.message);return *this;
+  }
+  custom_string to_string() const
+  {
+    return time.to_string() +  custom_string(" [") + level_string[level] + custom_string("] ") + message;
+  }
+};
+using callback_function = std::function<void(custom_string &&)>;
+namespace cushioning
+{
+  class underlying_cache 
+  {
+  private:
+    std::mutex produce_mutex,consume_mutex;                                                     // 生产消费锁
+    size_t single_container_capacity;                                                           // 单个容器容量
+    std::thread background_consumption;                                                         // 后台输出线程
+    static constexpr size_t default_capacity = 10;                                              // 默认容量
+    std::condition_variable conditional_variables;                                              // 条件变量
+    alignas(CACHE_LINE) std::atomic<bool> running_identifier,consume_identifier;                // 运行消费标识
+    alignas(CACHE_LINE) boost::circular_buffer<custom_string> primary,secondary;                // 队列
+    alignas(CACHE_LINE) std::atomic<boost::circular_buffer<custom_string>*> produce,consume;    // 生产消费
+    std::unordered_map<custom_string,callback_function> function_map;                           // 回调函数映射表
+    void container_exchange()
+    {
+      boost::circular_buffer<custom_string> *tmp = produce.load(std::memory_order_acquire);
+      produce.store(consume.load(std::memory_order_acquire),std::memory_order_release);
+      consume.store(tmp,std::memory_order_release);
+    }
+    void consume_value()
+    {
+      for (auto &value : *consume.load())
       {
-        break;
+        for (auto &function_value : function_map)
+        {
+          function_value.second(std::move(value));
+        }
       }
-      consume_value();
-    }
-    if(!consume.load()->empty())
-    {
-      consume_value();
-    }
-  }
-public:
-  underlying_cache(const size_t &container_capacity = default_capacity)
-  :single_container_capacity(container_capacity),running_identifier(true),consume_identifier(true),
-  produce(&primary),consume(&secondary)
-  {
-    primary.set_capacity(container_capacity);
-    secondary.set_capacity(container_capacity);
-    background_consumption = std::thread(&underlying_cache::background_functions, this);
-  }
-  void push(const custom_string &string_value)
-  {
-    std::unique_lock<std::mutex>  produce_lock(produce_mutex);
-    if(produce.load()->full())
-    {
-      std::unique_lock<std::mutex> consume_lock(consume_mutex);
-      conditional_variables.wait(consume_lock,[&]{return consume_identifier.load();});
-      consume_identifier = false;
-      container_exchange();
+      consume.load()->clear();
+      consume_identifier = true;
       conditional_variables.notify_one();
     }
-    produce.load()->push_back(std::move(string_value));
-  }
-  void push_batch(std::vector<custom_string>&& vector_string_value)
-  {
-    std::unique_lock<std::mutex> produce_lock(produce_mutex);
-   for (const auto& string_value : vector_string_value) 
-   {
-      if (produce.load()->full()) 
+    void background_functions()
+    {
+      std::unique_lock<std::mutex> lock(consume_mutex);
+      while (running_identifier)
+      {
+        auto tmp_func = [&](){ return !running_identifier || !consume.load()->empty(); };
+        conditional_variables.wait(lock, tmp_func);
+        if (running_identifier == false)
+        {
+          break;
+        }
+        consume_value();
+      }
+      if(!consume.load()->empty())
+      {
+        consume_value();
+      }
+    }
+  public:
+    underlying_cache(const size_t &container_capacity = default_capacity)
+    :single_container_capacity(container_capacity),running_identifier(true),consume_identifier(true),
+    produce(&primary),consume(&secondary)
+    {
+      primary.set_capacity(container_capacity);
+      secondary.set_capacity(container_capacity);
+      background_consumption = std::thread(&underlying_cache::background_functions, this);
+    }
+    void push(custom_string &&string_value)
+    {
+      std::unique_lock<std::mutex>  produce_lock(produce_mutex);
+      if(produce.load()->full())
       {
         std::unique_lock<std::mutex> consume_lock(consume_mutex);
-        conditional_variables.wait(consume_lock, [&]() { return consume_identifier.load(); });
+        conditional_variables.wait(consume_lock,[&]{return consume_identifier.load();});
         consume_identifier = false;
         container_exchange();
         conditional_variables.notify_one();
       }
       produce.load()->push_back(std::move(string_value));
     }
-  }
-  void flush()
-  {
-    std::lock_guard<std::mutex> lock(produce_mutex);
-    // 如果生产缓冲区非空，交换并通知消费
-    if (!produce.load()->empty())
+    void push(const custom_string &string_value) = delete;
+    void push_batch(std::vector<custom_string>&& vector_string_value)
     {
-      {
-        std::lock_guard<std::mutex> consume_lock(consume_mutex);
-        container_exchange();
+      std::unique_lock<std::mutex> produce_lock(produce_mutex);
+    for (const auto& string_value : vector_string_value) 
+    {
+        if (produce.load()->full()) 
+        {
+          std::unique_lock<std::mutex> consume_lock(consume_mutex);
+          conditional_variables.wait(consume_lock, [&]() { return consume_identifier.load(); });
+          consume_identifier = false;
+          container_exchange();
+          conditional_variables.notify_one();
+        }
+        produce.load()->push_back(std::move(string_value));
       }
-      conditional_variables.notify_one();
-      // 等待当前数据处理完成
-      std::unique_lock<std::mutex> consume_lock(consume_mutex);
-      conditional_variables.wait(consume_lock, [&]() { return consume_identifier.load();});
     }
-  }
-  double usage_rate()
-  {
-    std::lock_guard<std::mutex> lock(produce_mutex);
-    size_t using_size = produce.load()->size() + consume.load()->size();
-    return static_cast<float>(using_size) / (2 * single_container_capacity);
-  }
-  bool adjust_capacity(const size_t &new_container_capacity)
-  { // 调整双队列大小
-    if (new_container_capacity > produce.load()->size() && new_container_capacity > consume.load()->size())
+    void flush()
     {
-      single_container_capacity = new_container_capacity;
-      primary.set_capacity(new_container_capacity);
-      secondary.set_capacity(new_container_capacity);
-      return true;
+      std::lock_guard<std::mutex> lock(produce_mutex);
+      // 如果生产缓冲区非空，交换并通知消费
+      if (!produce.load()->empty())
+      {
+        {
+          std::lock_guard<std::mutex> consume_lock(consume_mutex);
+          container_exchange();
+        }
+        conditional_variables.notify_one();
+        // 等待当前数据处理完成
+        std::unique_lock<std::mutex> consume_lock(consume_mutex);
+        conditional_variables.wait(consume_lock, [&]() { return consume_identifier.load();});
+      }
     }
-    return false;
-  }
-  inline void insert_callback(const custom_string &controller_id, const callback_function &function_value)
-  {
-    function_map[controller_id] = function_value;
-  }
-  inline void remove_callback(const custom_string &controller_id)
-  {
-    function_map.erase(controller_id);
-  }
-  inline bool lookup_callback(const custom_string &controller_id)const
-  {
-    return function_map.find(controller_id) != function_map.end();
-  }
-  ~underlying_cache()
-  {
-    flush();
-    running_identifier = false;
+    double usage_rate()
     {
-      conditional_variables.notify_one(); // 唤醒线程
+      std::lock_guard<std::mutex> lock(produce_mutex);
+      size_t using_size = produce.load()->size() + consume.load()->size();
+      return static_cast<float>(using_size) / (2 * single_container_capacity);
     }
-    if(background_consumption.joinable())
+    bool adjust_capacity(const size_t &new_container_capacity)
+    { // 调整双队列大小
+      if (new_container_capacity > produce.load()->size() && new_container_capacity > consume.load()->size())
+      {
+        single_container_capacity = new_container_capacity;
+        primary.set_capacity(new_container_capacity);
+        secondary.set_capacity(new_container_capacity);
+        return true;
+      }
+      return false;
+    }
+    inline void insert_callback(const custom_string &controller_id, const callback_function &function_value)
     {
-      background_consumption.join();
+      function_map[controller_id] = function_value;
     }
-  }
-};
-class abstract_controller
-{
-public:
-  static constexpr custom_string identifier_characters = "abstract";
-  virtual void write(custom_string&& string_value) = 0;
-  virtual void flush() = 0;
-  virtual ~abstract_controller() = default;
-};
-class chronix
-{ 
-private:
-  std::atomic<uint64_t> microseconds_value;
-  static std::tm localtime_thread_safe(std::time_t t) 
-  {
-    std::tm struct_tm;
-#ifndef _WIN32
-    localtime_r(&t, &struct_tm); 
-#else
-    localtime_s(&struct_tm, &t);  
-#endif
-    return struct_tm;
-  }
-public:
-  chronix()
-  {
-    auto nowadays = std::chrono::high_resolution_clock::now();
-    auto nowadays_epoch = nowadays.time_since_epoch();
-    uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(nowadays_epoch).count();
-    microseconds_value.store(us, std::memory_order_relaxed); 
-  }
-  explicit chronix(const std::chrono::high_resolution_clock::time_point& tp) 
-  {
-    auto epoch = tp.time_since_epoch();
-    uint64_t us = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count();
-    microseconds_value.store(us, std::memory_order_relaxed);
-  }
-  explicit chronix(const uint64_t us) 
-  : microseconds_value(us) {}
-  uint64_t get_microseconds() const
-  {
-    return microseconds_value.load(std::memory_order_relaxed);
-  }
-  uint64_t to_seconds() const 
-  {
-    return get_microseconds() / 1000000;
-  }
-  uint64_t to_milliseconds() const 
-  {
-    return get_microseconds() / 1000;
-  }
-  custom_string to_string() const 
-  {
-    uint64_t us = microseconds_value.load(std::memory_order_relaxed);
-    std::time_t t = static_cast<std::time_t>(us / 1000000);
-    // 生成年月日时分秒
-    std::tm tm = localtime_thread_safe(t);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
-    // 补充微秒部分（秒的小数部分）
-    uint64_t tail_us = us % 1000000; // 取微秒部分（0-999999）
-    return custom_string(buf) + "." + std::to_string(tail_us);
-  }
-  chronix(const chronix& other) 
-  : microseconds_value(other.microseconds_value.load(std::memory_order_relaxed)) {}
-
-  chronix& operator=(const chronix& other) 
-  {
-    if (this != &other) 
+    inline void remove_callback(const custom_string &controller_id)
     {
-      microseconds_value.store(other.microseconds_value.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      function_map.erase(controller_id);
     }
-    return *this;
-  }
-
-  chronix operator-(const chronix& other) const 
-  {
-    uint64_t this_us = microseconds_value.load(std::memory_order_relaxed);
-    uint64_t other_us = other.microseconds_value.load(std::memory_order_relaxed);
-    return chronix(this_us - other_us);
-  }
-  friend std::ostream& operator<<(std::ostream& time_os, const chronix& tp);
-};
-std::ostream& operator<<(std::ostream& time_os, const chronix& tp)
-{
-  return time_os << tp.to_string();
+    inline bool lookup_callback(const custom_string &controller_id)const
+    {
+      return function_map.find(controller_id) != function_map.end();
+    }
+    ~underlying_cache()
+    {
+      flush();
+      running_identifier = false;
+      {
+        conditional_variables.notify_one(); // 唤醒线程
+      }
+      if(background_consumption.joinable())
+      {
+        background_consumption.join();
+      }
+    }
+  };
 }
-class file_controller : public abstract_controller
+namespace controller
 {
-private:
-  std::ofstream file_stream;
-  open_mode mode;
-  custom_string file_name;
-  std::mutex file_mutex;
-  std::ios::openmode mode_to_flag(open_mode tmp_mode)
+  class abstract_controller
   {
-    switch (tmp_mode)
-    {
-    case open_mode::overwrite:
-      return std::ios::out;
-    case open_mode::append:
-      return std::ios::app;
-    default:
-      return std::ios::out;
-    }
-  }
-  static custom_string mode_to_string(open_mode tmp_mode) 
+  public:
+    static constexpr custom_string identifier_characters = "abstract";
+    virtual void write(custom_string&& string_value) = 0;
+    virtual void flush() = 0;
+    virtual ~abstract_controller() = default;
+  };
+  class file_controller : public abstract_controller
   {
-    switch (tmp_mode) 
+  private:
+    std::ofstream file_stream;
+    open_mode mode;
+    custom_string file_name;
+    std::mutex file_mutex;
+    std::ios::openmode mode_to_flag(open_mode tmp_mode)
     {
-      case open_mode::append :
-        return "append";
-      case open_mode::overwrite :
-        return "overwrite";
+      switch (tmp_mode)
+      {
+      case open_mode::overwrite:
+        return std::ios::out;
+      case open_mode::append:
+        return std::ios::app;
       default:
-        return "unknown";
+        return std::ios::out;
+      }
     }
-    return "unknown";
-  }
-  void check_stream_error(const custom_string& action) const 
-  {
-    if (file_stream.fail()) 
+    static custom_string mode_to_string(open_mode tmp_mode) 
     {
-      throw std::runtime_error(action + ":" + file_name);
+      switch (tmp_mode) 
+      {
+        case open_mode::append :
+          return "append";
+        case open_mode::overwrite :
+          return "overwrite";
+        default:
+          return "unknown";
+      }
+      return "unknown";
     }
-  }
-public:
-  static constexpr custom_string identifier_characters = "file";
-  file_controller(const custom_string &tmp_file_name,const open_mode& tmp_mode = open_mode::overwrite)
-  :mode(tmp_mode),file_name(tmp_file_name)
-  {
-    std::ios::openmode flag = mode_to_flag(tmp_mode);
-    file_stream.open(tmp_file_name,flag);
-    if (!file_stream.is_open()) 
+    void check_stream_error(const custom_string& action) const 
     {
-      throw std::runtime_error("无法打开文件: " + file_name + "(模式：" + mode_to_string(tmp_mode) + ")");
+      if (file_stream.fail()) 
+      {
+        throw std::runtime_error(action + ":" + file_name);
+      }
     }
-  }
-  file_controller(const custom_string& tmp_file_name, std::ios::openmode custom_flags)
-  : file_name(tmp_file_name) 
-  {
-    file_stream.open(tmp_file_name, custom_flags);
-    if (!file_stream.is_open()) 
+  public:
+    static constexpr custom_string identifier_characters = "file";
+    file_controller(const custom_string &tmp_file_name,const open_mode& tmp_mode = open_mode::overwrite)
+    :mode(tmp_mode),file_name(tmp_file_name)
     {
-      throw std::runtime_error("无法打开文件: " + file_name + "（自定义模式）");
+      std::ios::openmode flag = mode_to_flag(tmp_mode);
+      file_stream.open(tmp_file_name,flag);
+      if (!file_stream.is_open()) 
+      {
+        throw std::runtime_error("无法打开文件: " + file_name + "(模式：" + mode_to_string(tmp_mode) + ")");
+      }
     }
-  }
-  virtual void flush() override
-  {
-    if (file_stream.is_open()) 
+    file_controller(const custom_string& tmp_file_name, std::ios::openmode custom_flags)
+    : file_name(tmp_file_name) 
     {
-      std::lock_guard<std::mutex> lock(file_mutex);
-      file_stream.flush();
-      check_stream_error("刷新失败");
+      file_stream.open(tmp_file_name, custom_flags);
+      if (!file_stream.is_open()) 
+      {
+        throw std::runtime_error("无法打开文件: " + file_name + "（自定义模式）");
+      }
     }
-  }
-  virtual void write(custom_string &&string_value) override
-  {
-    file_stream << string_value ;
-    file_stream.put('\n');
-  }
-  ~file_controller()
-  {
-     
-    if (file_stream.is_open()) 
+    virtual void flush() override
     {
-      file_stream.flush();
-      file_stream.close();
+      if (file_stream.is_open()) 
+      {
+        std::lock_guard<std::mutex> lock(file_mutex);
+        file_stream.flush();
+        check_stream_error("刷新失败");
+      }
     }
-  }
-  file_controller(const file_controller&) = delete;
-  file_controller& operator=(const file_controller&) = delete;
-  file_controller(file_controller&&) = default;
-  file_controller& operator=(file_controller&&) = default;
-};
-class console_controller : public abstract_controller
-{
-private:
-  std::ostream &stream;
-public:
-  static constexpr custom_string identifier_characters = "console";
-  console_controller()
-  : stream(std::cout) {}
-  virtual void write(custom_string &&string_value) override
+    virtual void write(custom_string &&string_value) override
+    {
+      file_stream << string_value ;
+      file_stream.put('\n');
+    }
+    ~file_controller()
+    {
+      
+      if (file_stream.is_open()) 
+      {
+        file_stream.flush();
+        file_stream.close();
+      }
+    }
+    file_controller(const file_controller&) = delete;
+    file_controller& operator=(const file_controller&) = delete;
+    file_controller(file_controller&&) = default;
+    file_controller& operator=(file_controller&&) = default;
+  };
+  class console_controller : public abstract_controller
   {
-    stream << string_value << "\n";
-  }
-  virtual void flush() override
-  {
-    stream.flush();
-  }
-  ~console_controller()
-  {
-    stream.flush();
-  }
-};
+  private:
+    std::ostream &stream;
+  public:
+    static constexpr custom_string identifier_characters = "console";
+    console_controller()
+    : stream(std::cout) {}
+    virtual void write(custom_string &&string_value) override
+    {
+      stream << string_value << "\n";
+    }
+    virtual void flush() override
+    {
+      stream.flush();
+    }
+    ~console_controller()
+    {
+      stream.flush();
+    }
+  };
+}
 class workflow_coordinator
 {
 private:
-  std::unordered_map<custom_string, std::unique_ptr<abstract_controller>> stream_map; //当前启用的输出流
-  underlying_cache cushioning_object;
+  std::unordered_map<custom_string, std::unique_ptr<controller::abstract_controller>> stream_map; //当前启用的输出流
+  cushioning::underlying_cache cushioning_object;
 
 public:
   workflow_coordinator() = default;
@@ -395,7 +441,7 @@ public:
   {
     cushioning_object.push_batch(std::forward<std::vector<custom_string>>(vector_string_value));
   }
-  bool insert_controller(std::unique_ptr<abstract_controller>&& smart_pointer_value)
+  bool insert_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
   {
     if (!smart_pointer_value) return false; 
     const custom_string controller_id = smart_pointer_value->identifier_characters;
@@ -407,7 +453,15 @@ public:
     cushioning_object.insert_callback(controller_id, function_value);
     return lookup_controller(controller_id);
   }
-  bool remove_controller(std::unique_ptr<abstract_controller>&& smart_pointer_value)
+  template <typename... Args>
+  bool insert_controller(std::unique_ptr<controller::abstract_controller>&& first, 
+  std::unique_ptr<controller::abstract_controller>&& second) 
+  {
+    bool first_s  = insert_controller(std::move(first)); 
+    bool second_s = insert_controller(std::move(second)); 
+    return first_s && second_s;
+  }
+  bool remove_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
   {
     custom_string controller_id = smart_pointer_value->identifier_characters;
     stream_map.erase(controller_id);
@@ -426,9 +480,9 @@ public:
     }
     return false;
   }
-  void push(const custom_string &string_value)
+  void push(custom_string &&string_value)
   {
-    cushioning_object.push(string_value);
+    cushioning_object.push(std::move(string_value));
   }
   void flush()
   {
@@ -442,37 +496,66 @@ public:
 class staging_area
 {
 private:
-  std::list<std::vector<custom_string>> primary_staging_area;
-  std::vector<custom_string> secondary_staging_area;
-  std::atomic<size_t> staging_area_threshold;
-
+  std::list<std::vector<custom_string>> primary_staging_area; //主缓冲区
+  std::vector<custom_string> secondary_staging_area; //次缓冲区
+  std::atomic<size_t> staging_area_threshold; //缓冲区阈值
 public:
 };
-class diary
+class recorder
 {
 private:
-  // auto ptr = std::make_unique<console_controller>();
   workflow_coordinator processor;
   staging_area staging_area;
-
-public:
-  diary() = default;
-  void add(std::unique_ptr<abstract_controller> ptr)
+  std::vector<bool> situation_object;
+  void filtration(situation_level level)
   {
-    processor.insert_controller(std::move(ptr));
+    size_t idx = static_cast<size_t>(level);
+    // 确保索引在有效范围内
+    if (idx < situation_object.size())
+    {
+        situation_object[idx] = true;
+    }
+  }
+public:
+  recorder(): situation_object(4, false){}
+  void log(const synthesis& message_set)
+  {
+    if(situation_object[static_cast<int>(message_set.level)] == false)
+    {
+      processor.push(message_set.time.to_string() + "  " + message_set.message);
+    }
+  }
+  void log(custom_string&& message)
+  {
+    processor.push(std::move(message));
+  }
+  void log(const custom_string& message) = delete;
+  template<typename... Args>
+  void filtration(situation_level first, Args&&... rest)
+  {
+      filtration(first); 
+      filtration(std::forward<Args>(rest)...); 
+  }
+  template<typename... Args>
+  void install_controller(Args&&... args)
+  {
+    if(!processor.insert_controller(std::forward<Args>(args)...))
+    {
+      throw std::runtime_error("流配置器获取失败");
+    }
   }
 };
 int main()
 {
-  std::cout << "Hello World!" << std::endl;
-  workflow_coordinator log;
-  log.insert_controller(file("test.txt"));
-  //计算时间
-  std::vector<chronix> log_test;
+  // std::cout << "Hello World!" << std::endl;
+  // workflow_coordinator log;
+  // log.insert_controller(file("test.txt"));
+  // //计算时间
+  // std::vector<instrument::chronix> log_test;
   // for (int i = 0; i < 1000; ++i)
   // {
   //   custom_string tmp = chronix().to_string() + "  Hello World! " + std::to_string(i);
-  //   log_test.push_back(tmp);
+  //   log_test.3bqrs_back(tmp);
   //   // Sleep(1);
   //   // log.push(tmp);
   //   // std::cerr << log.usage_rate() << std::endl;
@@ -482,21 +565,29 @@ int main()
   //   custom_string tmp = chronix().to_string() + "  Hello World! " + std::to_string(i);
   //   log.push(tmp);
   // }
+  recorder log;
+  log.install_controller(console,file("test.txt"));
+  log.filtration(situation_level::error,situation_level::warning);
   auto time_start = std::chrono::high_resolution_clock::now();
-  for(int i = 0; i < 1000000; ++i)
-  {
-    chronix time_s;
-    log_test.push_back(time_s);
-    custom_string tmp = time_s.to_string() + "  Hello World! " + std::to_string(i);
-    log.push(tmp);
-  }
+  // for(int i = 0; i < 1000000; ++i)
+  // {
+  //   instrument::chronix time_s;
+  //   log_test.push_back(time_s);
+  //   custom_string tmp = time_s.to_string() + "  Hello World! " + std::to_string(i);
+  //   log.push(std::move(tmp));
+  // }
   // log.push_batch(std::move(log_test));
+  synthesis message_set;
+  message_set.level = situation_level::info;
+  message_set.message = "Hello World!";
+  log.log(message_set);
+  log.log("Hello World!");
   auto time_end = std::chrono::high_resolution_clock::now();
   // for(auto& tmp : log_test)
   // {
   //   std::cout << tmp << std::endl;
   // }
-  std::cout << log_test.begin()->to_string() << std::endl << log_test.back().to_string() << std::endl;
+  // std::cout << log_test.begin()->to_string() << std::endl << log_test.back().to_string() << std::endl;
   // Sleep(7000);
   std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
   // std::cout << chronix() << std::endl;
