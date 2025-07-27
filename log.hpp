@@ -8,38 +8,32 @@
 #include <vector>
 #include <string>
 #include <fstream>
-#include <windows.h>
 #include <iostream>
 #include <functional>
 #include <unordered_map>
 #include <condition_variable>
 #include <boost/circular_buffer.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
+
 #define console std::make_unique<controller::console_controller>()
 #define file(file_name) std::make_unique<controller::file_controller>(file_name)
 #define file_mode(file,mode) std::make_unique<controller::file_controller>(file,mode)
 
 
-#if defined(__cpp_lib_hardware_interference_size)
-  static constexpr size_t CACHE_LINE = std::hardware_destructive_interference_size;
-#else
-  static constexpr size_t CACHE_LINE = 64;
-#endif
-enum class situation_level
-{
-  info,
-  warning,
-  error,
-  fatal
-};
-enum class open_mode
-{
-  append,
-  overwrite
-};
 using custom_string = std::string;
 namespace instrument
 {
+  enum class situation_level
+  {
+    info,
+    warning,
+    error,
+    fatal
+  };
+  enum class open_mode
+  {
+    append,
+    overwrite
+  };
   class chronix
   { 
   private:
@@ -118,46 +112,48 @@ namespace instrument
   {
     return time_os << tp.to_string();
   }
+  static std::unordered_map<situation_level, std::string> level_string = 
+  {
+    {situation_level::info, "INFO"},
+    {situation_level::warning, "WARNING"},
+    {situation_level::error, "ERROR"},
+    {situation_level::fatal, "FATAL"}
+  };
+  struct synthesis
+  {
+    instrument::chronix time;
+    situation_level level;
+    custom_string message;
+    synthesis(instrument::chronix time, situation_level level, custom_string message)
+    : time(time), level(level), message(message) {}
+    synthesis()
+    {time = instrument::chronix();level = situation_level::info;message = "";}
+    synthesis& operator=(const synthesis& other)
+    {
+      time = other.time;level = other.level;message = other.message;
+      return *this;
+    }
+    synthesis(const synthesis& other)
+    : time(other.time), level(other.level), message(other.message) {}
+    synthesis(synthesis&& other) noexcept
+    : time(std::move(other.time)), level(std::move(other.level)), 
+    message(std::move(other.message)) {}
+    synthesis& operator=(synthesis&& other) noexcept
+    {
+      time = std::move(other.time);level = std::move(other.level);
+      message = std::move(other.message);return *this;
+    }
+    custom_string to_string() const
+    {
+      return time.to_string() +  custom_string(" [") + level_string[level] + custom_string("] ") + message;
+    }
+  };
 }
-static std::unordered_map<situation_level, std::string> level_string = 
-{
-  {situation_level::info, "INFO"},
-  {situation_level::warning, "WARNING"},
-  {situation_level::error, "ERROR"},
-  {situation_level::fatal, "FATAL"}
-};
-struct synthesis
-{
-  instrument::chronix time;
-  situation_level level;
-  custom_string message;
-  synthesis(instrument::chronix time, situation_level level, custom_string message)
-  : time(time), level(level), message(message) {}
-  synthesis()
-  {time = instrument::chronix();level = situation_level::info;message = "";}
-  synthesis& operator=(const synthesis& other)
-  {
-    time = other.time;level = other.level;message = other.message;
-    return *this;
-  }
-  synthesis(const synthesis& other)
-  : time(other.time), level(other.level), message(other.message) {}
-  synthesis(synthesis&& other) noexcept
-  : time(std::move(other.time)), level(std::move(other.level)), 
-  message(std::move(other.message)) {}
-  synthesis& operator=(synthesis&& other) noexcept
-  {
-    time = std::move(other.time);level = std::move(other.level);
-    message = std::move(other.message);return *this;
-  }
-  custom_string to_string() const
-  {
-    return time.to_string() +  custom_string(" [") + level_string[level] + custom_string("] ") + message;
-  }
-};
-using callback_function = std::function<void(custom_string &&)>;
+using callback_function = std::function<void(const custom_string )>;
 namespace cushioning
 {
+  static constexpr size_t CACHE_LINE = 64; // 使用预定义的值
+
   class underlying_cache 
   {
   private:
@@ -182,7 +178,7 @@ namespace cushioning
       {
         for (auto &function_value : function_map)
         {
-          function_value.second(std::move(value));
+          function_value.second(value);
         }
       }
       consume.load()->clear();
@@ -227,7 +223,7 @@ namespace cushioning
         container_exchange();
         conditional_variables.notify_one();
       }
-      produce.load()->push_back(std::move(string_value));
+      produce.load()->push_back(string_value);
     }
     void push(const custom_string &string_value) = delete;
     void push_batch(std::vector<custom_string>&& vector_string_value)
@@ -310,8 +306,8 @@ namespace controller
   class abstract_controller
   {
   public:
-    static constexpr custom_string identifier_characters = "abstract";
-    virtual void write(custom_string&& string_value) = 0;
+    virtual custom_string identifier() const = 0;
+    virtual void write(const custom_string string_value) = 0;
     virtual void flush() = 0;
     virtual ~abstract_controller() = default;
   };
@@ -319,28 +315,28 @@ namespace controller
   {
   private:
     std::ofstream file_stream;
-    open_mode mode;
+    instrument::open_mode mode;
     custom_string file_name;
     std::mutex file_mutex;
-    std::ios::openmode mode_to_flag(open_mode tmp_mode)
+    std::ios::openmode mode_to_flag(instrument::open_mode tmp_mode)
     {
       switch (tmp_mode)
       {
-      case open_mode::overwrite:
+      case instrument::open_mode::overwrite:
         return std::ios::out;
-      case open_mode::append:
+      case instrument::open_mode::append:
         return std::ios::app;
       default:
         return std::ios::out;
       }
     }
-    static custom_string mode_to_string(open_mode tmp_mode) 
+    static custom_string mode_to_string(instrument::open_mode tmp_mode) 
     {
       switch (tmp_mode) 
       {
-        case open_mode::append :
+        case instrument::open_mode::append :
           return "append";
-        case open_mode::overwrite :
+        case instrument::open_mode::overwrite :
           return "overwrite";
         default:
           return "unknown";
@@ -355,8 +351,11 @@ namespace controller
       }
     }
   public:
-    static constexpr custom_string identifier_characters = "file";
-    file_controller(const custom_string &tmp_file_name,const open_mode& tmp_mode = open_mode::overwrite)
+    virtual custom_string identifier() const override
+    {
+      return custom_string("file");
+    }
+    file_controller(const custom_string &tmp_file_name,const instrument::open_mode& tmp_mode = instrument::open_mode::overwrite)
     :mode(tmp_mode),file_name(tmp_file_name)
     {
       std::ios::openmode flag = mode_to_flag(tmp_mode);
@@ -384,7 +383,7 @@ namespace controller
         check_stream_error("刷新失败");
       }
     }
-    virtual void write(custom_string &&string_value) override
+    virtual void write(const custom_string string_value) override
     {
       file_stream << string_value ;
       file_stream.put('\n');
@@ -408,12 +407,16 @@ namespace controller
   private:
     std::ostream &stream;
   public:
-    static constexpr custom_string identifier_characters = "console";
+    virtual custom_string identifier() const override
+    {
+      return custom_string("console");
+    }
     console_controller()
     : stream(std::cout) {}
-    virtual void write(custom_string &&string_value) override
+    virtual void write(const custom_string string_value) override
     {
-      stream << string_value << "\n";
+      stream << string_value ;
+      stream.put('\n');
     }
     virtual void flush() override
     {
@@ -425,171 +428,256 @@ namespace controller
     }
   };
 }
-class workflow_coordinator
+namespace resource_manager
 {
-private:
-  std::unordered_map<custom_string, std::unique_ptr<controller::abstract_controller>> stream_map; //当前启用的输出流
-  cushioning::underlying_cache cushioning_object;
+  class workflow_coordinator
+  {
+  private:
+    std::unordered_map<custom_string, std::unique_ptr<controller::abstract_controller>> stream_map; 
+    cushioning::underlying_cache cushioning_object;
 
-public:
-  workflow_coordinator() = default;
-  double usage_rate()
-  {
-    return cushioning_object.usage_rate();
-  }
-  void push_batch(std::vector<custom_string>&& vector_string_value)
-  {
-    cushioning_object.push_batch(std::forward<std::vector<custom_string>>(vector_string_value));
-  }
-  bool insert_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
-  {
-    if (!smart_pointer_value) return false; 
-    const custom_string controller_id = smart_pointer_value->identifier_characters;
-    stream_map.insert({controller_id, std::move(smart_pointer_value)});
-    auto function_value = [this, controller_id](custom_string &&string_value)
+  public:
+    workflow_coordinator() = default;
+    workflow_coordinator(const size_t& capacity)
+    : cushioning_object(capacity){}
+    workflow_coordinator(const workflow_coordinator&) = delete;
+    workflow_coordinator& operator=(const workflow_coordinator&) = delete;
+    workflow_coordinator(workflow_coordinator&&) = default;
+    workflow_coordinator& operator=(workflow_coordinator&&) = default;
+    double usage_rate()
     {
-      stream_map.at(controller_id)->write(std::move(string_value));
-    };
-    cushioning_object.insert_callback(controller_id, function_value);
-    return lookup_controller(controller_id);
-  }
-  template <typename... Args>
-  bool insert_controller(std::unique_ptr<controller::abstract_controller>&& first, 
-  std::unique_ptr<controller::abstract_controller>&& second) 
-  {
-    bool first_s  = insert_controller(std::move(first)); 
-    bool second_s = insert_controller(std::move(second)); 
-    return first_s && second_s;
-  }
-  bool remove_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
-  {
-    custom_string controller_id = smart_pointer_value->identifier_characters;
-    stream_map.erase(controller_id);
-    cushioning_object.remove_callback(controller_id);
-    if(!cushioning_object.lookup_callback(controller_id) && !stream_map.contains(controller_id))
-    {
-      return true;
+      return cushioning_object.usage_rate();
     }
-    return false;
-  }
-  bool lookup_controller(const custom_string &controller_id)const
-  {
-    if(cushioning_object.lookup_callback(controller_id) && stream_map.contains(controller_id))
+    void push_batch(std::vector<custom_string>&& vector_string_value)
     {
-      return true;
+      cushioning_object.push_batch(std::forward<std::vector<custom_string>>(vector_string_value));
     }
-    return false;
-  }
-  void push(custom_string &&string_value)
-  {
-    cushioning_object.push(std::move(string_value));
-  }
-  void flush()
-  {
-    cushioning_object.flush();
-    for(auto& smart_pointer_value : stream_map)
+    bool insert_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
     {
-      smart_pointer_value.second->flush();
+      if (!smart_pointer_value) return false; 
+      const custom_string controller_id = smart_pointer_value->identifier();
+      stream_map.emplace(controller_id, std::move(smart_pointer_value));
+      auto function_value = [this, controller_id](const custom_string string_value)
+      {
+        auto it = stream_map.find(controller_id);
+        if (it != stream_map.end()) 
+        { 
+          it->second->write(string_value);
+        }
+      };
+      cushioning_object.insert_callback(controller_id, function_value);
+      return lookup_controller(controller_id);
     }
-  }
-};
-class staging_area
+    bool insert_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value,
+    std::unique_ptr<controller::abstract_controller>&& smart_pointer_value_two) 
+    {
+      bool all_ok = insert_controller(std::move(smart_pointer_value));
+      all_ok = all_ok && insert_controller(std::move(smart_pointer_value_two));
+      return all_ok; 
+    }
+    bool remove_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
+    {
+      custom_string controller_id = smart_pointer_value->identifier();
+      stream_map.erase(controller_id);
+      cushioning_object.remove_callback(controller_id);
+      if(!cushioning_object.lookup_callback(controller_id) && !stream_map.contains(controller_id))
+      {
+        return true;
+      }
+      return false;
+    }
+    bool lookup_controller(const custom_string &controller_id)const
+    {
+      if(cushioning_object.lookup_callback(controller_id) && stream_map.contains(controller_id))
+      {
+        return true;
+      }
+      return false;
+    }
+    void push(custom_string &&string_value)
+    {
+      cushioning_object.push(std::move(string_value));
+    }
+    void flush()
+    {
+      cushioning_object.flush();
+      for(auto& smart_pointer_value : stream_map)
+      {
+        smart_pointer_value.second->flush();
+      }
+    }
+  };
+  class staging_area
+  {
+  private:
+    std::list<std::vector<custom_string>> primary_staging_area; //主缓冲区
+    std::vector<custom_string> secondary_staging_area; //次缓冲区
+    std::atomic<size_t> staging_area_threshold; //缓冲区阈值
+    void clear()
+    {
+      primary_staging_area.clear();
+      secondary_staging_area.clear();
+    }
+  public:
+    staging_area()
+    : staging_area_threshold(1000){}
+    staging_area(const size_t& staging_area_threshold)
+    : staging_area_threshold(staging_area_threshold){}
+    void push(custom_string && string_value)
+    {
+      secondary_staging_area.push_back(std::move(string_value));
+      if(secondary_staging_area.size() >= staging_area_threshold)
+      {
+        primary_staging_area.push_back(std::move(secondary_staging_area));
+        secondary_staging_area.clear();
+      }
+    }
+    void push_batch(std::vector<custom_string>&& vector_string_value)
+    {
+      if(secondary_staging_area.empty())
+      {
+        primary_staging_area.push_back(std::move(vector_string_value));
+      }
+      {
+        secondary_staging_area.insert(secondary_staging_area.end(), vector_string_value.begin(), vector_string_value.end());
+        if(secondary_staging_area.size() >= staging_area_threshold)
+        {
+          primary_staging_area.push_back(std::move(secondary_staging_area));
+          secondary_staging_area.clear();
+        }
+      }
+    }
+    void flush()
+    {
+      primary_staging_area.push_back(std::move(secondary_staging_area));
+      secondary_staging_area.clear();
+    }
+    std::vector<custom_string> recycling_resources()
+    {
+      flush();
+      std::vector<custom_string> result;
+      for(auto& vector_string_value : primary_staging_area)
+      {
+        result.insert(result.end(), vector_string_value.begin(), vector_string_value.end());
+      }
+      primary_staging_area.clear();
+      return result;
+    }
+    ~staging_area()
+    {
+      flush();
+      clear();
+    }
+  };
+}
+namespace recorders
 {
-private:
-  std::list<std::vector<custom_string>> primary_staging_area; //主缓冲区
-  std::vector<custom_string> secondary_staging_area; //次缓冲区
-  std::atomic<size_t> staging_area_threshold; //缓冲区阈值
-public:
-};
-class recorder
-{
-private:
-  workflow_coordinator processor;
-  staging_area staging_area;
-  std::vector<bool> situation_object;
-  void filtration(situation_level level)
+  /*
+  * #### 日志中控
+  *
+  * - 支持多种输出流(可自定义)
+
+  * - 支持日志过滤功能
+
+  * - 支持日志暂存
+  */
+  class recorder
   {
-    size_t idx = static_cast<size_t>(level);
-    // 确保索引在有效范围内
-    if (idx < situation_object.size())
+  private:
+    resource_manager::workflow_coordinator processor;
+    resource_manager::staging_area staging_area;
+    std::vector<bool> situation_object;
+    void filtration(instrument::situation_level level)
     {
+      size_t idx = static_cast<size_t>(level);
+      if (idx < situation_object.size())
+      {
         situation_object[idx] = true;
+      }
     }
-  }
-public:
-  recorder(): situation_object(4, false){}
-  void log(const synthesis& message_set)
-  {
-    if(situation_object[static_cast<int>(message_set.level)] == false)
+  public:
+    recorder():situation_object(4,false){}
+    recorder(const size_t& processor_capacity):processor(processor_capacity),situation_object(4, false){}
+    recorder(const size_t& processor_capacity,const size_t& secondary_staging_capacity)
+    :processor(processor_capacity),staging_area(secondary_staging_capacity),situation_object(4, false){}
+    /*
+    * #### 向已添加的输出流输出数据 
+    *
+    *  支持的参数类型：
+    *    - `synthesis`
+    * 
+    *    - `custom_string`
+    * 
+    *    - `std::vector<custom_string>`
+    * 
+    *    - `std::vector<synthesis>`
+    */ 
+    void log(const instrument::synthesis& message_set)
     {
-      processor.push(message_set.time.to_string() + "  " + message_set.message);
+      if(situation_object[static_cast<int>(message_set.level)] == false)
+      {
+        processor.push(message_set.time.to_string() + "  " + message_set.message);
+      }
     }
-  }
-  void log(custom_string&& message)
-  {
-    processor.push(std::move(message));
-  }
-  void log(const custom_string& message) = delete;
-  template<typename... Args>
-  void filtration(situation_level first, Args&&... rest)
-  {
+    void log(custom_string&& message)
+    {processor.push(std::move(message));}
+    void log(std::vector<custom_string>&& vector_message)
+    {processor.push_batch(std::move(vector_message));}
+    void log(std::vector<instrument::synthesis>&& synthesis_message)
+    {
+      for(auto& message_set : synthesis_message)
+      {
+        log(message_set);
+      }
+    }
+    void log_staging_area(custom_string&& message)
+    {staging_area.push(std::move(message));}
+    void log_staging_area(std::vector<custom_string>&& message)
+    {staging_area.push_batch(std::move(message));}
+    void purge_staging_area()
+    {log(staging_area.recycling_resources());}
+    void flush_staging_area(){staging_area.flush();}
+    void log(const custom_string& message) = delete;
+    template<typename... Args>
+    void filtration(instrument::situation_level first, Args&&... second)
+    {
       filtration(first); 
-      filtration(std::forward<Args>(rest)...); 
-  }
-  template<typename... Args>
-  void install_controller(Args&&... args)
-  {
-    if(!processor.insert_controller(std::forward<Args>(args)...))
-    {
-      throw std::runtime_error("流配置器获取失败");
+      filtration(std::forward<Args>(second)...); 
     }
-  }
-};
-int main()
+    template<typename... Args>
+    void install_controller(Args&&... args)
+    {
+      if(!processor.insert_controller(std::forward<Args>(args)...))
+      {
+        throw std::runtime_error("流配置器获取失败");
+      }
+    }
+    double usage_rate()
+    {return processor.usage_rate();}
+    void remove_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
+    {processor.remove_controller(std::move(smart_pointer_value));}
+    void lookup_controller(const custom_string &controller_id)const
+    {processor.lookup_controller(controller_id);}
+    void flush()
+    {processor.flush();}
+  };
+}
+namespace rec
 {
-  // std::cout << "Hello World!" << std::endl;
-  // workflow_coordinator log;
-  // log.insert_controller(file("test.txt"));
-  // //计算时间
-  // std::vector<instrument::chronix> log_test;
-  // for (int i = 0; i < 1000; ++i)
-  // {
-  //   custom_string tmp = chronix().to_string() + "  Hello World! " + std::to_string(i);
-  //   log_test.3bqrs_back(tmp);
-  //   // Sleep(1);
-  //   // log.push(tmp);
-  //   // std::cerr << log.usage_rate() << std::endl;
-  // }
-  // for(int i = 0; i < 1000; ++i)
-  // {
-  //   custom_string tmp = chronix().to_string() + "  Hello World! " + std::to_string(i);
-  //   log.push(tmp);
-  // }
-  recorder log;
-  log.install_controller(console,file("test.txt"));
-  log.filtration(situation_level::error,situation_level::warning);
-  auto time_start = std::chrono::high_resolution_clock::now();
-  // for(int i = 0; i < 1000000; ++i)
-  // {
-  //   instrument::chronix time_s;
-  //   log_test.push_back(time_s);
-  //   custom_string tmp = time_s.to_string() + "  Hello World! " + std::to_string(i);
-  //   log.push(std::move(tmp));
-  // }
-  // log.push_batch(std::move(log_test));
-  synthesis message_set;
-  message_set.level = situation_level::info;
-  message_set.message = "Hello World!";
-  log.log(message_set);
-  log.log("Hello World!");
-  auto time_end = std::chrono::high_resolution_clock::now();
-  // for(auto& tmp : log_test)
-  // {
-  //   std::cout << tmp << std::endl;
-  // }
-  // std::cout << log_test.begin()->to_string() << std::endl << log_test.back().to_string() << std::endl;
-  // Sleep(7000);
-  std::cerr << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count() << "ms" << std::endl;
-  // std::cout << chronix() << std::endl;
-  return 0;
+  using instrument::chronix;
+  using instrument::open_mode;
+  using instrument::situation_level;
+  using instrument::synthesis;
+  namespace configurator
+  {
+    using controller::console_controller;
+    using controller::file_controller;
+  }
+  namespace underlying_implementation
+  {
+    using cushioning::underlying_cache;
+    using resource_manager::workflow_coordinator;
+    using resource_manager::staging_area;
+  }
+  using recorders::recorder;
 }
