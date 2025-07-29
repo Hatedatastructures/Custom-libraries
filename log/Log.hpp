@@ -22,6 +22,13 @@
 using custom_string = std::string;
 namespace instrument
 {
+  /*
+  * ### 日志等级枚举
+  * - `info`: 信息
+  * - `warning`: 警告
+  * - `error`: 错误
+  * - `fatal`: 致命错误
+  */
   enum class situation_level
   {
     info,
@@ -29,11 +36,30 @@ namespace instrument
     error,
     fatal
   };
+  /*
+  * ### 文件打开方式枚举
+  * - `append`: 追加模式
+  * - `overwrite`: 覆盖模式
+  */
   enum class open_mode
   {
     append,
     overwrite
   };
+  /*
+  * ### 高精度时间类
+  *   用于记录日志的时间戳
+  * #### 成员函数
+  * - `chronix()`: 获取当前时间
+  * - `chronix(const std::chrono::high_resolution_clock::time_point&)`: 从更高精度时间点获取时间
+  * - `chronix(const uint64_t&)`: 从时间戳获取时间
+  * - `get_microseconds()`: 获取微秒数
+  * - `to_seconds()`: 转换为秒数
+  * - `to_milliseconds()`: 转换为毫秒数
+  * - `to_string()`: 转换为字符串
+  * ### 注意 ：
+  * - 转换低精度时返回`uint64_t`类型
+  */
   class chronix
   { 
   private:
@@ -119,6 +145,16 @@ namespace instrument
     {situation_level::error, "ERROR"},
     {situation_level::fatal, "FATAL"}
   };
+  /*
+  * ### 通用日志类型
+  *   用于记录日志信息
+  * #### 成员变量
+  * - `time`: 日志时间
+  * - `level`: 日志等级
+  * - `message`: 日志信息
+  * #### 成员函数
+  * - `to_string()`: 全部转换为字符串
+  */
   struct synthesis
   {
     instrument::chronix time;
@@ -153,7 +189,19 @@ using callback_function = std::function<void(const custom_string )>;
 namespace cushioning
 {
   static constexpr size_t CACHE_LINE = 64; // 使用预定义的值
-
+  /**
+   * #### 底层缓存实现类，采用生产者-消费者模型
+   * - 采用双缓冲区 `primary/secondary` 实现高效数据生产与消费，
+   * - 后台线程自动处理消费逻辑，并支持回调函数机制。
+   * 主要功能：
+   * - 线程安全的数据推送（单个/批量）
+   * - 自动/手动刷新数据到消费端
+   * - 动态调整缓冲区容量
+   * - 管理回调函数（注册/移除/查询）
+   * 注意：
+   * - 生产者很快，消费者很慢，需要需要调整容量
+   * - 否则会阻塞生产者，导致性能下降，默认10这个值效率就很不错
+   */
   class underlying_cache 
   {
   private:
@@ -311,6 +359,11 @@ namespace controller
     virtual void flush() = 0;
     virtual ~abstract_controller() = default;
   };
+  /**
+   * #### 文件输出控制器，继承自抽象控制器`abstract_controller`
+   * - 负责将数据写入文件，支持指定文件路径和打开模式（覆盖/追加），
+   * - 提供线程安全的写入与刷新操作，自动管理文件流的打开与关闭。
+   */
   class file_controller : public abstract_controller
   {
   private:
@@ -402,6 +455,11 @@ namespace controller
     file_controller(file_controller&&) = default;
     file_controller& operator=(file_controller&&) = default;
   };
+  /**
+ * #### 控制台输出控制器，继承自抽象控制器`abstract_controller`
+ * - 负责将数据输出到标准控制台 `std::cout` ，提供简单的写入与刷新操作，
+ * - 无需复杂配置，直接向控制台输出内容。
+ */
   class console_controller : public abstract_controller
   {
   private:
@@ -430,6 +488,11 @@ namespace controller
 }
 namespace resource_manager
 {
+  /**
+   * #### 工作流协调器类，管理控制器与缓存的协同工作
+   * - 负责控制器的注册、移除和查询，协调数据在缓存与控制器之间的流转，
+   * - 实现了线程安全的数据处理流程。
+   */
   class workflow_coordinator
   {
   private:
@@ -507,6 +570,11 @@ namespace resource_manager
       }
     }
   };
+  /**
+   * #### 数据暂存区类，用于缓冲数据并按阈值批量管理
+   * - 维护主、次两级缓冲区，通过阈值控制数据块的批量整合，
+   * - 支持单个/批量数据添加，以及数据的统一回收与清理。
+   */
   class staging_area
   {
   private:
@@ -573,13 +641,23 @@ namespace resource_manager
 namespace recorders
 {
   /*
-  * #### 日志中控
-  *
-  * - 支持多种输出流(可自定义)
-
+  * #### 日志类
   * - 支持日志过滤功能
-
   * - 支持日志暂存
+  * #### 支持的输出流：
+  *    - `console`
+  *    - `file`
+  * #### 默认支持日志级别 ： `info` `warning` `error` `fatal`
+  * 该类构造函数：
+  * - `recorder()` 默认构造
+  * - `recorder(const size_t& processor_capacity)` 指定缓冲区大小
+  * - `recorder(const size_t& processor_capacity,const size_t& secondary_staging_capacity)` 指定缓冲区大小和暂存区大小
+  * #### 对于输出流都继承至 `controller::abstract_controller`抽象类
+  * - `controller::console_controller` 控制台输出流
+  * - `controller::file_controller` 文件输出流
+  * #### 添加输出流和删除输出流都可以指定输出流类的智能指针
+  * - `std::unique_ptr<controller::console_controller>()`
+  * - `std::unique_ptr<controller::file_controller>("test.txt")`
   */
   class recorder
   {
@@ -605,11 +683,8 @@ namespace recorders
     *
     *  支持的参数类型：
     *    - `synthesis`
-    * 
     *    - `custom_string`
-    * 
     *    - `std::vector<custom_string>`
-    * 
     *    - `std::vector<synthesis>`
     */ 
     void log(const instrument::synthesis& message_set)
@@ -630,20 +705,43 @@ namespace recorders
         log(message_set);
       }
     }
+    /*
+    * #### 向暂存区添加数据
+    *  支持的参数类型：
+    *    - `custom_string`
+    *    - `std::vector<custom_string>`
+    */
     void log_staging_area(custom_string&& message)
     {staging_area.push(std::move(message));}
     void log_staging_area(std::vector<custom_string>&& message)
     {staging_area.push_batch(std::move(message));}
+    /*
+    * #### 清空暂存区
+    * - 清空暂存区到输出流中
+    */
     void purge_staging_area()
     {log(staging_area.recycling_resources());}
+    /*
+    * #### 刷新暂存区到输出流中
+    */
     void flush_staging_area(){staging_area.flush();}
     void log(const custom_string& message) = delete;
+    /*
+    * #### 日志过滤
+    * - 支持多参数
+    * ##### 支持的类型
+    * - `situation_level`
+    */
     template<typename... Args>
     void filtration(instrument::situation_level first, Args&&... second)
     {
       filtration(first); 
       filtration(std::forward<Args>(second)...); 
     }
+    /*
+    * #### 添加输出流
+    *  - 支持多参数 
+    */
     template<typename... Args>
     void install_controller(Args&&... args)
     {
@@ -652,28 +750,64 @@ namespace recorders
         throw std::runtime_error("流配置器获取失败");
       }
     }
-    double usage_rate()
+    /*
+    * #### 获取当前缓冲区的使用率,返回一个`double`类型数据
+    */
+    [[nodiscard("缓冲区使用率不能被忽略")]] double usage_rate()
     {return processor.usage_rate();}
-    void remove_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
-    {processor.remove_controller(std::move(smart_pointer_value));}
-    void lookup_controller(const custom_string &controller_id)const
-    {processor.lookup_controller(controller_id);}
+    /*
+    * #### 删除当前已启用的输出流
+    * 函数参数 ：`std::unique_ptr<controller::abstract_controller>&& smart_pointer_value`
+    *   - 支持宏，智能指针，输出流类在`controllers`命名空间 
+    *   - 支持自定义输出流类
+    * 返回值 ： 删除成功返回`true`，否则返回`false`
+    */
+    bool remove_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)
+    {return processor.remove_controller(std::move(smart_pointer_value));}
+    /*
+    * #### 查找已添加的输出流
+    * 函数参数 ：`std::unique_ptr<controller::abstract_controller>&& smart_pointer_value`
+    *   - 支持宏，智能指针，输出流类在`controllers`命名空间 
+    *   - 支持自定义输出流类
+    * 返回值 ： 如果输出流已经添加就返回`true`，否则返回`false`
+    */
+    void lookup_controller(std::unique_ptr<controller::abstract_controller>&& smart_pointer_value)const
+    {processor.lookup_controller(smart_pointer_value->identifier());}
+    /*
+    * #### 刷新缓冲区到输出流中
+    */
     void flush()
     {processor.flush();}
   };
 }
+/*
+* #### 日志命名空间
+*/
 namespace rec
 {
   using instrument::chronix;
   using instrument::open_mode;
   using instrument::situation_level;
   using instrument::synthesis;
-  namespace configurator
+  /**
+   * #### 聚合各类控制器`controller`类型的命名空间
+   * 包含的控制器类型：
+   * - `console_controller`：控制台控制器（处理控制台输入输出）
+   * - `file_controller`：文件控制器（处理文件读写操作）
+   */
+  namespace controllers
   {
     using controller::console_controller;
     using controller::file_controller;
   }
-  namespace underlying_implementation
+  /**
+   * #### 包含recorder内部实现所需类的命名空间
+   * 包含的核心类：
+   * - `underlying_cache`：底层缓存实现(来自 `cushioning` 模块)
+   * - `workflow_coordinator`：工作流协调器(资源管理核心组件)
+   * - `staging_area`：暂存区(资源临时存储管理)
+   */
+  namespace internal
   {
     using cushioning::underlying_cache;
     using resource_manager::workflow_coordinator;
