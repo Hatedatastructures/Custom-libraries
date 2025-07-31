@@ -4,6 +4,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <semaphore>
 // #include <iostream>
 // #include <ctime>
 // #include <windows.h>
@@ -26,6 +27,11 @@ private:
   {
     return _shared_queue.empty();
   }
+  template<typename enqueue_type>
+  void enqueue(enqueue_type && produce_data)
+  {
+    _shared_queue.push(std::forward<enqueue_type>(produce_data));
+  }
 public:
   prod_cons_queue(const size_t new_capacity = _default_capacity)
   :_current_capacity(std::max(new_capacity,static_cast<size_t>(1))){}
@@ -33,7 +39,8 @@ public:
   prod_cons_queue(prod_cons_queue&& another_queue) noexcept = delete;
   prod_cons_queue& operator=(const prod_cons_queue& another_queue) = delete;
   prod_cons_queue& operator=(prod_cons_queue&& another_queue) noexcept = delete;
-  bool push(const prod_cons_type& produce_data)
+  template<typename push_type>
+  bool push(push_type&& produce_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
     while(full_internal() && !_close_identifier)
@@ -41,28 +48,29 @@ public:
       _produce_thread_condition.wait(access_lock);
     }
     if(_close_identifier) return false;
-    _shared_queue.push(produce_data);
+    enqueue(std::forward<push_type>(produce_data));
     access_lock.unlock();
     _consume_thread_condition.notify_one();
     return true;
   }
-  bool try_push(const prod_cons_type& produce_data)
+  template<typename try_push_type>
+  bool try_push(try_push_type&& produce_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
     if(!access_lock.owns_lock()) return false;
     if(_close_identifier.load(std::memory_order_relaxed) || full_internal()) return false;
-    _shared_queue.push(produce_data);
+    enqueue(std::forward<try_push_type>(produce_data));
     access_lock.unlock();
     _consume_thread_condition.notify_one();
     return true;
   }
-  template<typename precision, typename period>
-  bool push_for(const prod_cons_type& produce_data,const std::chrono::duration<precision, period> time_out)
+  template<typename push_for_type, typename precision, typename period>
+  bool push_for(push_for_type&& produce_data,const std::chrono::duration<precision, period> time_out)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
     auto status = _produce_thread_condition.wait_for(access_lock,time_out,[this](){return !full_internal() || _close_identifier;});
     if(_close_identifier || status == std::cv_status::timeout) return false;
-    _shared_queue.push(produce_data);
+    enqueue(std::forward<push_for_type>(produce_data));
     access_lock.unlock();
     _consume_thread_condition.notify_one();
     return true;
@@ -127,7 +135,7 @@ public:
 };
 class conc_prod_cons_queue
 {
-
+  
 };
 // class task
 // {
