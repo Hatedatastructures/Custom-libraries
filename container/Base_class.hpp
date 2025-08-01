@@ -487,9 +487,9 @@ namespace base_class_container
     {
       return get_color(current_node) == rb_tree_color::black;
     }
-    [[nodiscard]] size_t _size() const
+    [[nodiscard]] uint64_t _size() const
     {
-      size_t size = 0;
+      uint64_t size = 0;
       if (_root == nullptr)
       {
         return size;
@@ -1179,11 +1179,11 @@ namespace base_class_container
         return iterator(nullptr);
       }
     }
-    size_t size()
+    uint64_t size()
     {
       return _size();
     }
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return _size();
     }
@@ -1327,7 +1327,7 @@ namespace base_class_container
       *
       *   - `capacity()`: 返回当前容量（常量和非常量版本）
       *
-      *   - `change_load_factor(const size_t& new_load_factor)`: 修改负载因子（新值需 ≥1，返回修改是否成功）
+      *   - `change_load_factor(const uint64_t& new_load_factor)`: 修改负载因子（新值需 ≥1，返回修改是否成功）
 
       * 特性:
 
@@ -1383,11 +1383,11 @@ namespace base_class_container
     using container_node = hash_table_node;
     container_imitate_function value_imitation_functions; // 仿函数
 
-    size_t _size; // 哈希表大小
+    uint64_t _size; // 哈希表大小
 
-    size_t load_factor; // 负载因子
+    uint64_t load_factor; // 负载因子
 
-    size_t hash_capacity; // 哈希表容量
+    uint64_t hash_capacity; // 哈希表容量
 
     con::vector<container_node *> vector_hash_table; // 哈希表
 
@@ -1433,7 +1433,7 @@ namespace base_class_container
         return hash_table_iterator_node;
       }
     };
-    void hash_chain_adjustment(container_node *&provisional_parent_node, container_node *&provisional_node, size_t &hash_map_location)
+    void hash_chain_adjustment(container_node *&provisional_parent_node, container_node *&provisional_node, uint64_t &hash_map_location)
     {
       if (provisional_parent_node != nullptr)
       {
@@ -1458,7 +1458,7 @@ namespace base_class_container
       vector_hash_table.resize(hash_capacity);
     }
 
-    explicit hash_table(const size_t new_hash_table_capacity)
+    explicit hash_table(const uint64_t new_hash_table_capacity)
     {
       _size = 0;
       load_factor = 7;
@@ -1478,7 +1478,7 @@ namespace base_class_container
       vector_hash_table.resize(hash_capacity, nullptr);
 
       // 2. 遍历原表的每一个桶
-      for (size_t new_hash_container_capacity = 0; new_hash_container_capacity < hash_capacity; ++new_hash_container_capacity)
+      for (uint64_t new_hash_container_capacity = 0; new_hash_container_capacity < hash_capacity; ++new_hash_container_capacity)
       {
         container_node *src_bucket_node = hash_table_data.vector_hash_table[new_hash_container_capacity];
         // 桶内新表的尾节点（用于串联 _next）
@@ -1535,7 +1535,7 @@ namespace base_class_container
     }
     ~hash_table() noexcept
     {
-      for (size_t i = 0; i < vector_hash_table.size(); ++i)
+      for (uint64_t i = 0; i < vector_hash_table.size(); ++i)
       {
         container_node *hash_bucket_delete = vector_hash_table[i];
         while (hash_bucket_delete != nullptr)
@@ -1547,7 +1547,7 @@ namespace base_class_container
         }
       }
     }
-    bool change_load_factor(const size_t &new_load_factor) // 作用：改变负载因子大小
+    bool change_load_factor(const uint64_t &new_load_factor) // 作用：改变负载因子大小
     {
       if (new_load_factor < 1)
       {
@@ -1564,8 +1564,8 @@ namespace base_class_container
       }
       else
       {
-        size_t hash_value = value_imitation_functions(key_value);
-        size_t hash_map_location = hash_value % hash_capacity;
+        uint64_t hash_value = value_imitation_functions(key_value);
+        uint64_t hash_map_location = hash_value % hash_capacity;
         // 找到映射位置
         container_node *bucket_node = vector_hash_table[hash_map_location];
         while (bucket_node != nullptr)
@@ -1593,9 +1593,9 @@ namespace base_class_container
       return const_iterator(nullptr);
     }
 
-    size_t size() { return _size; }
+    uint64_t size() { return _size; }
 
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return _size;
     }
@@ -1605,9 +1605,9 @@ namespace base_class_container
       return _size == 0;
     }
 
-    size_t capacity() { return hash_capacity; }
+    uint64_t capacity() { return hash_capacity; }
 
-    [[nodiscard]] size_t capacity() const
+    [[nodiscard]] uint64_t capacity() const
     {
       return hash_capacity;
     }
@@ -1622,18 +1622,18 @@ namespace base_class_container
       if (_size * 10 >= hash_capacity * load_factor)
       {
         // 扩容
-        size_t new_container_capacity = (hash_capacity == 0 && vector_hash_table.empty()) ? 10 : hash_capacity * 2;
+        uint64_t new_container_capacity = (hash_capacity == 0 && vector_hash_table.empty()) ? 10 : hash_capacity * 2;
         // 新容量
         con::vector<container_node *> new_vector_hash_table;
         new_vector_hash_table.resize(new_container_capacity, nullptr);
-        size_t new_size = 0;
+        uint64_t new_size = 0;
         // 重新映射,按照插入链表顺序
         container_node *regional_list_head_node = nullptr;            // 临时新哈希表全局头指针
         container_node *regional_list_previous_node = nullptr;        // 临时新哈希表全局上一个插入数据指针
         container_node *start_position_node = overall_list_head_node; // 全局链表头指针赋值
         while (start_position_node != nullptr)
         {
-          size_t new_mapping_value = hash_function_object(start_position_node->_data) % new_container_capacity;
+          uint64_t new_mapping_value = hash_function_object(start_position_node->_data) % new_container_capacity;
           // 重新计算映射值
           container_node *hash_bucket_node = new_vector_hash_table[new_mapping_value];
           if (hash_bucket_node == nullptr)
@@ -1676,7 +1676,7 @@ namespace base_class_container
           start_position_node = start_position_node->overall_list_next;
         }
         // 释放旧哈希表
-        for (size_t delete_traversal = 0; delete_traversal < vector_hash_table.size(); ++delete_traversal)
+        for (uint64_t delete_traversal = 0; delete_traversal < vector_hash_table.size(); ++delete_traversal)
         {
           container_node *hash_bucket_delete = vector_hash_table[delete_traversal];
           while (hash_bucket_delete != nullptr)
@@ -1694,8 +1694,8 @@ namespace base_class_container
         overall_list_before_node = regional_list_previous_node;
         // 重新映射,按照插入链表顺序
       }
-      size_t hash_mapping_value = hash_function_object(hash_table_value_data);
-      size_t hash_map_location = hash_mapping_value % hash_capacity;
+      uint64_t hash_mapping_value = hash_function_object(hash_table_value_data);
+      uint64_t hash_map_location = hash_mapping_value % hash_capacity;
       // 找到映射位置
       container_node *hash_bucket_node = vector_hash_table[hash_map_location];
 
@@ -1726,18 +1726,18 @@ namespace base_class_container
       if (_size * 10 >= hash_capacity * load_factor)
       {
         // 扩容
-        size_t new_container_capacity = (hash_capacity == 0 && vector_hash_table.empty()) ? 10 : hash_capacity * 2;
+        uint64_t new_container_capacity = (hash_capacity == 0 && vector_hash_table.empty()) ? 10 : hash_capacity * 2;
         // 新容量
         con::vector<container_node *> new_vector_hash_table;
         new_vector_hash_table.resize(new_container_capacity, nullptr);
-        size_t new_size = 0;
+        uint64_t new_size = 0;
         // 重新映射,按照插入链表顺序
         container_node *regional_list_head_node = nullptr;            // 临时新哈希表全局头指针
         container_node *regional_list_previous_node = nullptr;        // 临时新哈希表全局上一个插入数据指针
         container_node *start_position_node = overall_list_head_node; // 全局链表头指针赋值
         while (start_position_node != nullptr)
         {
-          size_t new_mapping_value = hash_function_object(start_position_node->_data) % new_container_capacity;
+          uint64_t new_mapping_value = hash_function_object(start_position_node->_data) % new_container_capacity;
           // 重新计算映射值
           container_node *hash_bucket_node = new_vector_hash_table[new_mapping_value];
           if (hash_bucket_node == nullptr)
@@ -1780,7 +1780,7 @@ namespace base_class_container
           start_position_node = start_position_node->overall_list_next;
         }
         // 释放旧哈希表
-        for (size_t delete_traversal = 0; delete_traversal < vector_hash_table.size(); ++delete_traversal)
+        for (uint64_t delete_traversal = 0; delete_traversal < vector_hash_table.size(); ++delete_traversal)
         {
           container_node *hash_bucket_delete = vector_hash_table[delete_traversal];
           while (hash_bucket_delete != nullptr)
@@ -1798,8 +1798,8 @@ namespace base_class_container
         overall_list_before_node = regional_list_previous_node;
         // 重新映射,按照插入链表顺序
       }
-      size_t hash_mapping_value = hash_function_object(hash_table_value_data);
-      size_t hash_map_location = hash_mapping_value % hash_capacity;
+      uint64_t hash_mapping_value = hash_function_object(hash_table_value_data);
+      uint64_t hash_map_location = hash_mapping_value % hash_capacity;
       // 找到映射位置
       container_node *hash_bucket_node = vector_hash_table[hash_map_location];
 
@@ -1827,8 +1827,8 @@ namespace base_class_container
       {
         return false;
       }
-      size_t hash_mapping_value = hash_function_object(hash_table_value_data);
-      size_t hash_map_location = hash_mapping_value % hash_capacity;
+      uint64_t hash_mapping_value = hash_function_object(hash_table_value_data);
+      uint64_t hash_map_location = hash_mapping_value % hash_capacity;
       // 找到映射位置
       container_node *hash_bucket_node = vector_hash_table[hash_map_location]; // 桶头节点赋值
       container_node *hash_bucket_parent_node = nullptr;                       // 保存上一个节点方便修改next指针的指向
@@ -1887,8 +1887,8 @@ namespace base_class_container
       }
       else
       {
-        size_t hash_mapping_value = hash_function_object(hash_table_value_data);
-        size_t hash_map_location = hash_mapping_value % hash_capacity;
+        uint64_t hash_mapping_value = hash_function_object(hash_table_value_data);
+        uint64_t hash_map_location = hash_mapping_value % hash_capacity;
         // 找到映射位置
         container_node *hash_bucket_node = vector_hash_table[hash_map_location];
         while (hash_bucket_node != nullptr)
@@ -1929,17 +1929,17 @@ namespace base_class_container
   class bit_set
   {
     con::vector<int> vector_bit_set;
-    size_t _size;
+    uint64_t _size;
 
   public:
     bit_set() : _size(0) { ; }
-    explicit bit_set(const size_t &new_capacity)
+    explicit bit_set(const uint64_t &new_capacity)
     {
       _size = 0;
       vector_bit_set.resize((new_capacity / 32) + 1, 0);
       // 多开一个int的空间，防止不够
     }
-    void resize(const size_t &new_capacity)
+    void resize(const uint64_t &new_capacity)
     {
       _size = 0;
       vector_bit_set.resize((new_capacity / 32) + 1, 0);
@@ -1958,40 +1958,40 @@ namespace base_class_container
       }
       return *this;
     }
-    void set(const size_t &value_data)
+    void set(const uint64_t &value_data)
     {
       // 把数映射到BitSet上的函数
-      size_t mapping_bit = value_data / 32; // 定位到BitSet的位置在哪个int上
-      size_t value_bit = value_data % 32;   // 定位到BitSet的位置在哪个int上的第几位
+      uint64_t mapping_bit = value_data / 32; // 定位到BitSet的位置在哪个int上
+      uint64_t value_bit = value_data % 32;   // 定位到BitSet的位置在哪个int上的第几位
       vector_bit_set[mapping_bit] = vector_bit_set[mapping_bit] | (1 << value_bit);
       // 比较当前位置是否为1，若为1则不需要改变，若为0则需要改变，注意|只改变当前位不会改变其他位
       //|是两个条件满足一个条件就行，&是两个条件都满足才行
       // 其他位如果是1那么就还是1，如果是0那么就还是0，因为|是两个条件满足一个条件就行
       _size++;
     }
-    void reset(const size_t &value_data)
+    void reset(const uint64_t &value_data)
     {
       // 删除映射的位置的函数
-      size_t mapping_bit = value_data / 32;
-      size_t value_bit = value_data % 32;
+      uint64_t mapping_bit = value_data / 32;
+      uint64_t value_bit = value_data % 32;
       vector_bit_set[mapping_bit] = vector_bit_set[mapping_bit] & (~(1 << value_bit));
       //&是两个条件都满足，~是取反，^是两个条件不同时满足
       // 1取反关键位是0其他位是1，这样就成功与掉，&要求是两个条件都需要满足
       // 其他位如果是1那么就不会改变原来的，如果是0那么还是为0，因为与是两个条件都需要满足
       _size--;
     }
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return _size;
     }
-    bool test(const size_t &value_data)
+    bool test(const uint64_t &value_data)
     {
       if (_size == 0)
       {
         return false;
       }
-      size_t mapping_bit = value_data / 32;
-      size_t value_bit = value_data % 32;
+      uint64_t mapping_bit = value_data / 32;
+      uint64_t value_bit = value_data % 32;
       bool return_bit_set = vector_bit_set[mapping_bit] & (1 << value_bit);
       // 如果_BitSet[mapping_bit]里对应的位是1那么就返回true，否则返回false
       return return_bit_set;

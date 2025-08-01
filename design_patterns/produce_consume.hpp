@@ -1,28 +1,86 @@
-#include <queue>
-#include <thread>
+#pragma once
 #include <atomic>
-#include <mutex>
 #include <condition_variable>
-#include <functional>
+#include <mutex>
+#include <queue>
 #include <semaphore>
-// #include <iostream>
-// #include <ctime>
-// #include <windows.h>
-/*
-* #### 生产消费者队列模板类
-* - 线程安全的 `FIFO` 缓冲区
-* - 生产者线程和消费者线程可以并发执行
-* - 提供三种入队（`push` 阻塞式、`try_push` 非阻塞式、`push_for` 限时式）
-* - 提供三种出队（`pop` 阻塞式、`try_pop` 非阻塞式、`pop_for` 限时式）操作，适配不同场景的线程同步需求。
-*/
-template<typename prod_cons_type>
-class prod_cons_queue
+#include <thread>
+#include <vector>
+/**
+* @brief #### 单生产单消费无锁队列类(SPSC)
+* @tparam  producer_consumer_type
+**/
+template<typename producer_consumer_type>
+class producer_consumer_queue
+{
+private:
+  std::atomic<size_t> _producer;
+  std::atomic<size_t> _consumer;
+  const size_t _current_capacity;
+  static constexpr size_t _default_capacity = 10;
+  std::vector<producer_consumer_type> _shared_circular_queue;
+  size_t compute_position(size_t index) const
+  {
+    return index % _current_capacity;
+  }
+public:
+  explicit producer_consumer_queue(const size_t new_capacity = _default_capacity):_producer(0),_consumer(0),
+  _current_capacity(std::max(new_capacity,static_cast<size_t>(1))),_shared_circular_queue(_current_capacity){}
+  producer_consumer_queue(const producer_consumer_queue& another_queue) = delete;
+  producer_consumer_queue(producer_consumer_queue&& another_queue) noexcept = delete;
+  producer_consumer_queue& operator=(const producer_consumer_queue& another_queue) = delete;
+  producer_consumer_queue& operator=(producer_consumer_queue&& another_queue) noexcept = delete;
+  template<typename push_type>
+  bool push(push_type&& produce_data)
+  {
+    const size_t current_producer = _producer.fetch_add(1,std::memory_order_relaxed);
+    const size_t position = compute_position(current_producer);
+    if(current_producer - _consumer.load(std::memory_order_acquire) >= _current_capacity)
+    {
+      _producer.fetch_sub(1,std::memory_order_release);
+      return false;
+    }
+    _shared_circular_queue[position] = std::forward<push_type>(produce_data);
+    return true;
+  }
+  template<typename consume_type>
+  bool pop(producer_consumer_type& consume_data)
+  {
+    const size_t current_consumer = _consumer.fetch_add(1,std::memory_order_relaxed);
+    const size_t position = compute_position(current_consumer);
+    if(current_consumer >= _producer.load(std::memory_order_acquire))
+    {
+      _consumer.fetch_sub(1,std::memory_order_release);
+      return false;
+    }
+    consume_data = _shared_circular_queue[position];
+    return true;
+  }
+  bool empty() const
+  {
+    return _consumer.load(std::memory_order_acquire) == _producer.load(std::memory_order_acquire);
+  }
+  bool full() const
+  {
+    return _producer.load(std::memory_order_acquire) - _consumer.load(std::memory_order_acquire) == _current_capacity;
+  }
+  size_t size() const
+  {
+    return _producer.load(std::memory_order_acquire) - _consumer.load(std::memory_order_acquire);
+  }
+};
+/**
+ * @brief #### 多生产多消费有锁队列类(MPSC)
+ * @tparam producers_consumers_type
+ */
+template<typename producers_consumers_type>
+class producers_consumers_queue
 {
 private:
   mutable std::mutex _access_lock;
   size_t _current_capacity;
   static constexpr size_t _default_capacity = 10;
-  std::queue<prod_cons_type> _shared_queue;
+  std::queue<producers_consumers_type> _shared_queue;
   std::atomic<bool> _close_identifier = false;
   std::condition_variable _produce_thread_condition;
   std::condition_variable _consume_thread_condition;
@@ -40,12 +98,12 @@ private:
     _shared_queue.push(std::forward<enqueue_type>(produce_data));
   }
 public:
-  prod_cons_queue(const size_t new_capacity = _default_capacity)
+  producers_consumers_queue(const size_t new_capacity = _default_capacity)
   :_current_capacity(std::max(new_capacity,static_cast<size_t>(1))){}
-  prod_cons_queue(const prod_cons_queue& another_queue) = delete;
-  prod_cons_queue(prod_cons_queue&& another_queue) noexcept = delete;
-  prod_cons_queue& operator=(const prod_cons_queue& another_queue) = delete;
-  prod_cons_queue& operator=(prod_cons_queue&& another_queue) noexcept = delete;
+  producers_consumers_queue(const producers_consumers_queue& another_queue) = delete;
+  producers_consumers_queue(producers_consumers_queue&& another_queue) noexcept = delete;
+  producers_consumers_queue& operator=(const producers_consumers_queue& another_queue) = delete;
+  producers_consumers_queue& operator=(producers_consumers_queue&& another_queue) noexcept = delete;
   /*
   * #### 阻塞式入队，队列满时等待
   * - 成功返回 `true`，队列关闭已关闭返回 `false`
@@ -98,7 +156,7 @@ public:
   * #### 阻塞式出队，队列空时等待
   * - 成功返回 `true`，队列关闭已关闭返回 `false`
   */
-  bool pop(prod_cons_type& consume_data)
+  bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
     while(empty_internal() && !_close_identifier)
@@ -116,7 +174,7 @@ public:
   * #### 非阻塞式出队，不等待
   * - 成功返回 `true`，失败（锁竞争 / 空 / 关闭）返回 `false`
   */
-  bool try_pop(prod_cons_type& consume_data)
+  bool try_pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
     if(!access_lock.owns_lock()) return false;
@@ -132,7 +190,7 @@ public:
   * - 成功返回 `true`，超时 / 关闭返回 `false`
   */
   template<typename precision, typename period>
-  bool pop_for(prod_cons_type& consume_data,const std::chrono::duration<precision, period> time_out)
+  bool pop_for(producers_consumers_type& consume_data,const std::chrono::duration<precision, period> time_out)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
     auto status = _consume_thread_condition.wait_for(access_lock,time_out,[this](){return !empty_internal() || _close_identifier;});
@@ -166,22 +224,32 @@ public:
     std::lock_guard<std::mutex> access_lock(_access_lock);
     return empty_internal();
   }
+  bool whether_close() const
+  {
+    return _close_identifier.load(std::memory_order_acquire);
+  }
 };
-template<typename conc_prod_cons_type>
-class conc_prod_cons_queue
+template<typename producers_consumers_semaphore_type>
+class producers_consumers_semaphore_queue
+{
+private:
+  std::vector<producers_consumers_semaphore_type> _circular_queue;
+};
+template<typename producers_consumers_type>
+class producer_consumer_queues
 {
   static constexpr size_t _default_capacity = 10;
   private: 
     size_t _current_capacity;
-    std::mutex _produce,_consume;
     std::atomic<bool> _close_identifier;
+    std::mutex _produce_mutex,_consume_mtutex;
     std::atomic<bool> _switchover_identifier;
-    std::queue<conc_prod_cons_type> _produce_pipe;
-    std::queue<conc_prod_cons_type> _consume_pipe;
+    std::queue<producers_consumers_type> _produce_pipe;
+    std::queue<producers_consumers_type> _consume_pipe;
     std::condition_variable _produce_thread_condition;
     std::condition_variable _consume_thread_condition;
-    std::atomic<std::queue<conc_prod_cons_type>*> _produce;
-    std::atomic<std::queue<conc_prod_cons_type>*> _consume;
+    std::atomic<std::queue<producers_consumers_type>*> _produce;
+    std::atomic<std::queue<producers_consumers_type>*> _consume;
   public:
 };
 // class task
@@ -201,7 +269,7 @@ class conc_prod_cons_queue
 // };
 // std::mutex _cout_mutex;
 // std::atomic<size_t> _size = {0};
-// void read(prod_cons_queue<task>& task_queue)
+// void read(producers_consumers_queue<task>& task_queue)
 // {
 //   while(true)
 //   {
@@ -218,7 +286,7 @@ class conc_prod_cons_queue
 //     }
 //   }
 // }
-// void write(prod_cons_queue<task>& task_queue,const std::string& task_name)
+// void write(producers_consumers_queue<task>& task_queue,const std::string& task_name)
 // {
 //   while(true)
 //   {
@@ -233,7 +301,7 @@ class conc_prod_cons_queue
 //   srand(time(nullptr));
 //   std::vector<std::thread> read_threads;
 //   std::vector<std::thread> write_threads;
-//   prod_cons_queue<task> task_queue;
+//   producers_consumers_queue<task> task_queue;
 //   for(int i = 0; i < 3; ++i)
 //   {
 //     write_threads.emplace_back(write,std::ref(task_queue),"write_tread" + std::to_string(i));
