@@ -116,7 +116,7 @@ namespace map_container
 
     void pre_order_traversal() { instance_tree_map.pre_order_traversal(); }
 
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return instance_tree_map.size();
     }
@@ -189,11 +189,11 @@ namespace map_container
       second_external_hash_functions second_hash_functions_object;
 
     public:
-      size_t operator()(const key_val_type &key_value) noexcept
+      uint64_t operator()(const key_val_type &key_value) noexcept
       {
-        size_t first_hash_value = first_hash_functions_object(key_value.first);
+        uint64_t first_hash_value = first_hash_functions_object(key_value.first);
         first_hash_value = first_hash_value * 31;
-        size_t second_hash_value = second_hash_functions_object(key_value.second);
+        uint64_t second_hash_value = second_hash_functions_object(key_value.second);
         second_hash_value = second_hash_value * 31;
         return (first_hash_value + second_hash_value);
       }
@@ -220,14 +220,14 @@ namespace map_container
 
     iterator find(const key_val_type &key_value) { return instance_hash_map.find(key_value); }
 
-    size_t size() { return instance_hash_map.size(); }
+    uint64_t size() { return instance_hash_map.size(); }
 
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return instance_hash_map.size();
     }
 
-    [[nodiscard]] size_t capacity() const
+    [[nodiscard]] uint64_t capacity() const
     {
       return instance_hash_map.capacity();
     }

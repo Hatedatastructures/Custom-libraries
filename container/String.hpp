@@ -164,15 +164,15 @@ namespace string_container
 	{
 	private:
 		char *_data;
-		size_t _size;
-		size_t _capacity;
+		uint64_t _size;
+		uint64_t _capacity;
 
 	public:
 		using iterator = char *;
 		using const_iterator = const char *;
 		using reverse_iterator = iterator;
 		using const_reverse_iterator = const_iterator;
-		constexpr static const size_t nops = -1;
+		constexpr static const uint64_t nops = -1;
 		[[nodiscard]] iterator begin() const noexcept
 		{
 			return _data;
@@ -218,12 +218,12 @@ namespace string_container
 			return _size == 0;
 		}
 
-		[[nodiscard]] size_t size() const noexcept
+		[[nodiscard]] uint64_t size() const noexcept
 		{
 			return _size;
 		}
 
-		[[nodiscard]] size_t capacity() const noexcept
+		[[nodiscard]] uint64_t capacity() const noexcept
 		{
 			return _capacity;
 		}
@@ -278,7 +278,7 @@ namespace string_container
 				: _data(nullptr), _size(str_data._size), _capacity(str_data._capacity)
 		{
 			// 拷贝构造函数，拿传入对象的变量初始化本地变量，对于涉及开辟内存的都要深拷贝
-			size_t capacity = str_data._capacity;
+			uint64_t capacity = str_data._capacity;
 			_data = new char[capacity + 1];
 			// algorithm::copy(_data,_data+capacity,str_data._data); const对象出错
 			std::strcpy(_data, str_data._data);
@@ -332,15 +332,15 @@ namespace string_container
 			}
 			return *this;
 		}
-		// size_t str_substring_kmp(const char*& sub_string)
+		// uint64_t str_substring_kmp(const char*& sub_string)
 		// {
 		//     //查找子串
 		// }
 		string &prepend(const char *sub_string)
 		{
 			// 前duan插入子串
-			size_t len = strlen(sub_string);
-			size_t new_size = _size + len;
+			uint64_t len = strlen(sub_string);
+			uint64_t new_size = _size + len;
 			allocate_resources(new_size);
 			char *temporary_buffers = new char[_capacity + 1];
 			// 临时变量
@@ -353,7 +353,7 @@ namespace string_container
 			delete[] temporary_buffers;
 			return *this;
 		}
-		string &insert_sub_string(const char *sub_string, const size_t &start_position)
+		string &insert_sub_string(const char *sub_string, const uint64_t &start_position)
 		{
 			try
 			{
@@ -362,8 +362,8 @@ namespace string_container
 				{
 					throw custom_exception::customize_exception("传入参数位置越界", "insert_sub_string", __LINE__);
 				}
-				size_t len = strlen(sub_string);
-				size_t new_size = _size + len;
+				uint64_t len = strlen(sub_string);
+				uint64_t new_size = _size + len;
 				allocate_resources(new_size);
 				char *temporary_buffers = new char[new_size + 1];
 				// 临时变量
@@ -382,7 +382,7 @@ namespace string_container
 				throw;
 			}
 		}
-		[[nodiscard]] string sub_string(const size_t &start_position) const
+		[[nodiscard]] string sub_string(const uint64_t &start_position) const
 		{
 			// 提取字串到'\0'
 			try
@@ -398,14 +398,14 @@ namespace string_container
 				throw;
 			}
 			string result;
-			size_t sub_len = _size - start_position;
+			uint64_t sub_len = _size - start_position;
 			result.allocate_resources(sub_len);
 			std::strncpy(result._data, _data + start_position, sub_len);
 			result._size = sub_len;
 			result._data[result._size] = '\0';
 			return result;
 		}
-		[[nodiscard]] string sub_string_from(const size_t &start_position) const
+		[[nodiscard]] string sub_string_from(const uint64_t &start_position) const
 		{
 			// 提取字串到末尾
 			try
@@ -421,14 +421,14 @@ namespace string_container
 				throw;
 			}
 			string result;
-			size_t sub_len = _size - start_position;
+			uint64_t sub_len = _size - start_position;
 			result.allocate_resources(sub_len);
 			std::strncpy(result._data, _data + start_position, sub_len);
 			result._size = sub_len;
 			result._data[result._size] = '\0';
 			return result;
 		}
-		[[nodiscard]] string sub_string(const size_t &start_position, const size_t &terminate_position) const
+		[[nodiscard]] string sub_string(const uint64_t &start_position, const uint64_t &terminate_position) const
 		{
 			// 提取字串到指定位置
 			try
@@ -444,7 +444,7 @@ namespace string_container
 				throw;
 			}
 			string result;
-			size_t sub_len = terminate_position - start_position;
+			uint64_t sub_len = terminate_position - start_position;
 			result.allocate_resources(sub_len);
 			// strncpy更安全
 			std::strncpy(result._data, _data + start_position, sub_len);
@@ -452,7 +452,7 @@ namespace string_container
 			result._data[result._size] = '\0';
 			return result;
 		}
-		void allocate_resources(const size_t &new_inaugurate_capacity)
+		void allocate_resources(const uint64_t &new_inaugurate_capacity)
 		{
 			// 检查string空间大小，来分配内存
 			if (new_inaugurate_capacity <= _capacity)
@@ -472,7 +472,7 @@ namespace string_container
 		{
 			if (_size == _capacity)
 			{
-				size_t newcapacity = _capacity == 0 ? 2 : _capacity * 2;
+				uint64_t newcapacity = _capacity == 0 ? 2 : _capacity * 2;
 				allocate_resources(newcapacity);
 			}
 			_data[_size] = temporary_str_data;
@@ -482,10 +482,10 @@ namespace string_container
 		}
 		string &push_back(const string &temporary_string_data)
 		{
-			size_t len = _size + temporary_string_data._size;
+			uint64_t len = _size + temporary_string_data._size;
 			if (len > _capacity)
 			{
-				size_t new_container_capacity = len;
+				uint64_t new_container_capacity = len;
 				allocate_resources(new_container_capacity);
 			}
 			std::strncpy(_data + _size, temporary_string_data._data, temporary_string_data.size());
@@ -499,8 +499,8 @@ namespace string_container
 			{
 				return *this;
 			}
-			const size_t len = strlen(temporary_str_ptr_data);
-			const size_t new_container_capacity = len + _size;
+			const uint64_t len = strlen(temporary_str_ptr_data);
+			const uint64_t new_container_capacity = len + _size;
 			if (new_container_capacity > _capacity)
 			{
 				allocate_resources(new_container_capacity);
@@ -510,7 +510,7 @@ namespace string_container
 			_data[_size] = '\0';
 			return *this;
 		}
-		string &resize(const size_t &inaugurate_size, const char &default_data = '\0')
+		string &resize(const uint64_t &inaugurate_size, const char &default_data = '\0')
 		{
 			// 扩展字符串长度
 			if (inaugurate_size > _capacity)
@@ -540,7 +540,7 @@ namespace string_container
 			}
 			return *this;
 		}
-		iterator reserve(const size_t &new_container_capacity)
+		iterator reserve(const uint64_t &new_container_capacity)
 		{
 			try
 			{
@@ -582,7 +582,7 @@ namespace string_container
 			}
 			return reversed_string;
 		}
-		[[nodiscard]] string reverse_sub_string(const size_t &start_position, const size_t &terminate_position) const
+		[[nodiscard]] string reverse_sub_string(const uint64_t &start_position, const uint64_t &terminate_position) const
 		{
 			try
 			{
@@ -624,7 +624,7 @@ namespace string_container
 				if (this != &str_data) // 防止无意义拷贝
 				{
 					delete[] _data;
-					size_t capacity = str_data._capacity;
+					uint64_t capacity = str_data._capacity;
 					_data = new char[capacity + 1];
 					std::strncpy(_data, str_data._data, str_data.size());
 					_capacity = str_data._capacity;
@@ -644,7 +644,7 @@ namespace string_container
 			try
 			{
 				delete[] _data;
-				size_t capacity = strlen(str_data);
+				uint64_t capacity = strlen(str_data);
 				_data = new char[capacity + 1];
 				std::strncpy(_data, str_data, strlen(str_data));
 				_capacity = capacity;
@@ -672,7 +672,7 @@ namespace string_container
 		}
 		string &operator+=(const string &str_data)
 		{
-			size_t len = _size + str_data._size;
+			uint64_t len = _size + str_data._size;
 			allocate_resources(len);
 			std::strncpy(_data + _size, str_data._data, str_data.size());
 			_size = _size + str_data._size;
@@ -685,7 +685,7 @@ namespace string_container
 			{
 				return false;
 			}
-			for (size_t compare_traversal = 0; compare_traversal < _size; compare_traversal++)
+			for (uint64_t compare_traversal = 0; compare_traversal < _size; compare_traversal++)
 			{
 				if (_data[compare_traversal] != str_data._data[compare_traversal])
 				{
@@ -696,8 +696,8 @@ namespace string_container
 		}
 		bool operator<(const string &str_data) const noexcept
 		{
-			size_t min_len = _size < str_data._size ? _size : str_data._size;
-			for (size_t compare_traversal = 0; compare_traversal < min_len; compare_traversal++)
+			uint64_t min_len = _size < str_data._size ? _size : str_data._size;
+			for (uint64_t compare_traversal = 0; compare_traversal < min_len; compare_traversal++)
 			{
 				if (_data[compare_traversal] != str_data._data[compare_traversal])
 				{
@@ -708,8 +708,8 @@ namespace string_container
 		}
 		bool operator>(const string &str_data) const noexcept
 		{
-			size_t min_len = _size < str_data._size ? _size : str_data._size;
-			for (size_t compare_traversal = 0; compare_traversal < min_len; compare_traversal++)
+			uint64_t min_len = _size < str_data._size ? _size : str_data._size;
+			for (uint64_t compare_traversal = 0; compare_traversal < min_len; compare_traversal++)
 			{
 				if (_data[compare_traversal] != str_data._data[compare_traversal])
 				{
@@ -718,7 +718,7 @@ namespace string_container
 			}
 			return _size > str_data._size;
 		}
-		char &operator[](const size_t &access_location)
+		char &operator[](const uint64_t &access_location)
 		{
 			try
 			{
@@ -738,7 +738,7 @@ namespace string_container
 			}
 			// 就像_data在外面就能访问它以及它的成员，所以这种就可以理解成出了函数作用域还在，进函数之前也能访问的就是引用
 		}
-		const char &operator[](const size_t &access_location) const
+		const char &operator[](const uint64_t &access_location) const
 		{
 			try
 			{
@@ -760,7 +760,7 @@ namespace string_container
 		[[nodiscard]] string operator+(const string &string_array) const
 		{
 			string return_string_object;
-			const size_t object_len = _size + string_array._size;
+			const uint64_t object_len = _size + string_array._size;
 			return_string_object.allocate_resources(object_len);
 			std::strncpy(return_string_object._data, _data, size());
 			std::strncpy(return_string_object._data + _size, string_array._data, string_array.size());

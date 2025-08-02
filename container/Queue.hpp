@@ -96,7 +96,7 @@ namespace queue_adapter
       list_object.pop_front();
     }
 
-    [[nodiscard]] size_t size() const noexcept
+    [[nodiscard]] uint64_t size() const noexcept
     {
       return list_object.size();
     }
@@ -308,13 +308,13 @@ namespace queue_adapter
     {
       return vector_container_object.empty();
     }
-    size_t size() noexcept
+    uint64_t size() noexcept
     {
       return vector_container_object.size();
     }
     void pop()
     {
-      con::algorithm::swap(vector_container_object[0], vector_container_object[vector_container_object.size() - static_cast<size_t>(1)]);
+      con::algorithm::swap(vector_container_object[0], vector_container_object[vector_container_object.size() - static_cast<uint64_t>(1)]);
       vector_container_object.pop_back();
       priority_queue_adjust_downwards();
     }

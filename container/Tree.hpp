@@ -139,7 +139,7 @@ namespace tree_container
         root_subtree_node = root_subtree_node->_right;
       }
     }
-    size_t interior_middle_order_traversal(container_node *root_subtree_node, size_t &node_counter)
+    uint64_t interior_middle_order_traversal(container_node *root_subtree_node, uint64_t &node_counter)
     {
       con::stack<container_node *> interior_stack;
       while (root_subtree_node != nullptr || !interior_stack.empty())
@@ -423,14 +423,14 @@ namespace tree_container
       }
       return *this;
     }
-    size_t size()
+    uint64_t size()
     {
-      size_t _size = 0;
+      uint64_t _size = 0;
       return interior_middle_order_traversal(_root, _size);
     }
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
-      size_t node_number_counter = 0;
+      uint64_t node_number_counter = 0;
       return interior_middle_order_traversal(_root, node_number_counter);
     }
     container_node *find(const binary_search_tree_type &find_node)
@@ -1027,9 +1027,9 @@ namespace tree_container
         root_subtree_node = root_subtree_node->_right;
       }
     }
-    size_t _size()
+    uint64_t _size()
     {
-      size_t avl_tree_node_counters = 0;
+      uint64_t avl_tree_node_counters = 0;
       if (_root == nullptr)
       {
         return avl_tree_node_counters;
@@ -1246,12 +1246,12 @@ namespace tree_container
       clear();
     }
 
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return _size();
     }
 
-    [[nodiscard]] size_t size()
+    [[nodiscard]] uint64_t size()
     {
       return _size();
     }

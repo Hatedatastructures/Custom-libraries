@@ -11,27 +11,27 @@ namespace hash
 
    * 核心操作符:
 
-   * * - 针对不同基础类型重载的 `operator()`，均返回 `size_t` 类型的哈希值
+   * * - 针对不同基础类型重载的 `operator()`，均返回 `uint64_t` 类型的哈希值
    *
-   *     - `int`: 直接转换为 `size_t`
+   *     - `int`: 直接转换为 `uint64_t`
    *
-   *     - `size_t`: 直接返回原值
+   *     - `uint64_t`: 直接返回原值
    *
-   *     - `char`: 转换为对应的 `size_t` 值
+   *     - `char`: 转换为对应的 `uint64_t` 值
    *
-   *     - `double`: 转换为 `size_t`（注意：可能丢失精度）
+   *     - `double`: 转换为 `uint64_t`（注意：可能丢失精度）
    *
-   *     - `float`: 转换为 `size_t`（注意：可能丢失精度）
+   *     - `float`: 转换为 `uint64_t`（注意：可能丢失精度）
    *
-   *     - `long`: 转换为 `size_t`
+   *     - `long`: 转换为 `uint64_t`
    *
-   *     - `short`: 转换为 `size_t`
+   *     - `short`: 转换为 `uint64_t`
    *
-   *     - `long long`: 转换为 `size_t`
+   *     - `long long`: 转换为 `uint64_t`
    *
-   *     - `unsigned int`: 转换为 `size_t`
+   *     - `unsigned int`: 转换为 `uint64_t`
    *
-   *     - `unsigned short`: 转换为 `size_t`
+   *     - `unsigned short`: 转换为 `uint64_t`
 
    * 特性:
 
@@ -66,16 +66,16 @@ namespace hash
   {
   public:
     template <typename hash_type>
-    [[nodiscard]] size_t operator()(const hash_type &data) noexcept
+    [[nodiscard]] uint64_t operator()(const hash_type &data) noexcept
     {
-      return static_cast<size_t>(data);
+      return static_cast<uint64_t>(data);
     }
-    [[nodiscard]] size_t operator()(const con::string &data_string) noexcept
+    [[nodiscard]] uint64_t operator()(const con::string &data_string) noexcept
     {
-      size_t hash_value = 0;
+      uint64_t hash_value = 0;
       for (auto &str : data_string)
       {
-        hash_value += static_cast<size_t>(str) * 31;
+        hash_value += static_cast<uint64_t>(str) * 31;
       }
       return hash_value;
     }
@@ -154,33 +154,33 @@ namespace hash
       }
       ~hash_function() = default;
       hash_if hash_imitation_functions_object;
-      [[nodiscard]] constexpr size_t hash_sdmmhash(const hash_algorithm_type &data_hash) noexcept
+      [[nodiscard]] constexpr uint64_t hash_sdmmhash(const hash_algorithm_type &data_hash) noexcept
       {
-        size_t return_value = hash_imitation_functions_object(data_hash);
+        uint64_t return_value = hash_imitation_functions_object(data_hash);
         return_value = 65599 * return_value;
         return return_value;
       }
-      [[nodiscard]] constexpr size_t hash_bkdrhash(const hash_algorithm_type &data_hash) noexcept
+      [[nodiscard]] constexpr uint64_t hash_bkdrhash(const hash_algorithm_type &data_hash) noexcept
       {
-        size_t return_value = hash_imitation_functions_object(data_hash);
+        uint64_t return_value = hash_imitation_functions_object(data_hash);
         return_value = 131 * return_value;
         return return_value;
       }
-      [[nodiscard]] constexpr size_t hash_djbhash(const hash_algorithm_type &data_hash) noexcept
+      [[nodiscard]] constexpr uint64_t hash_djbhash(const hash_algorithm_type &data_hash) noexcept
       {
-        size_t return_value = hash_imitation_functions_object(data_hash);
+        uint64_t return_value = hash_imitation_functions_object(data_hash);
         return_value = 33 * return_value;
         return return_value;
       }
-      [[nodiscard]] constexpr size_t hash_aphash(const hash_algorithm_type &data_hash) noexcept
+      [[nodiscard]] constexpr uint64_t hash_aphash(const hash_algorithm_type &data_hash) noexcept
       {
-        size_t return_value = hash_imitation_functions_object(data_hash);
+        uint64_t return_value = hash_imitation_functions_object(data_hash);
         return_value = return_value * 1031;
         return return_value;
       }
-      [[nodiscard]] constexpr size_t hash_pjwhash(const hash_algorithm_type &data_hash) noexcept
+      [[nodiscard]] constexpr uint64_t hash_pjwhash(const hash_algorithm_type &data_hash) noexcept
       {
-        size_t return_value = hash_imitation_functions_object(data_hash);
+        uint64_t return_value = hash_imitation_functions_object(data_hash);
         return_value = (return_value << 2) + return_value;
         return return_value;
       }

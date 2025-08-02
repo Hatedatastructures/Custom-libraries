@@ -1,14 +1,46 @@
 #include "produce_consume.hpp"
-#include <iostream>
-#include <iostream>
 #include <ctime>
+#include <thread>
+#include <string>
 #include <windows.h>
-void test()
+#include <iostream>
+void read(producer_consumer_queue<std::string> &q)
 {
-  producer_consumer_queue<int> q;
-  producers_consumers_queue<int> pcq();
+  for(int i = 0; i < 100; i++)
+  {
+    std::string ttmp;
+    if(q.pop(ttmp))
+    {
+      std::cout << "read " << ttmp << std::endl;
+    }
+    Sleep(100);
+  }
+}
+void write(producer_consumer_queue<std::string> &q)
+{
+  for(int i = 0; i < 100; i++)
+  {
+    q.push("单生产单消费队列测试： 这是第" + std::to_string(i) + "个数据");
+    Sleep(100);
+  }
+  // std::cout << "write " << j << std::endl;
+}
+void test_queue()
+{
+  producer_consumer_queue<std::string> q;
+  std::thread write_thread ([&q](){write(q);});
+  std::thread read_thread ([&q](){read(q);});
+  write_thread.join();
+  read_thread.join();
+}
+void tests_queue()
+{
+ producers_consumers_semaphore_queue<std::string,100ULL> q;
 }
 int main()
 {
+  test_queue();
+  tests_queue();
+  // std::cout << "hello world" << std::endl;
   return  0;
 }

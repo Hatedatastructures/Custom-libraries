@@ -7,52 +7,53 @@
 #include <thread>
 #include <vector>
 /**
-* @brief #### 单生产单消费无锁队列类(SPSC)
-* @tparam  producer_consumer_type
+* @brief #### 单生产单消费无锁队列类`(SPSC)`
+* @tparam  producer_consumer_type 数据类型
+* @warning 在严格 `SPSC` 场景下，容器保证线程安全
 **/
 template<typename producer_consumer_type>
 class producer_consumer_queue
 {
 private:
-  std::atomic<size_t> _producer;
-  std::atomic<size_t> _consumer;
-  const size_t _current_capacity;
-  static constexpr size_t _default_capacity = 10;
+  std::atomic<uint64_t> _producer;
+  std::atomic<uint64_t> _consumer;
+  const uint64_t _current_capacity;
+  static constexpr uint64_t _default_capacity = 10;
   std::vector<producer_consumer_type> _shared_circular_queue;
-  size_t compute_position(size_t index) const
+  uint64_t compute_position(uint64_t index) const
   {
     return index % _current_capacity;
   }
 public:
-  explicit producer_consumer_queue(const size_t new_capacity = _default_capacity):_producer(0),_consumer(0),
-  _current_capacity(std::max(new_capacity,static_cast<size_t>(1))),_shared_circular_queue(_current_capacity){}
+  explicit producer_consumer_queue(const uint64_t new_capacity = _default_capacity):_producer(0),_consumer(0),
+  _current_capacity(std::max(new_capacity,static_cast<uint64_t>(1))),_shared_circular_queue(_current_capacity){}
   producer_consumer_queue(const producer_consumer_queue& another_queue) = delete;
   producer_consumer_queue(producer_consumer_queue&& another_queue) noexcept = delete;
   producer_consumer_queue& operator=(const producer_consumer_queue& another_queue) = delete;
   producer_consumer_queue& operator=(producer_consumer_queue&& another_queue) noexcept = delete;
-  template<typename push_type>
-  bool push(push_type&& produce_data)
+  bool push(producer_consumer_type&& produce_data)
   {
-    const size_t current_producer = _producer.fetch_add(1,std::memory_order_relaxed);
-    const size_t position = compute_position(current_producer);
+    const uint64_t current_producer = _producer.fetch_add(1,std::memory_order_relaxed);
+    const uint64_t position = compute_position(current_producer);
     if(current_producer - _consumer.load(std::memory_order_acquire) >= _current_capacity)
     {
       _producer.fetch_sub(1,std::memory_order_release);
       return false;
     }
-    _shared_circular_queue[position] = std::forward<push_type>(produce_data);
+    _shared_circular_queue[position] = std::forward<producer_consumer_type>(produce_data);
+    std::atomic_thread_fence(std::memory_order_release);
     return true;
   }
-  template<typename consume_type>
   bool pop(producer_consumer_type& consume_data)
   {
-    const size_t current_consumer = _consumer.fetch_add(1,std::memory_order_relaxed);
-    const size_t position = compute_position(current_consumer);
+    const uint64_t current_consumer = _consumer.fetch_add(1,std::memory_order_relaxed);
+    const uint64_t position = compute_position(current_consumer);
     if(current_consumer >= _producer.load(std::memory_order_acquire))
     {
       _consumer.fetch_sub(1,std::memory_order_release);
       return false;
     }
+    std::atomic_thread_fence(std::memory_order_acquire);
     consume_data = _shared_circular_queue[position];
     return true;
   }
@@ -64,22 +65,22 @@ public:
   {
     return _producer.load(std::memory_order_acquire) - _consumer.load(std::memory_order_acquire) == _current_capacity;
   }
-  size_t size() const
+  uint64_t size() const
   {
     return _producer.load(std::memory_order_acquire) - _consumer.load(std::memory_order_acquire);
   }
 };
 /**
  * @brief #### 多生产多消费有锁队列类(MPSC)
- * @tparam producers_consumers_type
+ * @tparam producers_consumers_type 数据类型
  */
 template<typename producers_consumers_type>
 class producers_consumers_queue
 {
 private:
   mutable std::mutex _access_lock;
-  size_t _current_capacity;
-  static constexpr size_t _default_capacity = 10;
+  uint64_t _current_capacity;
+  static constexpr uint64_t _default_capacity = 10;
   std::queue<producers_consumers_type> _shared_queue;
   std::atomic<bool> _close_identifier = false;
   std::condition_variable _produce_thread_condition;
@@ -98,8 +99,8 @@ private:
     _shared_queue.push(std::forward<enqueue_type>(produce_data));
   }
 public:
-  producers_consumers_queue(const size_t new_capacity = _default_capacity)
-  :_current_capacity(std::max(new_capacity,static_cast<size_t>(1))){}
+  producers_consumers_queue(const uint64_t new_capacity = _default_capacity)
+  :_current_capacity(std::max(new_capacity,static_cast<uint64_t>(1))){}
   producers_consumers_queue(const producers_consumers_queue& another_queue) = delete;
   producers_consumers_queue(producers_consumers_queue&& another_queue) noexcept = delete;
   producers_consumers_queue& operator=(const producers_consumers_queue& another_queue) = delete;
@@ -229,97 +230,88 @@ public:
     return _close_identifier.load(std::memory_order_acquire);
   }
 };
-template<typename producers_consumers_semaphore_type>
-class producers_consumers_semaphore_queue
-{
-private:
-  std::vector<producers_consumers_semaphore_type> _circular_queue;
-};
+/**
+ * @brief #### 生产者消费者有锁信号量队列
+ * @tparam producers_consumers_semaphore_type  数据类型
+ * @tparam largest_semaphore 最大信号量 , 默认`10`
+ * @warning - 模板参数最大信号量尽量和队列长度保持一致
+ * @warning - 更改信号量就是更改队列长度
+ */
+// template<typename producers_consumers_semaphore_type,uint64_t largest_semaphore = 10ULL>
+// class producers_consumers_semaphore_queue
+// {
+// private:
+//   static constexpr uint64_t _default_queue_capacity = largest_semaphore;
+//   std::vector<producers_consumers_semaphore_type> _circular_shared_queue;
+//   std::counting_semaphore<largest_semaphore> _produce_semaphore;
+//   std::counting_semaphore<largest_semaphore> _consume_semaphore;
+//   std::atomic<uint64_t> _current_queue_size;
+//   std::atomic<bool> _close_identifier;
+// public:
+// };
 template<typename producers_consumers_type>
 class producer_consumer_queues
 {
-  static constexpr size_t _default_capacity = 10;
-  private: 
-    size_t _current_capacity;
-    std::atomic<bool> _close_identifier;
-    std::mutex _produce_mutex,_consume_mtutex;
-    std::atomic<bool> _switchover_identifier;
-    std::queue<producers_consumers_type> _produce_pipe;
-    std::queue<producers_consumers_type> _consume_pipe;
-    std::condition_variable _produce_thread_condition;
-    std::condition_variable _consume_thread_condition;
-    std::atomic<std::queue<producers_consumers_type>*> _produce;
-    std::atomic<std::queue<producers_consumers_type>*> _consume;
-  public:
+  static constexpr uint64_t _default_capacity = 10;
+private: 
+  uint64_t _current_capacity;
+  std::atomic<bool> _close_identifier;
+  std::mutex _produce_mutex,_consume_mutex;
+  std::atomic<bool> _switchover_identifier;
+  std::queue<producers_consumers_type> _produce_pipe;
+  std::queue<producers_consumers_type> _consume_pipe;
+  std::condition_variable _produce_thread_condition;
+  std::condition_variable _consume_thread_condition;
+  std::atomic<std::queue<producers_consumers_type>*> _produce;
+  std::atomic<std::queue<producers_consumers_type>*> _consume;
+  void queue_switchover()
+  {
+    auto* tmp_produce = _produce.load(std::memory_order_relaxed);
+    _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_relaxed);
+    _consume.store(tmp_produce,std::memory_order_relaxed);
+  }
+public:
+  producer_consumer_queues(uint64_t capacity = _default_capacity)
+  :_current_capacity(capacity),_close_identifier(false),_switchover_identifier(false),
+  _produce(&_produce_pipe),_consume(&_consume_pipe){}
+  producer_consumer_queues(const producer_consumer_queues& other) = delete;
+  producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;
+  producer_consumer_queues(producer_consumer_queues&& other) = default;
+  producer_consumer_queues& operator=(producer_consumer_queues&& other) = default;
+  bool push(const producers_consumers_type& produce_data)
+  {
+    if(_close_identifier.load(std::memory_order_relaxed)) return false;
+    std::unique_lock<std::mutex> produce_lock(_produce_mutex);
+    if(_produce.load(std::memory_order_relaxed)->size() >= _current_capacity)
+    {
+      std::unique_lock<std::mutex> consume_lock(_consume_mutex);
+      auto status = [this](){return _switchover_identifier.load(std::memory_order_acquire);};
+      _produce_thread_condition.wait(consume_lock,status);
+      queue_switchover();
+      _switchover_identifier.store(false,std::memory_order_release);
+      consume_lock.unlock();
+      _consume_thread_condition.notify_one();
+    }
+    _produce.load(std::memory_order_relaxed)->push(produce_data);
+    return true;
+  }
+  bool pop(producers_consumers_type& consume_data)
+  {
+    std::unique_lock<std::mutex> consume_lock(_consume_mutex);
+    if(_consume.load(std::memory_order_relaxed)->empty())
+    {
+      _switchover_identifier.store(true,std::memory_order_release);
+      auto status = [this]() {return !_switchover_identifier.load(std::memory_order_acquire);};
+      _consume_thread_condition.wait(consume_lock,status);
+    }
+    if(_consume.load(std::memory_order_relaxed)->empty()) return false;
+    consume_data = _consume.load(std::memory_order_relaxed)->front();
+    _consume.load(std::memory_order_relaxed)->pop();
+    _produce_thread_condition.notify_one();
+    return true;
+  }
+  void flush()
+  {
+
+  }
 };
-// class task
-// {
-//   using _func_t = std::function<int(int,int)>;
-// public:
-//   std::string _task_name;
-//   _func_t _func;
-//   task(){}
-//   task(const std::string& task_name, const _func_t& func)
-//   :_task_name(task_name),_func(func){}
-//   int operator()(int first,int second) const
-//   {
-//     return _func(first,second);
-//   }
-//   ~task(){}
-// };
-// std::mutex _cout_mutex;
-// std::atomic<size_t> _size = {0};
-// void read(producers_consumers_queue<task>& task_queue)
-// {
-//   while(true)
-//   {
-//     task read_task;
-//     if(task_queue.pop(read_task))
-//     { 
-//       std::lock_guard<std::mutex> cout_lock(_cout_mutex);
-//       _size++;
-//       std::cout << read_task._task_name << " " << read_task(rand()%10000,rand()%10000) << std::endl;
-//     }
-//     else
-//     {
-//       break;
-//     }
-//   }
-// }
-// void write(producers_consumers_queue<task>& task_queue,const std::string& task_name)
-// {
-//   while(true)
-//   {
-//     if(!task_queue.push(task(task_name,[](int a,int b){return a*b;})))
-//     {
-//       break;
-//     }
-//   }
-// }
-// int main()
-// {
-//   srand(time(nullptr));
-//   std::vector<std::thread> read_threads;
-//   std::vector<std::thread> write_threads;
-//   producers_consumers_queue<task> task_queue;
-//   for(int i = 0; i < 3; ++i)
-//   {
-//     write_threads.emplace_back(write,std::ref(task_queue),"write_tread" + std::to_string(i));
-//   }
-//   for(int i = 0; i < 3; ++i)
-//   {
-//     read_threads.emplace_back(read,std::ref(task_queue));
-//   }
-//   Sleep(11000);
-//   task_queue.close();
-//   for(auto& thread : write_threads)
-//   {
-//     thread.join();
-//   }
-//   for(auto& thread : read_threads)
-//   {
-//     thread.join();
-//   }
-//   std::cout << _size << std::endl;
-//   return 0;
-// }

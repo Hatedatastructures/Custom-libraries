@@ -113,7 +113,7 @@ namespace set_container
 
     void pre_order_traversal() { instance_tree_set.pre_order_traversal(); }
 
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return instance_tree_set.size();
     }
@@ -172,7 +172,7 @@ namespace set_container
       external_hash_functions hash_functions_object;
 
     public:
-      size_t operator()(const key_val_type &key_value)
+      uint64_t operator()(const key_val_type &key_value)
       {
         return hash_functions_object(key_value) * 131;
       }
@@ -210,18 +210,18 @@ namespace set_container
 
     iterator find(const key_val_type &set_type_data) { return instance_hash_set.find(set_type_data); }
 
-    size_t size() { return instance_hash_set.size(); }
+    uint64_t size() { return instance_hash_set.size(); }
 
     bool empty() { return instance_hash_set.empty(); }
 
-    size_t capacity() { return instance_hash_set.capacity(); }
+    uint64_t capacity() { return instance_hash_set.capacity(); }
 
-    [[nodiscard]] size_t size() const
+    [[nodiscard]] uint64_t size() const
     {
       return instance_hash_set.size();
     }
 
-    [[nodiscard]] size_t capacity() const
+    [[nodiscard]] uint64_t capacity() const
     {
       return instance_hash_set.capacity();
     }

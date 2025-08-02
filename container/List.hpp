@@ -408,10 +408,10 @@ namespace list_container
       return reverse_const_iterator(cbegin());
     }
 
-    [[nodiscard]] size_t size() const noexcept
+    [[nodiscard]] uint64_t size() const noexcept
     {
       container_node *current_node = _head->_next;
-      size_t count = 0;
+      uint64_t count = 0;
       while (current_node != _head)
       {
         count++;
@@ -550,9 +550,9 @@ namespace list_container
         throw;
       }
     }
-    void resize(const size_t new_container_size, const list_type &list_type_data = list_type())
+    void resize(const uint64_t new_container_size, const list_type &list_type_data = list_type())
     {
-      if (size_t container_size = size(); new_container_size <= container_size)
+      if (uint64_t container_size = size(); new_container_size <= container_size)
       {
         // 有效元素个数减少到new_container_size
         while (new_container_size < container_size)

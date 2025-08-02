@@ -189,7 +189,7 @@ namespace instrument
 using callback_function = std::function<void(const custom_string )>;
 namespace cushioning
 {
-  static constexpr size_t CACHE_LINE = 64; // 使用预定义的值
+  static constexpr uint64_t CACHE_LINE = 64; // 使用预定义的值
   /**
    * #### 底层缓存实现类，采用生产者-消费者模型
    * - 采用双缓冲区 `primary/secondary` 实现高效数据生产与消费，
@@ -207,9 +207,9 @@ namespace cushioning
   {
   private:
     std::mutex produce_mutex,consume_mutex;                                                     // 生产消费锁
-    size_t single_container_capacity;                                                           // 单个容器容量
+    uint64_t single_container_capacity;                                                         // 单个容器容量
     std::thread background_consumption;                                                         // 后台输出线程
-    static constexpr size_t default_capacity = 10;                                              // 默认容量
+    static constexpr uint64_t default_capacity = 10;                                            // 默认容量
     std::condition_variable conditional_variables;                                              // 条件变量
     alignas(CACHE_LINE) std::atomic<bool> running_identifier,consume_identifier;                // 运行消费标识
     alignas(CACHE_LINE) boost::circular_buffer<custom_string> primary,secondary;                // 队列
@@ -253,7 +253,7 @@ namespace cushioning
       }
     }
   public:
-    underlying_cache(const size_t &container_capacity = default_capacity)
+    underlying_cache(const uint64_t &container_capacity = default_capacity)
     :single_container_capacity(container_capacity),running_identifier(true),consume_identifier(true),
     produce(&primary),consume(&secondary)
     {
@@ -310,10 +310,10 @@ namespace cushioning
     double usage_rate()
     {
       std::lock_guard<std::mutex> lock(produce_mutex);
-      size_t using_size = produce.load()->size() + consume.load()->size();
+      uint64_t using_size = produce.load()->size() + consume.load()->size();
       return static_cast<float>(using_size) / (2 * single_container_capacity);
     }
-    bool adjust_capacity(const size_t &new_container_capacity)
+    bool adjust_capacity(const uint64_t &new_container_capacity)
     { // 调整双队列大小
       if (new_container_capacity > produce.load()->size() && new_container_capacity > consume.load()->size())
       {
@@ -502,7 +502,7 @@ namespace resource_manager
 
   public:
     workflow_coordinator() = default;
-    workflow_coordinator(const size_t& capacity)
+    workflow_coordinator(const uint64_t& capacity)
     : cushioning_object(capacity){}
     workflow_coordinator(const workflow_coordinator&) = delete;
     workflow_coordinator& operator=(const workflow_coordinator&) = delete;
@@ -581,7 +581,7 @@ namespace resource_manager
   private:
     std::list<std::vector<custom_string>> primary_staging_area; //主缓冲区
     std::vector<custom_string> secondary_staging_area; //次缓冲区
-    std::atomic<size_t> staging_area_threshold; //缓冲区阈值
+    std::atomic<uint64_t> staging_area_threshold; //缓冲区阈值
     void clear()
     {
       primary_staging_area.clear();
@@ -590,7 +590,7 @@ namespace resource_manager
   public:
     staging_area()
     : staging_area_threshold(1000){}
-    staging_area(const size_t& staging_area_threshold)
+    staging_area(const uint64_t& staging_area_threshold)
     : staging_area_threshold(staging_area_threshold){}
     void push(custom_string && string_value)
     {
@@ -651,8 +651,8 @@ namespace recorders
   * #### 默认支持日志级别 ： `info` `warning` `error` `fatal`
   * 该类构造函数：
   * - `recorder()` 默认构造
-  * - `recorder(const size_t& processor_capacity)` 指定缓冲区大小
-  * - `recorder(const size_t& processor_capacity,const size_t& secondary_staging_capacity)` 指定缓冲区大小和暂存区大小
+  * - `recorder(const uint64_t& processor_capacity)` 指定缓冲区大小
+  * - `recorder(const uint64_t& processor_capacity,const uint64_t& secondary_staging_capacity)` 指定缓冲区大小和暂存区大小
   * #### 对于输出流都继承至 `controller::abstract_controller`抽象类
   * - `controller::console_controller` 控制台输出流
   * - `controller::file_controller` 文件输出流
@@ -668,7 +668,7 @@ namespace recorders
     std::vector<bool> situation_object;
     void filtration(instrument::situation_level level)
     {
-      size_t idx = static_cast<size_t>(level);
+      uint64_t idx = static_cast<uint64_t>(level);
       if (idx < situation_object.size())
       {
         situation_object[idx] = true;
@@ -676,8 +676,8 @@ namespace recorders
     }
   public:
     recorder():situation_object(4,false){}
-    recorder(const size_t& processor_capacity):processor(processor_capacity),situation_object(4, false){}
-    recorder(const size_t& processor_capacity,const size_t& secondary_staging_capacity)
+    recorder(const uint64_t& processor_capacity):processor(processor_capacity),situation_object(4, false){}
+    recorder(const uint64_t& processor_capacity,const uint64_t& secondary_staging_capacity)
     :processor(processor_capacity),staging_area(secondary_staging_capacity),situation_object(4, false){}
     /*
     * #### 向已添加的输出流输出数据 

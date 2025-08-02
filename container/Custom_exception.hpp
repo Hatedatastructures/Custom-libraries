@@ -37,10 +37,10 @@ namespace custom_exception
   private:
     char *message;
     char *function_name;
-    size_t line_number;
+    uint64_t line_number;
 
   public:
-    customize_exception(const char *message_target, const char *function_name_target, const size_t &line_number_target) noexcept
+    customize_exception(const char *message_target, const char *function_name_target, const uint64_t &line_number_target) noexcept
     {
       message = new char[std::strlen(message_target) + 1];
       std::strcpy(message, message_target);
@@ -56,7 +56,7 @@ namespace custom_exception
     {
       return function_name;
     }
-    [[nodiscard]] size_t line_number_get() const noexcept
+    [[nodiscard]] uint64_t line_number_get() const noexcept
     {
       return line_number;
     }

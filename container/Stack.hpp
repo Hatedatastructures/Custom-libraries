@@ -101,7 +101,7 @@ namespace stack_adapter
       vector_object.pop_back();
     }
 
-    size_t size() noexcept
+    uint64_t size() noexcept
     {
       return vector_object.size();
     }

@@ -147,12 +147,12 @@ namespace vector_container
     {
       return _size_pointer;
     }
-    [[nodiscard]] size_t size() const noexcept
+    [[nodiscard]] uint64_t size() const noexcept
     {
       return _data_pointer ? (_size_pointer - _data_pointer) : 0;
     }
 
-    [[nodiscard]] size_t capacity() const noexcept
+    [[nodiscard]] uint64_t capacity() const noexcept
     {
       return _data_pointer ? (_capacity_pointer - _data_pointer) : 0;
     }
@@ -188,10 +188,10 @@ namespace vector_container
       _size_pointer = nullptr;
       _capacity_pointer = nullptr;
     }
-    explicit vector(const size_t &container_capacity, const vector_type &vector_data = vector_type())
+    explicit vector(const uint64_t &container_capacity, const vector_type &vector_data = vector_type())
         : _data_pointer(new vector_type[container_capacity]), _size_pointer(_data_pointer + container_capacity), _capacity_pointer(_data_pointer + container_capacity)
     {
-      for (size_t corresponding_location = 0; corresponding_location < container_capacity; corresponding_location++)
+      for (uint64_t corresponding_location = 0; corresponding_location < container_capacity; corresponding_location++)
       {
         _data_pointer[corresponding_location] = vector_data;
       }
@@ -200,14 +200,14 @@ namespace vector_container
         : _data_pointer(new vector_type[lightweight_container.size()]), _size_pointer(_data_pointer + lightweight_container.size()), _capacity_pointer(_data_pointer + lightweight_container.size())
     {
       // 链式拷贝
-      size_t corresponding_location = 0;
+      uint64_t corresponding_location = 0;
       for (auto &chained_values : lightweight_container)
       {
         _data_pointer[corresponding_location] = std::move(chained_values);
         corresponding_location++;
       }
     }
-    vector_type &find(const size_t &find_size)
+    vector_type &find(const uint64_t &find_size)
     {
       try
       {
@@ -226,14 +226,14 @@ namespace vector_container
         throw;
       }
     }
-    vector<vector_type> &size_adjust(const size_t &data_size, const vector_type &padding_temp_data = vector_type())
+    vector<vector_type> &size_adjust(const uint64_t &data_size, const vector_type &padding_temp_data = vector_type())
     {
-      size_t container_size = size();
-      size_t container_capacity = capacity();
+      uint64_t container_size = size();
+      uint64_t container_capacity = capacity();
       if (data_size > container_capacity)
       {
         resize(data_size);
-        for (size_t assignment_traversal = container_capacity; assignment_traversal < data_size; ++assignment_traversal)
+        for (uint64_t assignment_traversal = container_capacity; assignment_traversal < data_size; ++assignment_traversal)
         {
           _data_pointer[assignment_traversal] = padding_temp_data;
         }
@@ -242,7 +242,7 @@ namespace vector_container
       {
         if (data_size > container_size)
         {
-          for (size_t assignment_traversal = container_size; assignment_traversal < data_size; ++assignment_traversal)
+          for (uint64_t assignment_traversal = container_size; assignment_traversal < data_size; ++assignment_traversal)
           {
             _data_pointer[assignment_traversal] = padding_temp_data;
           }
@@ -258,7 +258,7 @@ namespace vector_container
         : _data_pointer(vector_data.capacity() ? new vector_type[vector_data.capacity()] : nullptr),
           _size_pointer(_data_pointer + vector_data.size()), _capacity_pointer(_data_pointer + vector_data.capacity())
     {
-      for (size_t copy_assignment_traversal = 0; copy_assignment_traversal < vector_data.size(); copy_assignment_traversal++)
+      for (uint64_t copy_assignment_traversal = 0; copy_assignment_traversal < vector_data.size(); copy_assignment_traversal++)
       {
         _data_pointer[copy_assignment_traversal] = vector_data._data_pointer[copy_assignment_traversal];
       }
@@ -293,21 +293,21 @@ namespace vector_container
       --_size_pointer;
       return next_position; // 返回下一个位置地址
     }
-    vector<vector_type> &resize(const size_t &new_container_capacity, const vector_type &vector_data = vector_type())
+    vector<vector_type> &resize(const uint64_t &new_container_capacity, const vector_type &vector_data = vector_type())
     {
       try
       {
-        size_t original_size = size(); // 先保存原来的元素数量
-        if (static_cast<size_t>(_capacity_pointer - _data_pointer) < new_container_capacity)
+        uint64_t original_size = size(); // 先保存原来的元素数量
+        if (static_cast<uint64_t>(_capacity_pointer - _data_pointer) < new_container_capacity)
         {
           // 涉及到迭代器失效问题，不能调用size()函数，会释放未知空间
           auto new_vector_type_array = new vector_type[new_container_capacity];
           // 复制原先的数据
-          for (size_t original_data_traversal = 0; original_data_traversal < original_size; original_data_traversal++)
+          for (uint64_t original_data_traversal = 0; original_data_traversal < original_size; original_data_traversal++)
           {
             new_vector_type_array[original_data_traversal] = std::move(_data_pointer[original_data_traversal]);
           }
-          for (size_t assignment_traversal = original_size; assignment_traversal < new_container_capacity; ++assignment_traversal)
+          for (uint64_t assignment_traversal = original_size; assignment_traversal < new_container_capacity; ++assignment_traversal)
           {
             new_vector_type_array[assignment_traversal] = vector_data;
           }
@@ -330,7 +330,7 @@ namespace vector_container
     {
       if (_size_pointer == _capacity_pointer)
       {
-        const size_t new_container_capacity = _data_pointer == nullptr ? 10 : static_cast<size_t>((_capacity_pointer - _data_pointer) * 2);
+        const uint64_t new_container_capacity = _data_pointer == nullptr ? 10 : static_cast<uint64_t>((_capacity_pointer - _data_pointer) * 2);
         resize(new_container_capacity);
       }
       // 注意—_size_pointer是原生迭代器指针，需要解引用才能赋值
@@ -342,7 +342,7 @@ namespace vector_container
     {
       if (_size_pointer == _capacity_pointer)
       {
-        const size_t new_container_capacity = _data_pointer == nullptr ? 10 : static_cast<size_t>((_capacity_pointer - _data_pointer) * 2);
+        const uint64_t new_container_capacity = _data_pointer == nullptr ? 10 : static_cast<uint64_t>((_capacity_pointer - _data_pointer) * 2);
         resize(new_container_capacity);
       }
       // 注意_size_pointer是原生迭代器指针，需要解引用才能赋值
@@ -364,10 +364,10 @@ namespace vector_container
       // 头插
       if (_size_pointer == _capacity_pointer)
       {
-        const size_t new_container_size = _data_pointer == nullptr ? 10 : static_cast<size_t>((_capacity_pointer - _data_pointer) * 2);
+        const uint64_t new_container_size = _data_pointer == nullptr ? 10 : static_cast<uint64_t>((_capacity_pointer - _data_pointer) * 2);
         resize(new_container_size);
       }
-      for (size_t container_size = size(); container_size > 0; --container_size)
+      for (uint64_t container_size = size(); container_size > 0; --container_size)
       {
         _data_pointer[container_size] = _data_pointer[container_size - 1];
       }
@@ -379,7 +379,7 @@ namespace vector_container
     {
       if (size() > 0)
       {
-        for (size_t assignment_traversal = 1; assignment_traversal < size(); assignment_traversal++)
+        for (uint64_t assignment_traversal = 1; assignment_traversal < size(); assignment_traversal++)
         {
           _data_pointer[assignment_traversal - 1] = _data_pointer[assignment_traversal];
         }
@@ -387,7 +387,7 @@ namespace vector_container
       }
       return *this;
     }
-    vector_type &operator[](const size_t &access_location)
+    vector_type &operator[](const uint64_t &access_location)
     {
       try
       {
@@ -406,7 +406,7 @@ namespace vector_container
         throw;
       }
     }
-    const vector_type &operator[](const size_t &access_location) const
+    const vector_type &operator[](const uint64_t &access_location) const
     {
       // return _data_pointer[access_location];
       try
@@ -452,15 +452,15 @@ namespace vector_container
       {
         return *this;
       }
-      size_t vector_data_size = vector_data.size();
-      size_t container_size = size();
-      size_t container_capacity = capacity();
+      uint64_t vector_data_size = vector_data.size();
+      uint64_t container_size = size();
+      uint64_t container_capacity = capacity();
       if (vector_data_size + container_size > container_capacity)
       {
         resize(vector_data_size + container_size);
       }
-      size_t array_counter = 0;
-      for (size_t slicing_traversal = container_size; slicing_traversal < (vector_data_size + container_size); ++slicing_traversal)
+      uint64_t array_counter = 0;
+      for (uint64_t slicing_traversal = container_size; slicing_traversal < (vector_data_size + container_size); ++slicing_traversal)
       {
         _data_pointer[slicing_traversal] = vector_data._data_pointer[array_counter++];
       }
@@ -473,7 +473,7 @@ namespace vector_container
   template <typename const_vector_output_templates>
   std::ostream &operator<<(std::ostream &vector_ostream, const vector<const_vector_output_templates> &dynamic_arrays_data)
   {
-    for (size_t input_traversal = 0; input_traversal < dynamic_arrays_data.size(); input_traversal++)
+    for (uint64_t input_traversal = 0; input_traversal < dynamic_arrays_data.size(); input_traversal++)
     {
       vector_ostream << dynamic_arrays_data[input_traversal] << " ";
     }
