@@ -6,6 +6,9 @@
 #include <semaphore>
 #include <thread>
 #include <vector>
+#include "Concurrent_log.hpp"
+static constexpr uint64_t CACHE_ALIGNMENT = 64;
+rec::recorder dubug_log;
 /**
 * @brief #### 单生产单消费无锁队列类`(SPSC)`
 * @tparam  producer_consumer_type 数据类型
@@ -19,7 +22,7 @@ private:
   std::atomic<uint64_t> _consumer;
   const uint64_t _current_capacity;
   static constexpr uint64_t _default_capacity = 10;
-  std::vector<producer_consumer_type> _shared_circular_queue;
+  alignas(CACHE_ALIGNMENT) std::vector<producer_consumer_type> _shared_circular_queue;
   uint64_t compute_position(uint64_t index) const
   {
     return index % _current_capacity;
@@ -81,10 +84,10 @@ private:
   mutable std::mutex _access_lock;
   uint64_t _current_capacity;
   static constexpr uint64_t _default_capacity = 10;
-  std::queue<producers_consumers_type> _shared_queue;
   std::atomic<bool> _close_identifier = false;
   std::condition_variable _produce_thread_condition;
   std::condition_variable _consume_thread_condition;
+  alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _shared_queue;
   bool full_internal() const
   {
     return _shared_queue.size() == _current_capacity;
@@ -258,15 +261,16 @@ class producer_consumer_queues
   static constexpr uint64_t _default_capacity = 10;
 private: 
   uint64_t _current_capacity;
+  std::thread _supplementary_thread;
   std::atomic<bool> _close_identifier;
   std::mutex _produce_mutex,_consume_mutex;
   std::atomic<bool> _switch_identifier;
-  std::queue<producers_consumers_type> _produce_pipe;
-  std::queue<producers_consumers_type> _consume_pipe;
   std::condition_variable _produce_thread_condition;
   std::condition_variable _consume_thread_condition;
   std::atomic<std::queue<producers_consumers_type>*> _produce;
   std::atomic<std::queue<producers_consumers_type>*> _consume;
+  alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _produce_pipe;
+  alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _consume_pipe;
   size_t produce_size() const
   {
     return _produce.load(std::memory_order_acquire)->size();
@@ -281,17 +285,23 @@ private:
   }
   void swap_queue()
   {
-    std::unique_lock<std::mutex> produce_lock(_produce_mutex,std::defer_lock);
-    std::unique_lock<std::mutex> consume_lock(_consume_mutex,std::defer_lock);
-    std::lock(produce_lock,consume_lock);
+    std::scoped_lock swap_lock(_produce_mutex,_consume_mutex);
     auto tmp_produce = _produce.load(std::memory_order_relaxed);
     _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_release);
     _consume.store(tmp_produce,std::memory_order_release);
   }
+  void supplementary_thread_func()
+  {
+    //循环检测队列情况
+    while(!_close_identifier.load(std::memory_order_acquire))
+    {
+      //检测队列满
+    }
+  }
 public:
   producer_consumer_queues(uint64_t capacity = _default_capacity)
   :_current_capacity(capacity),_close_identifier(false),_switch_identifier(false),
-  _produce(&_produce_pipe),_consume(&_consume_pipe){}
+  _produce(&_produce_pipe),_consume(&_consume_pipe){dubug_log.install_controller(console);}
   producer_consumer_queues(const producer_consumer_queues& other) = delete;
   producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;
   producer_consumer_queues(producer_consumer_queues&& other) = default;
@@ -299,8 +309,10 @@ public:
   bool push(const producers_consumers_type& produce_data)
   {
     if(_close_identifier.load(std::memory_order_acquire)) return false;
+    dubug_log.log("进入push函数," + produce_data);
     if(produce_size() >= _current_capacity)
     {
+      dubug_log.log("进入push函数,队列已满,等待消费");
       std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
       auto status = [this]()
       {
@@ -310,6 +322,7 @@ public:
       if(_close_identifier) return false;
       if(_switch_identifier.load(std::memory_order_acquire))
       {
+        proudce_lock.unlock();
         swap_queue();
         _switch_identifier.store(false,std::memory_order_release);
         _consume_thread_condition.notify_one();
@@ -318,12 +331,12 @@ public:
     }
     std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
     _produce.load(std::memory_order_acquire)->push(produce_data);
-    _consume_thread_condition.notify_one();
     return true;
   }
   bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> consume_lock(_consume_mutex);
+    dubug_log.log("进入pop函数");
     auto status = [this]()
     {
       return !consume_empty() || _switch_identifier || (_close_identifier && consume_size() == 0);
@@ -342,6 +355,7 @@ public:
       _consume_thread_condition.wait(consume_lock,await_operate);
       if(_close_identifier.load(std::memory_order_acquire) || consume_empty()) return false;
     }
+    dubug_log.log("进入pop函数,正在消费数据");
     consume_data = _consume.load()->front();
     _consume.load()->pop();
     consume_lock.unlock();
