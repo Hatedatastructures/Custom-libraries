@@ -4,7 +4,7 @@
 #include <string>
 #include <windows.h>
 #include <iostream>
-void read(producer_consumer_queue<std::string> &q)
+void read(producer_consumer_queues<std::string> &q)
 {
   for(int i = 0; i < 100; i++)
   {
@@ -16,7 +16,7 @@ void read(producer_consumer_queue<std::string> &q)
     Sleep(100);
   }
 }
-void write(producer_consumer_queue<std::string> &q)
+void write(producer_consumer_queues<std::string> &q)
 {
   for(int i = 0; i < 100; i++)
   {
@@ -25,21 +25,25 @@ void write(producer_consumer_queue<std::string> &q)
   }
   // std::cout << "write " << j << std::endl;
 }
-void test_queue()
+// void test_queue()
+// {
+//   producer_consumer_queue<std::string> q;
+//   std::thread write_thread ([&q](){write(q);});
+//   std::thread read_thread ([&q](){read(q);});
+//   write_thread.join();
+//   read_thread.join();
+// }
+void tests_queue()
 {
-  producer_consumer_queue<std::string> q;
+  producer_consumer_queues<std::string> q;
   std::thread write_thread ([&q](){write(q);});
   std::thread read_thread ([&q](){read(q);});
   write_thread.join();
   read_thread.join();
 }
-void tests_queue()
-{
- producers_consumers_semaphore_queue<std::string,100ULL> q;
-}
 int main()
 {
-  test_queue();
+  // test_queue();
   tests_queue();
   // std::cout << "hello world" << std::endl;
   return  0;

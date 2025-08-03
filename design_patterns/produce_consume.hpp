@@ -249,6 +249,9 @@ public:
 //   std::atomic<bool> _close_identifier;
 // public:
 // };
+/**
+ * @brief #### 生产者消费者有锁双队列
+ */
 template<typename producers_consumers_type>
 class producer_consumer_queues
 {
@@ -257,22 +260,37 @@ private:
   uint64_t _current_capacity;
   std::atomic<bool> _close_identifier;
   std::mutex _produce_mutex,_consume_mutex;
-  std::atomic<bool> _switchover_identifier;
+  std::atomic<bool> _switch_identifier;
   std::queue<producers_consumers_type> _produce_pipe;
   std::queue<producers_consumers_type> _consume_pipe;
   std::condition_variable _produce_thread_condition;
   std::condition_variable _consume_thread_condition;
   std::atomic<std::queue<producers_consumers_type>*> _produce;
   std::atomic<std::queue<producers_consumers_type>*> _consume;
-  void queue_switchover()
+  size_t produce_size() const
   {
-    auto* tmp_produce = _produce.load(std::memory_order_relaxed);
-    _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_relaxed);
-    _consume.store(tmp_produce,std::memory_order_relaxed);
+    return _produce.load(std::memory_order_acquire)->size();
+  }
+  size_t consume_size() const
+  {
+    return _consume.load(std::memory_order_acquire)->size();
+  }
+  bool consume_empty() const
+  {
+    return _consume.load(std::memory_order_acquire)->empty();
+  }
+  void swap_queue()
+  {
+    std::unique_lock<std::mutex> produce_lock(_produce_mutex,std::defer_lock);
+    std::unique_lock<std::mutex> consume_lock(_consume_mutex,std::defer_lock);
+    std::lock(produce_lock,consume_lock);
+    auto tmp_produce = _produce.load(std::memory_order_relaxed);
+    _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_release);
+    _consume.store(tmp_produce,std::memory_order_release);
   }
 public:
   producer_consumer_queues(uint64_t capacity = _default_capacity)
-  :_current_capacity(capacity),_close_identifier(false),_switchover_identifier(false),
+  :_current_capacity(capacity),_close_identifier(false),_switch_identifier(false),
   _produce(&_produce_pipe),_consume(&_consume_pipe){}
   producer_consumer_queues(const producer_consumer_queues& other) = delete;
   producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;
@@ -280,35 +298,65 @@ public:
   producer_consumer_queues& operator=(producer_consumer_queues&& other) = default;
   bool push(const producers_consumers_type& produce_data)
   {
-    if(_close_identifier.load(std::memory_order_relaxed)) return false;
-    std::unique_lock<std::mutex> produce_lock(_produce_mutex);
-    if(_produce.load(std::memory_order_relaxed)->size() >= _current_capacity)
+    if(_close_identifier.load(std::memory_order_acquire)) return false;
+    if(produce_size() >= _current_capacity)
     {
-      std::unique_lock<std::mutex> consume_lock(_consume_mutex);
-      auto status = [this](){return _switchover_identifier.load(std::memory_order_acquire);};
-      _produce_thread_condition.wait(consume_lock,status);
-      queue_switchover();
-      _switchover_identifier.store(false,std::memory_order_release);
-      consume_lock.unlock();
-      _consume_thread_condition.notify_one();
+      std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
+      auto status = [this]()
+      {
+        return produce_size() < _current_capacity || _close_identifier || _switch_identifier;
+      };
+      _produce_thread_condition.wait(proudce_lock,status);
+      if(_close_identifier) return false;
+      if(_switch_identifier.load(std::memory_order_acquire))
+      {
+        swap_queue();
+        _switch_identifier.store(false,std::memory_order_release);
+        _consume_thread_condition.notify_one();
+      }
+      if(produce_size() >= _current_capacity) return false;
     }
-    _produce.load(std::memory_order_relaxed)->push(produce_data);
+    std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
+    _produce.load(std::memory_order_acquire)->push(produce_data);
+    _consume_thread_condition.notify_one();
     return true;
   }
   bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> consume_lock(_consume_mutex);
-    if(_consume.load(std::memory_order_relaxed)->empty())
+    auto status = [this]()
     {
-      _switchover_identifier.store(true,std::memory_order_release);
-      auto status = [this]() {return !_switchover_identifier.load(std::memory_order_acquire);};
-      _consume_thread_condition.wait(consume_lock,status);
+      return !consume_empty() || _switch_identifier || (_close_identifier && consume_size() == 0);
+    };
+    _consume_thread_condition.wait(consume_lock,status);
+    if(_close_identifier.load(std::memory_order_acquire) && consume_size() == 0) return false;
+    auto consume = _consume.load(std::memory_order_acquire);
+    if(consume->empty())
+    {
+      _switch_identifier.store(true,std::memory_order_release);
+      _produce_thread_condition.notify_one();
+      auto await_operate = [this]()
+      {
+        return !_consume.load(std::memory_order_acquire)->empty() || _close_identifier;
+      };
+      _consume_thread_condition.wait(consume_lock,await_operate);
+      if(_close_identifier.load(std::memory_order_acquire) || consume_empty()) return false;
     }
-    if(_consume.load(std::memory_order_relaxed)->empty()) return false;
-    consume_data = _consume.load(std::memory_order_relaxed)->front();
-    _consume.load(std::memory_order_relaxed)->pop();
+    consume_data = _consume.load()->front();
+    _consume.load()->pop();
+    consume_lock.unlock();
     _produce_thread_condition.notify_one();
     return true;
+  }
+  size_t produce_size_unsafe()
+  {
+    std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
+    return _produce.load(std::memory_order_relaxed)->size();
+  }
+  size_t consume_size_unsafe()
+  {
+    std::lock_guard<std::mutex> consume_lock(_consume_mutex);
+    return _consume.load(std::memory_order_relaxed)->size();
   }
   void flush()
   {
