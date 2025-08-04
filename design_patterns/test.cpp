@@ -11,7 +11,11 @@ void read(producer_consumer_queues<std::string> &q)
     std::string ttmp;
     if(q.pop(ttmp))
     {
-      std::cout << "read " << ttmp << std::endl;
+      std::cout << ttmp << std::endl;
+    }
+    else
+    {
+      std::cout << "队列为空" << std::endl;
     }
     Sleep(100);
   }

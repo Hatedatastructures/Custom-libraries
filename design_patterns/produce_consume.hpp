@@ -84,9 +84,9 @@ private:
   mutable std::mutex _access_lock;
   uint64_t _current_capacity;
   static constexpr uint64_t _default_capacity = 10;
-  std::atomic<bool> _close_identifier = false;
-  std::condition_variable _produce_thread_condition;
-  std::condition_variable _consume_thread_condition;
+  std::atomic<bool> _close_id = false;
+  std::condition_variable _produce_condition;
+  std::condition_variable _consume_condition;
   alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _shared_queue;
   bool full_internal() const
   {
@@ -116,14 +116,14 @@ public:
   bool push(push_type&& produce_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
-    while(full_internal() && !_close_identifier)
+    while(full_internal() && !_close_id)
     {
-      _produce_thread_condition.wait(access_lock);
+      _produce_condition.wait(access_lock);
     }
-    if(_close_identifier) return false;
+    if(_close_id) return false;
     enqueue(std::forward<push_type>(produce_data));
     access_lock.unlock();
-    _consume_thread_condition.notify_one();
+    _consume_condition.notify_one();
     return true;
   }
   /*
@@ -135,10 +135,10 @@ public:
   {
     std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
     if(!access_lock.owns_lock()) return false;
-    if(_close_identifier.load(std::memory_order_relaxed) || full_internal()) return false;
+    if(_close_id.load(std::memory_order_relaxed) || full_internal()) return false;
     enqueue(std::forward<try_push_type>(produce_data));
     access_lock.unlock();
-    _consume_thread_condition.notify_one();
+    _consume_condition.notify_one();
     return true;
   }
   /*
@@ -149,11 +149,11 @@ public:
   bool push_for(push_for_type&& produce_data,const std::chrono::duration<precision, period> time_out)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
-    auto status = _produce_thread_condition.wait_for(access_lock,time_out,[this](){return !full_internal() || _close_identifier;});
-    if(_close_identifier || status == std::cv_status::timeout) return false;
+    auto status = _produce_condition.wait_for(access_lock,time_out,[this](){return !full_internal() || _close_id;});
+    if(_close_id || status == std::cv_status::timeout) return false;
     enqueue(std::forward<push_for_type>(produce_data));
     access_lock.unlock();
-    _consume_thread_condition.notify_one();
+    _consume_condition.notify_one();
     return true;
   }
   /*
@@ -163,15 +163,15 @@ public:
   bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
-    while(empty_internal() && !_close_identifier)
+    while(empty_internal() && !_close_id)
     {
-      _consume_thread_condition.wait(access_lock);
+      _consume_condition.wait(access_lock);
     }
-    if(_close_identifier && empty_internal()) return false;
+    if(_close_id && empty_internal()) return false;
     consume_data = _shared_queue.front();
     _shared_queue.pop();
     access_lock.unlock();
-    _produce_thread_condition.notify_one();
+    _produce_condition.notify_one();
     return true;
   }
   /*
@@ -182,11 +182,11 @@ public:
   {
     std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
     if(!access_lock.owns_lock()) return false;
-    if(_close_identifier.load(std::memory_order_relaxed) || empty_internal()) return false;
+    if(_close_id.load(std::memory_order_relaxed) || empty_internal()) return false;
     consume_data = _shared_queue.front();
     _shared_queue.pop();
     access_lock.unlock();
-    _produce_thread_condition.notify_one();
+    _produce_condition.notify_one();
     return true;
   }
   /*
@@ -197,12 +197,12 @@ public:
   bool pop_for(producers_consumers_type& consume_data,const std::chrono::duration<precision, period> time_out)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
-    auto status = _consume_thread_condition.wait_for(access_lock,time_out,[this](){return !empty_internal() || _close_identifier;});
-    if((_close_identifier && empty_internal()) || status == std::cv_status::timeout) return false;
+    auto status = _consume_condition.wait_for(access_lock,time_out,[this](){return !empty_internal() || _close_id;});
+    if((_close_id && empty_internal()) || status == std::cv_status::timeout) return false;
     consume_data = _shared_queue.front();
     _shared_queue.pop();
     access_lock.unlock();
-    _produce_thread_condition.notify_one();
+    _produce_condition.notify_one();
     return true;
   }
   /*
@@ -210,13 +210,13 @@ public:
   */
   void close() 
   {
-    if(_close_identifier.load(std::memory_order_acquire)) return;
+    if(_close_id.load(std::memory_order_acquire)) return;
     std::unique_lock<std::mutex> access_lock(_access_lock);
-    if(_close_identifier) return;
-    _close_identifier.store(true,std::memory_order_release);
+    if(_close_id) return;
+    _close_id.store(true,std::memory_order_release);
     access_lock.unlock();
-    _produce_thread_condition.notify_all();
-    _consume_thread_condition.notify_all();
+    _produce_condition.notify_all();
+    _consume_condition.notify_all();
   }
   bool full() const
   {
@@ -230,7 +230,7 @@ public:
   }
   bool whether_close() const
   {
-    return _close_identifier.load(std::memory_order_acquire);
+    return _close_id.load(std::memory_order_acquire);
   }
 };
 /**
@@ -249,7 +249,7 @@ public:
 //   std::counting_semaphore<largest_semaphore> _produce_semaphore;
 //   std::counting_semaphore<largest_semaphore> _consume_semaphore;
 //   std::atomic<uint64_t> _current_queue_size;
-//   std::atomic<bool> _close_identifier;
+//   std::atomic<bool> _close_id;
 // public:
 // };
 /**
@@ -261,106 +261,93 @@ class producer_consumer_queues
   static constexpr uint64_t _default_capacity = 10;
 private: 
   uint64_t _current_capacity;
-  std::thread _supplementary_thread;
-  std::atomic<bool> _close_identifier;
+  std::thread _supporting_thread;
+  std::atomic<bool> _close_id,_switch_id;
   std::mutex _produce_mutex,_consume_mutex;
-  std::atomic<bool> _switch_identifier;
-  std::condition_variable _produce_thread_condition;
-  std::condition_variable _consume_thread_condition;
-  std::atomic<std::queue<producers_consumers_type>*> _produce;
-  std::atomic<std::queue<producers_consumers_type>*> _consume;
-  alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _produce_pipe;
-  alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _consume_pipe;
-  size_t produce_size() const
-  {
-    return _produce.load(std::memory_order_acquire)->size();
-  }
-  size_t consume_size() const
-  {
-    return _consume.load(std::memory_order_acquire)->size();
-  }
-  bool consume_empty() const
-  {
-    return _consume.load(std::memory_order_acquire)->empty();
-  }
+  std::condition_variable _produce_condition,_consume_condition;
+  std::atomic<std::queue<producers_consumers_type>*> _produce,_consume;
+  alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _produce_pipe,_consume_pipe;
   void swap_queue()
   {
-    std::scoped_lock swap_lock(_produce_mutex,_consume_mutex);
     auto tmp_produce = _produce.load(std::memory_order_relaxed);
     _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_release);
     _consume.store(tmp_produce,std::memory_order_release);
   }
-  void supplementary_thread_func()
+  void supporting_thread_func()
   {
     //循环检测队列情况
-    while(!_close_identifier.load(std::memory_order_acquire))
+    while(!_close_id.load(std::memory_order_acquire))
     {
-      //检测队列满
+      std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
+      auto conditions_exchange = [this]()
+      {
+        return _switch_id.load(std::memory_order_acquire) || _close_id.load(std::memory_order_acquire);
+      };
+      _produce_condition.wait(proudce_lock,conditions_exchange);
+      if(_close_id.load(std::memory_order_acquire)) return;
+      {
+        std::lock_guard<std::mutex> consume_lock(_consume_mutex);
+        swap_queue();
+      }
+      _switch_id.store(false,std::memory_order_release);
+      _produce_condition.notify_all();
+      _consume_condition.notify_one();
     }
   }
 public:
   producer_consumer_queues(uint64_t capacity = _default_capacity)
-  :_current_capacity(capacity),_close_identifier(false),_switch_identifier(false),
-  _produce(&_produce_pipe),_consume(&_consume_pipe){dubug_log.install_controller(console);}
+  :_current_capacity(capacity),_close_id(false),_switch_id(false),_produce(&_produce_pipe),_consume(&_consume_pipe)
+  {
+    auto transmission = [this](){this->supporting_thread_func();};
+    _supporting_thread = std::thread(transmission);
+    dubug_log.install_controller(console);
+  }
   producer_consumer_queues(const producer_consumer_queues& other) = delete;
   producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;
-  producer_consumer_queues(producer_consumer_queues&& other) = default;
-  producer_consumer_queues& operator=(producer_consumer_queues&& other) = default;
+  producer_consumer_queues(producer_consumer_queues&& other) = delete;
+  producer_consumer_queues& operator=(producer_consumer_queues&& other) = delete;
   bool push(const producers_consumers_type& produce_data)
   {
-    if(_close_identifier.load(std::memory_order_acquire)) return false;
-    dubug_log.log("进入push函数," + produce_data);
-    if(produce_size() >= _current_capacity)
+    if(_close_id.load(std::memory_order_acquire)) return false;
+    while(true)
     {
-      dubug_log.log("进入push函数,队列已满,等待消费");
-      std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
-      auto status = [this]()
-      {
-        return produce_size() < _current_capacity || _close_identifier || _switch_identifier;
-      };
-      _produce_thread_condition.wait(proudce_lock,status);
-      if(_close_identifier) return false;
-      if(_switch_identifier.load(std::memory_order_acquire))
-      {
-        proudce_lock.unlock();
-        swap_queue();
-        _switch_identifier.store(false,std::memory_order_release);
-        _consume_thread_condition.notify_one();
+      { //限制声明周期
+        std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
+        if(_produce.load(std::memory_order_acquire)->size() < _current_capacity)
+        {
+          _produce.load(std::memory_order_acquire)->push(produce_data);
+          return true;
+        }
       }
-      if(produce_size() >= _current_capacity) return false;
+      bool swap_flag = false;
+      if(_switch_id.compare_exchange_strong(swap_flag,true))
+      { //比较两个布尔值是否相等,相等则切换为true，函数返回值代表是否已经切换，切换为真，反之为假
+        _produce_condition.notify_one();
+      }
+      std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
+      auto waiting_consumption = [this]()
+      {
+        return !_switch_id.load(std::memory_order_acquire) || _close_id.load(std::memory_order_acquire);
+      };
+      _produce_condition.wait(proudce_lock,waiting_consumption);
+      if(_close_id.load(std::memory_order_acquire)) return false;
     }
-    std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
-    _produce.load(std::memory_order_acquire)->push(produce_data);
-    return true;
   }
   bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> consume_lock(_consume_mutex);
-    dubug_log.log("进入pop函数");
-    auto status = [this]()
+    while (true)
     {
-      return !consume_empty() || _switch_identifier || (_close_identifier && consume_size() == 0);
-    };
-    _consume_thread_condition.wait(consume_lock,status);
-    if(_close_identifier.load(std::memory_order_acquire) && consume_size() == 0) return false;
-    auto consume = _consume.load(std::memory_order_acquire);
-    if(consume->empty())
-    {
-      _switch_identifier.store(true,std::memory_order_release);
-      _produce_thread_condition.notify_one();
-      auto await_operate = [this]()
+      auto queue_ptr = _consume.load(std::memory_order_acquire);
+      if (!queue_ptr->empty())
       {
-        return !_consume.load(std::memory_order_acquire)->empty() || _close_identifier;
-      };
-      _consume_thread_condition.wait(consume_lock,await_operate);
-      if(_close_identifier.load(std::memory_order_acquire) || consume_empty()) return false;
+        consume_data = std::move(queue_ptr->front());
+        queue_ptr->pop();
+        return true;
+      }
+      if (_close_id.load(std::memory_order_acquire)) return false;
+      _consume_condition.wait(consume_lock);
     }
-    dubug_log.log("进入pop函数,正在消费数据");
-    consume_data = _consume.load()->front();
-    _consume.load()->pop();
-    consume_lock.unlock();
-    _produce_thread_condition.notify_one();
-    return true;
   }
   size_t produce_size_unsafe()
   {
@@ -375,5 +362,12 @@ public:
   void flush()
   {
 
+  }
+  ~producer_consumer_queues()
+  {
+    _close_id.store(true,std::memory_order_release);
+    _produce_condition.notify_all();
+    _consume_condition.notify_all();
+    _supporting_thread.join();
   }
 };
