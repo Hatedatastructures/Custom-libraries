@@ -17,7 +17,7 @@ void read(producer_consumer_queues<std::string> &q)
     {
       std::cout << "队列为空" << std::endl;
     }
-    Sleep(100);
+    // Sleep(100);
   }
 }
 void write(producer_consumer_queues<std::string> &q)
@@ -25,7 +25,7 @@ void write(producer_consumer_queues<std::string> &q)
   for(int i = 0; i < 100; i++)
   {
     q.push("单生产单消费队列测试： 这是第" + std::to_string(i) + "个数据");
-    Sleep(100);
+    // Sleep(100);
   }
   // std::cout << "write " << j << std::endl;
 }
@@ -42,6 +42,8 @@ void tests_queue()
   producer_consumer_queues<std::string> q;
   std::thread write_thread ([&q](){write(q);});
   std::thread read_thread ([&q](){read(q);});
+  Sleep(5000);
+  q.flush();
   write_thread.join();
   read_thread.join();
 }

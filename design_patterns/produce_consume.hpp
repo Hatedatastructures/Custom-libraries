@@ -10,7 +10,7 @@
 static constexpr uint64_t CACHE_ALIGNMENT = 64;
 rec::recorder dubug_log;
 /**
-* @brief #### 单生产单消费无锁队列类`(SPSC)`
+* @brief #### 单生产单消费无锁队列类`SPSC`
 * @tparam  producer_consumer_type 数据类型
 * @warning 在严格 `SPSC` 场景下，容器保证线程安全
 **/
@@ -34,6 +34,11 @@ public:
   producer_consumer_queue(producer_consumer_queue&& another_queue) noexcept = delete;
   producer_consumer_queue& operator=(const producer_consumer_queue& another_queue) = delete;
   producer_consumer_queue& operator=(producer_consumer_queue&& another_queue) noexcept = delete;
+  /**
+   * @brief #### 向队列添加数据
+   * @param produce_data 生产数据
+   * @return 是否成功
+   */
   bool push(producer_consumer_type&& produce_data)
   {
     const uint64_t current_producer = _producer.fetch_add(1,std::memory_order_relaxed);
@@ -47,6 +52,11 @@ public:
     std::atomic_thread_fence(std::memory_order_release);
     return true;
   }
+  /**
+   * @brief #### 从队列中取出数据
+   * @param consume_data 
+   * @return 是否成功
+   */
   bool pop(producer_consumer_type& consume_data)
   {
     const uint64_t current_consumer = _consumer.fetch_add(1,std::memory_order_relaxed);
@@ -74,7 +84,7 @@ public:
   }
 };
 /**
- * @brief #### 多生产多消费有锁队列类(MPSC)
+ * @brief #### 多生产多消费有锁队列类`MPMC`
  * @tparam producers_consumers_type 数据类型
  */
 template<typename producers_consumers_type>
@@ -88,14 +98,26 @@ private:
   std::condition_variable _produce_condition;
   std::condition_variable _consume_condition;
   alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _shared_queue;
+  /**
+   * @brief 判断队列是否满
+   * @return 满返回 `true`，否则返回 `false`
+   */
   bool full_internal() const
   {
     return _shared_queue.size() == _current_capacity;
   }
+  /**
+   * @brief 判断队列是否为空
+   * @return 空返回 `true`，否则返回 `false`
+   */
   bool empty_internal() const
   {
     return _shared_queue.empty();
   }
+  /**
+   * @brief 入队，不保证线程安全
+   * @tparam enqueue_type
+   */
   template<typename enqueue_type>
   void enqueue(enqueue_type && produce_data)
   {
@@ -108,10 +130,12 @@ public:
   producers_consumers_queue(producers_consumers_queue&& another_queue) noexcept = delete;
   producers_consumers_queue& operator=(const producers_consumers_queue& another_queue) = delete;
   producers_consumers_queue& operator=(producers_consumers_queue&& another_queue) noexcept = delete;
-  /*
-  * #### 阻塞式入队，队列满时等待
-  * - 成功返回 `true`，队列关闭已关闭返回 `false`
-  */
+  /**
+   * @brief  #### 阻塞式入队，队列满时等待
+   * @tparam push_type
+   * @param produce_data
+   * @return 成功返回 `true`，队列关闭已关闭返回 `false`
+   */
   template<typename push_type>
   bool push(push_type&& produce_data)
   {
@@ -126,10 +150,12 @@ public:
     _consume_condition.notify_one();
     return true;
   }
-  /*
-  * #### 非阻塞式入队，不等待
-  * - 成功返回 `true`，失败（锁竞争 / 满 / 关闭）返回 `false`
-  */
+  /**
+   * @brief  #### 非阻塞式入队，不等待
+   * @tparam try_push_type
+   * @param produce_data
+   * @return 成功返回 `true`，队列关闭已关闭返回 `false`
+   */
   template<typename try_push_type>
   bool try_push(try_push_type&& produce_data)
   {
@@ -141,10 +167,14 @@ public:
     _consume_condition.notify_one();
     return true;
   }
-  /*
-  * #### 限时入队，超时返回
-  * - 成功返回 `true`，超时 / 关闭返回 `false`
-  */
+  /**
+   * @brief  #### 限时入队，超时返回
+   * @tparam precision
+   * @tparam period
+   * @param produce_data
+   * @param time_out
+   * @return 成功返回 `true`，超时 / 关闭返回 `false`
+   */
   template<typename push_for_type, typename precision, typename period>
   bool push_for(push_for_type&& produce_data,const std::chrono::duration<precision, period> time_out)
   {
@@ -156,10 +186,10 @@ public:
     _consume_condition.notify_one();
     return true;
   }
-  /*
-  * #### 阻塞式出队，队列空时等待
-  * - 成功返回 `true`，队列关闭已关闭返回 `false`
-  */
+  /**
+   * @brief #### 阻塞式出队，队列空时等待
+   * @return 成功返回 `true`，失败（锁竞争 / 空 / 关闭）返回 `false`
+   */
   bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock);
@@ -174,10 +204,10 @@ public:
     _produce_condition.notify_one();
     return true;
   }
-  /*
-  * #### 非阻塞式出队，不等待
-  * - 成功返回 `true`，失败（锁竞争 / 空 / 关闭）返回 `false`
-  */
+  /**
+   * @brief  #### 非阻塞式出队，不等待
+   * @return 成功返回 `true`，失败（锁竞争 / 空 / 关闭）返回 `false`
+   */
   bool try_pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
@@ -189,10 +219,14 @@ public:
     _produce_condition.notify_one();
     return true;
   }
-  /*
-  * #### 限时出队，超时返回
-  * - 成功返回 `true`，超时 / 关闭返回 `false`
-  */
+  /**
+   * @brief  #### 限时出队，超时返回
+   * @tparam precision 
+   * @tparam period 
+   * @param consume_data 
+   * @param time_out 
+   * @return 成功返回 `true`，超时 / 关闭返回 `false`
+   */
   template<typename precision, typename period>
   bool pop_for(producers_consumers_type& consume_data,const std::chrono::duration<precision, period> time_out)
   {
@@ -205,9 +239,10 @@ public:
     _produce_condition.notify_one();
     return true;
   }
-  /*
-  * #### 关闭队列
-  */
+  /**
+   * @brief #### 关闭队列，关闭后无法再入队或出队
+   * @warning - 关闭后无法再入队
+   */
   void close() 
   {
     if(_close_id.load(std::memory_order_acquire)) return;
@@ -253,7 +288,8 @@ public:
 // public:
 // };
 /**
- * @brief #### 生产者消费者有锁双队列
+ * @brief #### 多生产多消费有锁双队列类`MPMC`
+ * @tparam producers_consumers_type 数据类型
  */
 template<typename producers_consumers_type>
 class producer_consumer_queues
@@ -267,12 +303,23 @@ private:
   std::condition_variable _produce_condition,_consume_condition;
   std::atomic<std::queue<producers_consumers_type>*> _produce,_consume;
   alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _produce_pipe,_consume_pipe;
+  /**
+   * @brief #### 检测队列是否为空
+   * @note - 队列空时，交换队列
+   */
   void swap_queue()
   {
-    auto tmp_produce = _produce.load(std::memory_order_relaxed);
-    _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_release);
-    _consume.store(tmp_produce,std::memory_order_release);
+    if(_consume.load(std::memory_order_acquire)->empty())
+    {
+      auto tmp_produce = _produce.load(std::memory_order_relaxed);
+      _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_release);
+      _consume.store(tmp_produce,std::memory_order_release);
+    }
   }
+  /**
+   * @brief #### 后台辅助线程
+   * @remark - 检测队列情况，交换队列，通知生产者或消费者
+   */
   void supporting_thread_func()
   {
     //循环检测队列情况
@@ -294,6 +341,25 @@ private:
       _consume_condition.notify_one();
     }
   }
+  /**
+   * @brief #### 刷新队列
+   * @remark - 刷新队列，将生产者队列中的数据全部转移到消费者队列中
+   */
+  void shutdown()
+  {
+    {
+      std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
+      std::lock_guard<std::mutex> consume_lock(_consume_mutex);
+      _close_id.store(true,std::memory_order_release);
+    }
+    _produce_condition.notify_all();
+    _consume_condition.notify_all();
+    if(_supporting_thread.joinable())
+    {
+      _supporting_thread.join();
+    }
+  }
+
 public:
   producer_consumer_queues(uint64_t capacity = _default_capacity)
   :_current_capacity(capacity),_close_id(false),_switch_id(false),_produce(&_produce_pipe),_consume(&_consume_pipe)
@@ -306,33 +372,34 @@ public:
   producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;
   producer_consumer_queues(producer_consumer_queues&& other) = delete;
   producer_consumer_queues& operator=(producer_consumer_queues&& other) = delete;
-  bool push(const producers_consumers_type& produce_data)
+  /**
+   * @brief #### 向队列中添加数据
+   * @param produce_data 生产数据
+   * @return true 添加成功，false 添加失败
+   */
+  template<typename push_type>
+  bool push(push_type&& produce_data)
   {
     if(_close_id.load(std::memory_order_acquire)) return false;
     while(true)
     {
-      { //限制声明周期
+      { //限制锁粒度，减少锁竞争
         std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
         if(_produce.load(std::memory_order_acquire)->size() < _current_capacity)
         {
-          _produce.load(std::memory_order_acquire)->push(produce_data);
+          _produce.load(std::memory_order_acquire)->push(std::forward<push_type>(produce_data));
           return true;
         }
       }
-      bool swap_flag = false;
-      if(_switch_id.compare_exchange_strong(swap_flag,true))
-      { //比较两个布尔值是否相等,相等则切换为true，函数返回值代表是否已经切换，切换为真，反之为假
-        _produce_condition.notify_one();
-      }
-      std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
-      auto waiting_consumption = [this]()
-      {
-        return !_switch_id.load(std::memory_order_acquire) || _close_id.load(std::memory_order_acquire);
-      };
-      _produce_condition.wait(proudce_lock,waiting_consumption);
+      flush();
       if(_close_id.load(std::memory_order_acquire)) return false;
     }
   }
+  /**
+   * @brief #### 从队列中取出数据
+   * @param consume_data 消费数据
+   * @return true 取出成功，false 取出失败
+   */
   bool pop(producers_consumers_type& consume_data)
   {
     std::unique_lock<std::mutex> consume_lock(_consume_mutex);
@@ -349,25 +416,55 @@ public:
       _consume_condition.wait(consume_lock);
     }
   }
+  /**
+   * @brief #### 获取生产者队列的大小
+   * @return size_t 生产者队列的大小
+   */
   size_t produce_size_unsafe()
   {
     std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
     return _produce.load(std::memory_order_relaxed)->size();
   }
+  /**
+   * @brief #### 获取消费者队列的大小
+   * @return size_t 消费者队列的大小
+   */
   size_t consume_size_unsafe()
   {
     std::lock_guard<std::mutex> consume_lock(_consume_mutex);
     return _consume.load(std::memory_order_relaxed)->size();
   }
-  void flush()
-  {
-
-  }
-  ~producer_consumer_queues()
+  /**
+   * @brief #### 关闭队列
+   * @remark - 关闭队列，通知生产者和消费者
+   */
+  void close()
   {
     _close_id.store(true,std::memory_order_release);
     _produce_condition.notify_all();
     _consume_condition.notify_all();
-    _supporting_thread.join();
+  }
+  /**
+   * @brief #### 刷新队列
+   * @remark - 刷新队列，将生产者队列中的数据全部转移到消费者队列中
+   */
+  void flush()
+  {
+    bool swap_flag = false;
+    if(_switch_id.compare_exchange_strong(swap_flag,true))
+    { //比较两个布尔值是否相等,相等则切换为true，函数返回值代表是否已经切换，切换为真，反之为假
+      _produce_condition.notify_one();
+    }
+    std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
+    auto waiting_consumption = [this]()
+    {
+      return !_switch_id.load(std::memory_order_acquire) || _close_id.load(std::memory_order_acquire);
+    };
+    _produce_condition.wait(proudce_lock,waiting_consumption);
+  }
+  ~producer_consumer_queues()
+  {
+    flush();
+    shutdown();
   }
 };
