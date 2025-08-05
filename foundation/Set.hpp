@@ -1,5 +1,5 @@
 #pragma once
-#include "Base_class.hpp"
+#include "Base.hpp"
 namespace set_container
 {
   /**
@@ -32,7 +32,7 @@ namespace set_container
    *
    * * - `set_iterator`: 插入操作返回类型，为 `con::pair<iterator, bool>`，其中 `iterator` 指向插入位置（或已有元素），`bool` 表示是否插入成功
    */
-  template <typename set_type, typename comparators = con::imitation_functions::less<set_type>>
+  template <typename set_type, typename comparators = con::less<set_type>>
   class tree_set
   {
     using key_val_type = set_type; // comparators 用户自定义比较器，用于比较两个元素的大小，方便存储

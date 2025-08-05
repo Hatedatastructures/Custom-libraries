@@ -2,11 +2,11 @@
 #include "Stack.hpp"
 #include "Vector.hpp"
 #include "Algorithm.hpp"
-#include "Practicality.hpp"
-#include "Custom_exception.hpp"
-#include "Imitation_functions.hpp"
-#include "Hash_imitation_functions.hpp"
-namespace base_class_container
+#include "Utility.hpp"
+#include "Exception.hpp"
+#include "Imitate.hpp"
+#include "Hash.hpp"
+namespace base_container
 {
   /*
       * @brief  #### `red_black_tree` 类模板
@@ -112,7 +112,7 @@ namespace base_class_container
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
   template <typename rb_tree_type_key, typename rb_tree_type_value, typename container_imitate_function_visit,
-            typename container_imitate_function = con::imitation_functions::less<rb_tree_type_key>>
+            typename container_imitate_function = con::less<rb_tree_type_key>>
   class red_black_tree
   {
   private:
@@ -309,10 +309,10 @@ namespace base_class_container
       {
         if (subtree_node == nullptr)
         {
-          throw custom_exception::customize_exception("左单旋传进来的节点为空！", "left_revolve", __LINE__);
+          throw custom_exception::fault("左单旋传进来的节点为空！", "left_revolve", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &exception)
+      catch (const custom_exception::fault &exception)
       {
         std::cerr << exception.what() << exception.function_name_get() << exception.line_number_get() << std::endl;
         throw;
@@ -359,10 +359,10 @@ namespace base_class_container
       {
         if (subtree_node == nullptr)
         {
-          throw custom_exception::customize_exception("右单旋传进来的节点为空！", "right_revolve", __LINE__);
+          throw custom_exception::fault("右单旋传进来的节点为空！", "right_revolve", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &exception)
+      catch (const custom_exception::fault &exception)
       {
         std::cerr << exception.what() << exception.function_name_get() << exception.line_number_get() << std::endl;
         throw;
@@ -2000,7 +2000,7 @@ namespace base_class_container
 }
 namespace con
 {
-  using base_class_container::bit_set;
-  using base_class_container::hash_table;
-  using base_class_container::red_black_tree;
+  using base_container::bit_set;
+  using base_container::hash_table;
+  using base_container::red_black_tree;
 }

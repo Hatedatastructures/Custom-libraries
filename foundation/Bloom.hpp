@@ -1,7 +1,7 @@
 #pragma once
 #include "Algorithm.hpp"
-#include "Base_class.hpp"
-#include "Imitation_functions.hpp"
+#include "Base.hpp"
+#include "Imitate.hpp"
 namespace bloom_filter_container
 {
   /**
@@ -33,7 +33,7 @@ namespace bloom_filter_container
    *
    * - 适用于对误判率不敏感，追求空间效率的场景
    */
-  template <typename bloom_filter_type_value, typename bloom_filter_hash_functor = con::hash_algorithm::hash_function<bloom_filter_type_value>>
+  template <typename bloom_filter_type_value, typename bloom_filter_hash_functor = con::hash_function<bloom_filter_type_value>>
   class bloom_filter
   {
     bloom_filter_hash_functor hash_functions_object;

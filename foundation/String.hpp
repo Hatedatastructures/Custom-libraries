@@ -1,5 +1,5 @@
 #pragma once
-#include "Custom_exception.hpp"
+#include "Exception.hpp"
 #include "Algorithm.hpp"
 namespace string_container
 {
@@ -150,7 +150,7 @@ namespace string_container
 
 			* 注意事项:
 
-			* * - 字符串操作可能抛出 `customize_exception` 异常（如越界访问）
+			* * - 字符串操作可能抛出 `fault` 异常（如越界访问）
 			*
 			* * - 浮点类型转换为字符串时可能丢失精度（相关哈希函数中）
 			*
@@ -360,7 +360,7 @@ namespace string_container
 				// 中间位置插入子串
 				if (start_position > _size)
 				{
-					throw custom_exception::customize_exception("传入参数位置越界", "insert_sub_string", __LINE__);
+					throw custom_exception::fault("传入参数位置越界", "insert_sub_string", __LINE__);
 				}
 				uint64_t len = strlen(sub_string);
 				uint64_t new_size = _size + len;
@@ -376,7 +376,7 @@ namespace string_container
 				delete[] temporary_buffers;
 				return *this;
 			}
-			catch (const custom_exception::customize_exception &process)
+			catch (const custom_exception::fault &process)
 			{
 				std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
 				throw;
@@ -389,10 +389,10 @@ namespace string_container
 			{
 				if (start_position > _size)
 				{
-					throw custom_exception::customize_exception("传入参数位置越界", "sub_string", __LINE__);
+					throw custom_exception::fault("传入参数位置越界", "sub_string", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &process)
+			catch (const custom_exception::fault &process)
 			{
 				std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
 				throw;
@@ -412,10 +412,10 @@ namespace string_container
 			{
 				if (start_position > _size)
 				{
-					throw custom_exception::customize_exception("传入参数位置越界", "sub_string_from", __LINE__);
+					throw custom_exception::fault("传入参数位置越界", "sub_string_from", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &process)
+			catch (const custom_exception::fault &process)
 			{
 				std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
 				throw;
@@ -435,10 +435,10 @@ namespace string_container
 			{
 				if (start_position > _size || terminate_position > _size || start_position > terminate_position)
 				{
-					throw custom_exception::customize_exception("传入参数位置越界", "sub_string", __LINE__);
+					throw custom_exception::fault("传入参数位置越界", "sub_string", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &process)
+			catch (const custom_exception::fault &process)
 			{
 				std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
 				throw;
@@ -567,10 +567,10 @@ namespace string_container
 			{
 				if (_size == 0)
 				{
-					throw custom_exception::customize_exception("当前string为空", "reserve", __LINE__);
+					throw custom_exception::fault("当前string为空", "reserve", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &process)
+			catch (const custom_exception::fault &process)
 			{
 				std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
 				throw;
@@ -588,10 +588,10 @@ namespace string_container
 			{
 				if (start_position > _size || terminate_position > _size || start_position > terminate_position || _size == 0)
 				{
-					throw custom_exception::customize_exception("string回滚位置异常", "reverse_sub_string", __LINE__);
+					throw custom_exception::fault("string回滚位置异常", "reverse_sub_string", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &process)
+			catch (const custom_exception::fault &process)
 			{
 				std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
 				throw;
@@ -728,10 +728,10 @@ namespace string_container
 				}
 				else
 				{
-					throw custom_exception::customize_exception("越界访问", "string::operator[]", __LINE__);
+					throw custom_exception::fault("越界访问", "string::operator[]", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &access_exception)
+			catch (const custom_exception::fault &access_exception)
 			{
 				std::cerr << access_exception.what() << " " << access_exception.function_name_get() << " " << access_exception.line_number_get() << std::endl;
 				throw;
@@ -748,10 +748,10 @@ namespace string_container
 				}
 				else
 				{
-					throw custom_exception::customize_exception("越界访问", "string::operator[]const", __LINE__);
+					throw custom_exception::fault("越界访问", "string::operator[]const", __LINE__);
 				}
 			}
-			catch (const custom_exception::customize_exception &access_exception)
+			catch (const custom_exception::fault &access_exception)
 			{
 				std::cerr << access_exception.what() << " " << access_exception.function_name_get() << " " << access_exception.line_number_get() << std::endl;
 				throw;

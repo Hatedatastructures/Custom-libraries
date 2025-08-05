@@ -2,8 +2,8 @@
 #include "List.hpp"
 #include "Vector.hpp"
 #include "Algorithm.hpp"
-#include "Custom_exception.hpp"
-#include "Imitation_functions.hpp"
+#include "Exception.hpp"
+#include "Imitate.hpp"
 namespace queue_adapter
 {
   /*
@@ -234,7 +234,7 @@ namespace queue_adapter
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename priority_queue_type, typename container_imitate_function = con::imitation_functions::less<priority_queue_type>,
+  template <typename priority_queue_type, typename container_imitate_function = con::less<priority_queue_type>,
             typename vector_based_priority_queue = con::vector<priority_queue_type>>
   class priority_queue
   {

@@ -1,5 +1,5 @@
 #pragma once
-#include "Base_class.hpp"
+#include "Base.hpp"
 namespace map_container
 {
   /**
@@ -34,7 +34,7 @@ namespace map_container
    *
    * * - `map_iterator`: 插入操作返回类型，为 `con::pair<iterator, bool>`，其中 `iterator` 指向插入位置（或已有键的位置），`bool` 表示是否插入成功
    */
-  template <typename map_type_k, typename map_type_v, typename comparators = con::imitation_functions::less<map_type_k>>
+  template <typename map_type_k, typename map_type_v, typename comparators = con::less<map_type_k>>
   class tree_map
   {
     using key_val_type = con::pair<map_type_k, map_type_v>;

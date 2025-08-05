@@ -1,12 +1,12 @@
 #pragma once
 #include "Stack.hpp"
 #include "Algorithm.hpp"
-#include "Practicality.hpp"
-#include "Custom_exception.hpp"
+#include "Utility.hpp"
+#include "Exception.hpp"
 namespace tree_container
 {
   /*
-      * @brief  #### `binary_search_tree` 类模板
+      * @brief  #### `binary_tree` 类模板
 
       *   - 自定义二叉搜索树（BST）容器，基于节点结构实现
 
@@ -61,7 +61,7 @@ namespace tree_container
 
       * * - `operator=`: 拷贝赋值运算符，先清空当前树，再深拷贝目标树资源
       *
-      * * - `operator= (binary_search_tree&& binary_search_tree_object)`:
+      * * - `operator= (binary_tree&& binary_search_tree_object)`:
       *   移动赋值运算符，接管目标树资源，原对象根节点置空
 
       * 特性:
@@ -74,7 +74,7 @@ namespace tree_container
       *
       * * - 可定制性: 通过自定义比较器改变排序规则（如传入 `greater` 实现右小左大）
       *
-      * * - 异常安全: 关键操作（如拷贝构造、插入）包含异常处理，未找到元素时抛出 `customize_exception`
+      * * - 异常安全: 关键操作（如拷贝构造、插入）包含异常处理，未找到元素时抛出 `fault`
 
       * 注意事项:
 
@@ -90,8 +90,8 @@ namespace tree_container
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename binary_search_tree_type, typename container_imitate_function = con::imitation_functions::less<binary_search_tree_type>>
-  class binary_search_tree
+  template <typename binary_search_tree_type, typename container_imitate_function = con::less<binary_search_tree_type>>
+  class binary_tree
   {
   private:
     class binary_search_tree_type_node
@@ -210,9 +210,9 @@ namespace tree_container
     }
 
   public:
-    ~binary_search_tree() noexcept { clear(); }
+    ~binary_tree() noexcept { clear(); }
     // 构造函数，使用初始化列表来初始化二叉搜索树
-    binary_search_tree(std::initializer_list<binary_search_tree_type> lightweight_container)
+    binary_tree(std::initializer_list<binary_search_tree_type> lightweight_container)
     {
       _root = nullptr;
       for (auto &chained_values : lightweight_container)
@@ -220,18 +220,18 @@ namespace tree_container
         push(chained_values);
       }
     }
-    explicit binary_search_tree(const binary_search_tree_type &bstt_node = binary_search_tree_type())
+    explicit binary_tree(const binary_search_tree_type &bstt_node = binary_search_tree_type())
         : _root(nullptr)
     {
       _root = new container_node(bstt_node);
     }
-    binary_search_tree(binary_search_tree &&binary_search_tree_object) noexcept
+    binary_tree(binary_tree &&binary_search_tree_object) noexcept
         : _root(nullptr), function_policy(binary_search_tree_object.function_policy)
     {
       _root = std::move(binary_search_tree_object._root);
       binary_search_tree_object._root = nullptr;
     }
-    binary_search_tree(const binary_search_tree &binary_search_tree_object)
+    binary_tree(const binary_tree &binary_search_tree_object)
         : _root(nullptr), function_policy(binary_search_tree_object.function_policy)
     // 这个拷贝构造不需要传模板参数，因为模板参数是在编译时确定的，而不是在运行时确定的，对于仿函数，直接拿传进来的引用初始化就可以了
     {
@@ -239,7 +239,7 @@ namespace tree_container
       container_node *reference_node = binary_search_tree_object._root;
       if (reference_node == nullptr)
       {
-        throw custom_exception::customize_exception("拷贝构造失败二叉搜索树为空", "binary_search_tree", __LINE__);
+        throw custom_exception::fault("拷贝构造失败二叉搜索树为空", "binary_tree", __LINE__);
       }
       con::stack<con::pair<container_node *, container_node **>> interior_stack;
       // 注意这里把本地_root类型传过去，是因为要对本地的_root进行操作，所以要传二级指针
@@ -324,7 +324,7 @@ namespace tree_container
         return true;
       }
     }
-    binary_search_tree &pop(const binary_search_tree_type &binary_search_tree_type_data)
+    binary_tree &pop(const binary_search_tree_type &binary_search_tree_type_data)
     {
       // 删除节点
       container_node *reference_node = _root;
@@ -461,7 +461,7 @@ namespace tree_container
       // 插入节点
       if (existing_value_node == nullptr)
       {
-        throw custom_exception::customize_exception("传入值未找到！", "insert::find", __LINE__);
+        throw custom_exception::fault("传入值未找到！", "insert::find", __LINE__);
       }
       else
       {
@@ -470,19 +470,19 @@ namespace tree_container
         existing_value_node->_right = new_value_node;
       }
     }
-    binary_search_tree &operator=(const binary_search_tree &binary_search_tree_object)
+    binary_tree &operator=(const binary_tree &binary_search_tree_object)
     {
       // 赋值运算符重载
       if (this != &binary_search_tree_object)
       {
         clear();
         function_policy = binary_search_tree_object.function_policy;
-        binary_search_tree reference_node = binary_search_tree_object;
+        binary_tree reference_node = binary_search_tree_object;
         con::algorithm::swap(reference_node._root, _root);
       }
       return *this;
     }
-    binary_search_tree &operator=(binary_search_tree &&binary_search_tree_object) noexcept
+    binary_tree &operator=(binary_tree &&binary_search_tree_object) noexcept
     {
       // 移动赋值运算符重载
       if (this != &binary_search_tree_object)
@@ -496,7 +496,7 @@ namespace tree_container
     }
   };
   /*
-      * @brief  #### `adelson_velsky_landis_tree` 类模板
+      * @brief  #### `balance_tree` 类模板
 
       *   - 实现严格自平衡二叉搜索树（AVL树），通过维护平衡因子保证树的平衡性
 
@@ -572,7 +572,7 @@ namespace tree_container
 
       * * - `operator=`: 拷贝赋值运算符，先清空当前树，再通过交换资源实现深拷贝
       *
-      * * - `operator= (adelson_velsky_landis_tree&& avl_tree_data)`: 移动赋值运算符，接管目标树资源，原树根节点置空
+      * * - `operator= (balance_tree&& avl_tree_data)`: 移动赋值运算符，接管目标树资源，原树根节点置空
 
       * 特性:
 
@@ -584,7 +584,7 @@ namespace tree_container
       *
       * * - 迭代器支持: 提供正向和反向迭代器，支持范围for循环遍历，迭代器在旋转后仍保持有效
       *
-      * * - 异常安全: 关键操作（如旋转、插入）包含异常处理，空指针传入时抛出 `customize_exception`
+      * * - 异常安全: 关键操作（如旋转、插入）包含异常处理，空指针传入时抛出 `fault`
 
       * 注意事项:
 
@@ -600,9 +600,9 @@ namespace tree_container
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename avl_tree_type_k, typename avl_tree_type_v, typename container_imitate_function = con::imitation_functions::less<avl_tree_type_k>,
+  template <typename avl_tree_type_k, typename avl_tree_type_v, typename container_imitate_function = con::less<avl_tree_type_k>,
             typename avl_tree_node_pair = con::pair<avl_tree_type_k, avl_tree_type_v>>
-  class adelson_velsky_landis_tree
+  class balance_tree
   {
   private:
     class avl_tree_type_node
@@ -769,10 +769,10 @@ namespace tree_container
       {
         if (subtree_node == nullptr)
         {
-          throw custom_exception::customize_exception("左单旋传进来的节点为空！", "left_revolve", __LINE__);
+          throw custom_exception::fault("左单旋传进来的节点为空！", "left_revolve", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &exception)
+      catch (const custom_exception::fault &exception)
       {
         std::cerr << exception.what() << exception.function_name_get() << exception.line_number_get() << std::endl;
         throw;
@@ -822,10 +822,10 @@ namespace tree_container
       {
         if (subtree_node == nullptr)
         {
-          throw custom_exception::customize_exception("右单旋传进来的节点为空！", "right_revolve", __LINE__);
+          throw custom_exception::fault("右单旋传进来的节点为空！", "right_revolve", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &exception)
+      catch (const custom_exception::fault &exception)
       {
         std::cerr << exception.what() << exception.function_name_get() << exception.line_number_get() << std::endl;
         throw;
@@ -868,10 +868,10 @@ namespace tree_container
       {
         if (subtree_node == nullptr)
         {
-          throw custom_exception::customize_exception("右左双旋传进来的节点为空！", "right_left_revolve", __LINE__);
+          throw custom_exception::fault("右左双旋传进来的节点为空！", "right_left_revolve", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &exception)
+      catch (const custom_exception::fault &exception)
       {
         std::cerr << exception.what() << exception.function_name_get() << exception.line_number_get() << std::endl;
         throw;
@@ -909,10 +909,10 @@ namespace tree_container
       {
         if (subtree_node == nullptr)
         {
-          throw custom_exception::customize_exception("左右单旋传进来的节点为空！", "left_right_revolve", __LINE__);
+          throw custom_exception::fault("左右单旋传进来的节点为空！", "left_right_revolve", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &exception)
+      catch (const custom_exception::fault &exception)
       {
         std::cerr << exception.what() << exception.function_name_get() << exception.line_number_get() << std::endl;
         throw;
@@ -1126,23 +1126,23 @@ namespace tree_container
     {
       return _root == nullptr;
     }
-    adelson_velsky_landis_tree()
+    balance_tree()
     {
       _root = nullptr;
     }
-    explicit adelson_velsky_landis_tree(const avl_tree_type_k &key_data, const avl_tree_type_v &val_data = avl_tree_type_v(),
+    explicit balance_tree(const avl_tree_type_k &key_data, const avl_tree_type_v &val_data = avl_tree_type_v(),
                                         container_imitate_function com_value = container_imitate_function())
         : _root(nullptr), function_policy(com_value)
     {
       _root = new container_node(key_data, val_data);
     }
-    explicit adelson_velsky_landis_tree(const avl_tree_node_pair &pair_type_data,
+    explicit balance_tree(const avl_tree_node_pair &pair_type_data,
                                         container_imitate_function com_value = container_imitate_function())
         : _root(nullptr), function_policy(com_value)
     {
       _root = new container_node(pair_type_data.first, pair_type_data.second);
     }
-    adelson_velsky_landis_tree(const adelson_velsky_landis_tree &avl_tree_data)
+    balance_tree(const balance_tree &avl_tree_data)
         : _root(nullptr), function_policy(avl_tree_data.function_policy)
     {
       if (avl_tree_data._root == nullptr)
@@ -1209,13 +1209,13 @@ namespace tree_container
         }
       }
     }
-    adelson_velsky_landis_tree(adelson_velsky_landis_tree &&avl_tree_data) noexcept
+    balance_tree(balance_tree &&avl_tree_data) noexcept
         : _root(nullptr), function_policy(avl_tree_data.function_policy)
     {
       _root = std::move(avl_tree_data._root);
       avl_tree_data._root = nullptr;
     }
-    adelson_velsky_landis_tree &operator=(adelson_velsky_landis_tree &&avl_tree_data) noexcept
+    balance_tree &operator=(balance_tree &&avl_tree_data) noexcept
     {
       if (this != &avl_tree_data)
       {
@@ -1226,7 +1226,7 @@ namespace tree_container
       }
       return *this;
     }
-    adelson_velsky_landis_tree &operator=(const adelson_velsky_landis_tree avl_tree_data)
+    balance_tree &operator=(const balance_tree avl_tree_data)
     {
       clear();
       if (&avl_tree_data == this)
@@ -1241,7 +1241,7 @@ namespace tree_container
       con::algorithm::swap(_root, avl_tree_data._root);
       return *this;
     }
-    ~adelson_velsky_landis_tree() noexcept
+    ~balance_tree() noexcept
     {
       clear();
     }
@@ -1484,7 +1484,7 @@ namespace tree_container
       }
       return reference_node;
     }
-    adelson_velsky_landis_tree &pop(const avl_tree_type_k &key_data)
+    balance_tree &pop(const avl_tree_type_k &key_data)
     {
       if (_root == nullptr)
       {
@@ -1677,6 +1677,6 @@ namespace tree_container
 }
 namespace con
 {
-  using tree_container::adelson_velsky_landis_tree;
-  using tree_container::binary_search_tree;
+  using tree_container::balance_tree;
+  using tree_container::binary_tree;
 }

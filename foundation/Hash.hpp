@@ -189,5 +189,6 @@ namespace hash
 }
 namespace con
 {
-  using namespace hash;
+  using hash::hash_imitation_functions;
+  using hash::hash_algorithm::hash_function;
 }

@@ -1,5 +1,5 @@
 #pragma once
-#include "Custom_exception.hpp"
+#include "Exception.hpp"
 #include "Algorithm.hpp"
 namespace list_container
 {
@@ -117,7 +117,7 @@ namespace list_container
       *
       * * - 迭代器稳定性: 插入操作不会导致迭代器失效，删除操作仅使被删除元素的迭代器失效
       *
-      * * - 异常处理: 空迭代器插入、内存分配失败等情况会抛出 `customize_exception` 异常
+      * * - 异常处理: 空迭代器插入、内存分配失败等情况会抛出 `fault` 异常
       *
       * * - 支持移动语义: 减少不必要的元素拷贝，提高性能
 
@@ -308,14 +308,14 @@ namespace list_container
       {
         if (first._node == nullptr || last._node == nullptr)
         {
-          throw custom_exception::customize_exception("传入迭代器参数为空", "list::list", __LINE__);
+          throw custom_exception::fault("传入迭代器参数为空", "list::list", __LINE__);
         }
         if (first == last)
         {
-          throw custom_exception::customize_exception("传入迭代器参函数相同", "list::list", __LINE__);
+          throw custom_exception::fault("传入迭代器参函数相同", "list::list", __LINE__);
         }
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;
@@ -477,7 +477,7 @@ namespace list_container
       {
         if (iterator_position._node == nullptr)
         {
-          throw custom_exception::customize_exception("传入迭代器参数为空", "list::insert", __LINE__);
+          throw custom_exception::fault("传入迭代器参数为空", "list::insert", __LINE__);
         }
         auto *new_container_node(new container_node(list_type_data));
         // 开辟新节点
@@ -494,7 +494,7 @@ namespace list_container
         std::cerr << process.what() << std::endl;
         throw;
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;
@@ -506,7 +506,7 @@ namespace list_container
       {
         if (iterator_position._node == nullptr)
         {
-          throw custom_exception::customize_exception("传入迭代器参数为空", "list::insert移动语义版本", __LINE__);
+          throw custom_exception::fault("传入迭代器参数为空", "list::insert移动语义版本", __LINE__);
         }
         auto *new_container_node = new container_node(std::forward<list_type>(list_type_data));
         container_node *iterator_current_node = iterator_position._node;
@@ -521,7 +521,7 @@ namespace list_container
         std::cerr << process.what() << "插入时内存不足" << std::endl;
         throw;
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;
@@ -533,7 +533,7 @@ namespace list_container
       {
         if (iterator_position._node == nullptr)
         {
-          throw custom_exception::customize_exception("传入迭代器参数为空", "list::erase", __LINE__);
+          throw custom_exception::fault("传入迭代器参数为空", "list::erase", __LINE__);
         }
         container_node *iterator_delete_node = iterator_position._node;  // 找到待删除的节点
         container_node *next_element_node = iterator_delete_node->_next; // 保存下一个节点的位置
@@ -544,7 +544,7 @@ namespace list_container
 
         return iterator(next_element_node);
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;

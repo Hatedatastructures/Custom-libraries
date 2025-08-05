@@ -6,7 +6,7 @@
 namespace custom_exception
 {
   /*
-   * @brief  #### `customize_exception` 类
+   * @brief  #### `fault` 类
 
   *   - 用于抛出带消息、函数名、行号信息的异常
 
@@ -32,7 +32,7 @@ namespace custom_exception
 
    * 该类自动清理资源
   */
-  class customize_exception final : public std::exception
+  class fault final : public std::exception
   {
   private:
     char *message;
@@ -40,7 +40,7 @@ namespace custom_exception
     uint64_t line_number;
 
   public:
-    customize_exception(const char *message_target, const char *function_name_target, const uint64_t &line_number_target) noexcept
+    fault(const char *message_target, const char *function_name_target, const uint64_t &line_number_target) noexcept
     {
       message = new char[std::strlen(message_target) + 1];
       std::strcpy(message, message_target);
@@ -60,15 +60,15 @@ namespace custom_exception
     {
       return line_number;
     }
-    ~customize_exception() noexcept override
+    ~fault() noexcept override
     {
       delete[] message;
       delete[] function_name;
     }
-    customize_exception(const customize_exception &) = delete;
-    customize_exception(customize_exception &&) = delete;
-    customize_exception &operator=(const customize_exception &) = delete;
-    customize_exception &operator=(customize_exception &&) = delete;
+    fault(const fault &) = delete;
+    fault(fault &&) = delete;
+    fault &operator=(const fault &) = delete;
+    fault &operator=(fault &&) = delete;
   };
 }
 namespace con

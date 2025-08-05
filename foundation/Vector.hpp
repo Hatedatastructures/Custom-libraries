@@ -1,5 +1,5 @@
 #pragma once
-#include "Custom_exception.hpp"
+#include "Exception.hpp"
 #include "Algorithm.hpp"
 namespace vector_container
 {
@@ -108,7 +108,7 @@ namespace vector_container
       *
       * * - 支持移动语义: 减少不必要的元素拷贝，提高性能
       *
-      * * - 异常处理: 越界访问等操作会抛出 `customize_exception` 异常
+      * * - 异常处理: 越界访问等操作会抛出 `fault` 异常
       *
       * * - 迭代器可能失效: 扩容（resize）或删除元素（erase）后，原有迭代器可能失效
 
@@ -213,14 +213,14 @@ namespace vector_container
       {
         if (find_size >= size())
         {
-          throw custom_exception::customize_exception("传入数据超出容器范围", "vector::find", __LINE__);
+          throw custom_exception::fault("传入数据超出容器范围", "vector::find", __LINE__);
         }
         else
         {
           return _data_pointer[find_size];
         }
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;
@@ -393,14 +393,14 @@ namespace vector_container
       {
         if (access_location >= capacity())
         {
-          throw custom_exception::customize_exception("传入参数越界", "vector::operatot[]", __LINE__);
+          throw custom_exception::fault("传入参数越界", "vector::operatot[]", __LINE__);
         }
         else
         {
           return _data_pointer[access_location];
         }
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;
@@ -413,14 +413,14 @@ namespace vector_container
       {
         if (access_location >= capacity())
         {
-          throw custom_exception::customize_exception("传入参数越界", "vector::operatot[]", __LINE__);
+          throw custom_exception::fault("传入参数越界", "vector::operatot[]", __LINE__);
         }
         else
         {
           return _data_pointer[access_location];
         }
       }
-      catch (const custom_exception::customize_exception &process)
+      catch (const custom_exception::fault &process)
       {
         std::cerr << process.what() << " " << process.function_name_get() << " " << process.line_number_get() << std::endl;
         throw;

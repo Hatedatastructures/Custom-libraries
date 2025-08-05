@@ -1,7 +1,7 @@
 #pragma once
 #include "Vector.hpp"
 #include "Algorithm.hpp"
-#include "Custom_exception.hpp"
+#include "Exception.hpp"
 namespace stack_adapter
 {
   /*

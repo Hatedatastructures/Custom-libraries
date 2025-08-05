@@ -6,9 +6,9 @@
 #include <semaphore>
 #include <thread>
 #include <vector>
-#include "Concurrent_log.hpp"
+#include <unordered_map>
+#include <shared_mutex>
 static constexpr uint64_t CACHE_ALIGNMENT = 64;
-rec::recorder dubug_log;
 /**
 * @brief #### 单生产单消费无锁队列类`SPSC`
 * @tparam  producer_consumer_type 数据类型
@@ -366,7 +366,6 @@ public:
   {
     auto transmission = [this](){this->supporting_thread_func();};
     _supporting_thread = std::thread(transmission);
-    dubug_log.install_controller(console);
   }
   producer_consumer_queues(const producer_consumer_queues& other) = delete;
   producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;

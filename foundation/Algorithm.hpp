@@ -1,6 +1,6 @@
 #pragma once
-#include "Custom_exception.hpp"
-#include "Imitation_functions.hpp"
+#include "Exception.hpp"
+#include "Imitate.hpp"
 namespace con
 {
   /*

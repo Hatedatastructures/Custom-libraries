@@ -1,21 +1,10 @@
 #pragma once
-#include "Custom_exception.hpp"
+#include "Exception.hpp"
 // #include "String.hpp"
 // #include "Vector.hpp"
 // #include "List.hpp"
-namespace con
-{
-  /*
-  * @brief  #### `imitation_functions` 仿函数命名空间
 
-  *     *   - 包含自定义的仿函数（函数对象）实现，用于实现比较操作
-  */
-  namespace imitation_functions
-  {
-  }
-}
-
-namespace con::imitation_functions
+namespace imitation_functions
 {
   /*
    * @brief  #### `less` 类
@@ -114,4 +103,9 @@ namespace con::imitation_functions
       return _test1 > _test2;
     }
   };
+}
+namespace con
+{
+  using imitation_functions::greater;
+  using imitation_functions::less;
 }

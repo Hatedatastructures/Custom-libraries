@@ -1,10 +1,10 @@
 #pragma once
 #include <memory>
-#include "Custom_exception.hpp"
+#include "Exception.hpp"
 namespace con
 {
   /*
-  * @brief  #### `smart_pointer`智能指针命名空间
+  * @brief  #### `pointer`智能指针命名空间
 
   *   ##### 智能指针模板类
 
@@ -16,12 +16,12 @@ namespace con
 
   *   - `weak_ptr`: 弱引用的智能指针，不拥有资源所有权，用于避免循环引用
   */
-  namespace smart_pointer
+  namespace pointer
   {
   }
 }
 
-namespace con::smart_pointer
+namespace con::pointer
 {
   /*
    * @brief  #### `smart_ptr` 类
@@ -472,7 +472,7 @@ namespace con::smart_pointer
   {
   private:
     weak_ptr_type *_ptr;
-    smart_pointer::shared_ptr<weak_ptr_type> *_shared_ptr;
+    pointer::shared_ptr<weak_ptr_type> *_shared_ptr;
     using Ref = weak_ptr_type &;
     using ptr = weak_ptr_type *;
 
