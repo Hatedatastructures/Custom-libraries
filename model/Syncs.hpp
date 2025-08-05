@@ -198,7 +198,7 @@ public:
       _consume_condition.wait(access_lock);
     }
     if(_close_id && empty_internal()) return false;
-    consume_data = _shared_queue.front();
+    consume_data = std::move(_shared_queue.front());
     _shared_queue.pop();
     access_lock.unlock();
     _produce_condition.notify_one();
