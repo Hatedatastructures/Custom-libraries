@@ -90,10 +90,10 @@ public:
 template<typename producers_consumers_type>
 class producers_consumers_queue
 {
+  static constexpr uint64_t _default_capacity = 10;
 private:
   mutable std::mutex _access_lock;
   uint64_t _current_capacity;
-  static constexpr uint64_t _default_capacity = 10;
   std::atomic<bool> _close_id = false;
   std::condition_variable _produce_condition;
   std::condition_variable _consume_condition;
@@ -258,14 +258,28 @@ public:
     std::lock_guard<std::mutex> access_lock(_access_lock);
     return full_internal();
   }
+  uint64_t size() const
+  {
+    std::lock_guard<std::mutex> access_lock(_access_lock);
+    return _shared_queue.size();
+  }
   bool empty() const
   {
     std::lock_guard<std::mutex> access_lock(_access_lock);
     return empty_internal();
   }
+  /**
+   * @brief #### 检测队列是否关闭
+   * @return 关闭返回 `true`，未关闭返回 `false`
+   */
   bool whether_close() const
   {
     return _close_id.load(std::memory_order_acquire);
+  }
+  double load_judgment() const
+  {
+    std::lock_guard<std::mutex> access_lock(_access_lock);
+    return static_cast<double>(_shared_queue.size()) / static_cast<double>(_current_capacity);
   }
 };
 /**
@@ -417,18 +431,18 @@ public:
   }
   /**
    * @brief #### 获取生产者队列的大小
-   * @return size_t 生产者队列的大小
+   * @return uint64_t 生产者队列的大小
    */
-  size_t produce_size_unsafe()
+  uint64_t produce_size_unsafe()
   {
     std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
     return _produce.load(std::memory_order_relaxed)->size();
   }
   /**
    * @brief #### 获取消费者队列的大小
-   * @return size_t 消费者队列的大小
+   * @return uint64_t 消费者队列的大小
    */
-  size_t consume_size_unsafe()
+  uint64_t consume_size_unsafe()
   {
     std::lock_guard<std::mutex> consume_lock(_consume_mutex);
     return _consume.load(std::memory_order_relaxed)->size();

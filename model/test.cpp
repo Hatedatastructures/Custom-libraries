@@ -65,5 +65,7 @@ int main()
   // constexpr std::invoke_result_t<decltype(temp_test),double,double>
   thread_pool threads(10ULL);
   threads.submit(test);
+  // threads.submit(test);
+  // threads.submit(test);
   return  0;
 }
