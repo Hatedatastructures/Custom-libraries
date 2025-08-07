@@ -253,6 +253,24 @@ public:
     _produce_condition.notify_all();
     _consume_condition.notify_all();
   }
+  void clear()
+  {
+    std::lock_guard<std::mutex> lock(_access_lock);
+    while(!empty_internal())
+    {
+      _shared_queue.pop();
+    }
+  }
+  void enable()
+  {
+    if(!_close_id.load(std::memory_order_acquire)) return;
+    std::unique_lock<std::mutex> access_lock(_access_lock);
+    if(!_close_id) return;
+    _close_id.store(false,std::memory_order_release);
+    access_lock.unlock();
+    _produce_condition.notify_all();
+    _consume_condition.notify_all();
+  }
   bool full() const
   {
     std::lock_guard<std::mutex> access_lock(_access_lock);

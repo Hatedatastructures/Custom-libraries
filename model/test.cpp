@@ -5,6 +5,7 @@
 // #include <windows.h>
 #include <iostream>
 #include <future>
+#include <windows.h>
 #include "Thread_pool.hpp"
 // void read(producer_consumer_queues<std::string> &q)
 // {
@@ -53,9 +54,10 @@
 // {
 //   return first + second;
 // }
+std::atomic<uint64_t> num;
 void test()
 {
-  std::cout << "hello world" << std::endl;
+  num++;
 }
 int main()
 {
@@ -64,7 +66,22 @@ int main()
   // std::cout << "hello world" << std::endl;
   // constexpr std::invoke_result_t<decltype(temp_test),double,double>
   thread_pool threads(10ULL);
-  threads.submit(test);
+  uint64_t arr;
+  {
+    std::thread _threads ([&]
+      {
+        uint64_t  size = 100000;
+        while(size--)
+        {
+          threads.submit(test);
+        }
+      });
+    Sleep(1000);
+    // std::cout << num ;
+    _threads.join();
+  }
+  arr = threads.active_threads();
+  std::cout << arr << std::endl;
   // threads.submit(test);
   // threads.submit(test);
   return  0;
