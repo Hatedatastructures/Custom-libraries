@@ -65,21 +65,22 @@ int main()
   // tests_queue();
   // std::cout << "hello world" << std::endl;
   // constexpr std::invoke_result_t<decltype(temp_test),double,double>
-  thread_pool threads(10ULL);
+  thread_pool threads(32ULL,16ULL,64ULL);
   uint64_t arr;
   {
     std::thread _threads ([&]
       {
-        uint64_t  size = 100000;
+        uint64_t  size = 10000000;
         while(size--)
         {
           threads.submit(test);
         }
       });
     Sleep(1000);
-    // std::cout << num ;
+    std::cout << num << " ";
     _threads.join();
   }
+  std::cout << num << std::endl;
   arr = threads.active_threads();
   std::cout << arr << std::endl;
   // threads.submit(test);

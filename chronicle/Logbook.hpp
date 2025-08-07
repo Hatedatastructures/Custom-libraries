@@ -816,3 +816,25 @@ namespace rec
   }
   using recorders::recorder;
 }
+
+namespace con
+{
+  using instrument::chronix;
+  using instrument::open_mode;
+  using instrument::situation_level;
+  using instrument::synthesis;
+  /**
+   * #### 包含recorder内部实现所需类的命名空间
+   * 包含的核心类：
+   * - `underlying_cache`：底层缓存实现(来自 `cushioning` 模块)
+   * - `workflow_coordinator`：工作流协调器(资源管理核心组件)
+   * - `staging_area`：暂存区(资源临时存储管理)
+   */
+  namespace internal
+  {
+    using cushioning::underlying_cache;
+    using resource_manager::workflow_coordinator;
+    using resource_manager::staging_area;
+  }
+  using recorders::recorder;
+}
