@@ -26,7 +26,7 @@ namespace con
     static constexpr uint64_t _default_capacity = 10;
     alignas(CACHE_ALIGNMENT) std::vector<producer_consumer_type> _shared_circular_queue;
     uint64_t compute_position(uint64_t index) const
-    {
+    { 
       return index % _current_capacity;
     }
   public:
@@ -303,25 +303,6 @@ namespace con
     }
   };
   /**
-   * @brief #### 生产者消费者有锁信号量队列
-   * @tparam producers_consumers_semaphore_type  数据类型
-   * @tparam largest_semaphore 最大信号量 , 默认`10`
-   * @warning - 模板参数最大信号量尽量和队列长度保持一致
-   * @warning - 更改信号量就是更改队列长度
-   */
-  // template<typename producers_consumers_semaphore_type,uint64_t largest_semaphore = 10ULL>
-  // class producers_consumers_semaphore_queue
-  // {
-  // private:
-  //   static constexpr uint64_t _default_queue_capacity = largest_semaphore;
-  //   std::vector<producers_consumers_semaphore_type> _circular_shared_queue;
-  //   std::counting_semaphore<largest_semaphore> _produce_semaphore;
-  //   std::counting_semaphore<largest_semaphore> _consume_semaphore;
-  //   std::atomic<uint64_t> _current_queue_size;
-  //   std::atomic<bool> _close_id;
-  // public:
-  // };
-  /**
    * @brief #### 多生产多消费有锁双队列类`MPMC`
    * @tparam producers_consumers_type 数据类型
    */
@@ -501,5 +482,49 @@ namespace con
       shutdown();
     }
   };
+  /**
+   * @brief #### 生产者消费者有锁信号量队列
+   * @warning 由于标准库限制队列容量只能写死
+   * @tparam producers_consumers_semaphore_type  数据类型
+   */
+  template<typename producers_consumers_semaphore_type>
+  class producers_consumers_semaphore_queue
+  {
+  private:
 
+    static constexpr uint64_t _largest_semaphore = 10ULL;
+    std::vector<producers_consumers_semaphore_type> _semaphore_queue;
+
+    std::counting_semaphore<_largest_semaphore> _produce_semaphore;
+    std::counting_semaphore<_largest_semaphore> _consume_semaphore;
+
+    std::mutex _produce_mutex;
+    std::mutex _consume_mutex;
+
+    uint64_t _produce_location;
+    uint64_t _consume_location;
+
+  public:
+    producers_consumers_semaphore_queue()
+    :_semaphore_queue(_largest_semaphore),_produce_semaphore(0),_consume_semaphore(_largest_semaphore),
+    _produce_location(0),_consume_location(0){}
+    void push(const producers_consumers_semaphore_queue& produce_data)
+    {
+      _consume_semaphore.acquire();
+      std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
+      _semaphore_queue[_produce_location++] = produce_data;
+      _produce_location = _produce_location % _largest_semaphore;
+      proudce_lock.unlock();
+      _produce_semaphore.release();
+    }
+    void pop(producers_consumers_semaphore_type& consume_data)
+    {
+      _produce_semaphore.acquire();
+      std::unique_lock<std::mutex> consume_lock(_consume_mutex);
+      consume_data = std::move(_semaphore_queue[_consume_location++]);
+      _consume_location = _consume_location %  _largest_semaphore;
+      consume_lock.unlock();
+      _consume_semaphore.release();
+    }
+  };
 }

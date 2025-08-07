@@ -6,6 +6,7 @@
 #include <iostream>
 #include <future>
 #include <windows.h>
+#include "boost/asio.hpp"
 #include "Thread_pool.hpp"
 // void read(producer_consumer_queues<std::string> &q)
 // {
@@ -54,10 +55,16 @@
 // {
 //   return first + second;
 // }
-std::atomic<uint64_t> num;
+// std::atomic<uint64_t> num;
+// void test()
+// {
+//   num++;
+// }
 void test()
 {
-  num++;
+  boost::asio::io_context io_context;
+  boost::asio::ip::tcp ip;
+  boost::asio::ip::tcp::socket socket(io_context);
 }
 int main()
 {
@@ -65,24 +72,24 @@ int main()
   // tests_queue();
   // std::cout << "hello world" << std::endl;
   // constexpr std::invoke_result_t<decltype(temp_test),double,double>
-  thread_pool threads(32ULL,16ULL,64ULL);
-  uint64_t arr;
-  {
-    std::thread _threads ([&]
-      {
-        uint64_t  size = 10000000;
-        while(size--)
-        {
-          threads.submit(test);
-        }
-      });
-    Sleep(1000);
-    std::cout << num << " ";
-    _threads.join();
-  }
-  std::cout << num << std::endl;
-  arr = threads.active_threads();
-  std::cout << arr << std::endl;
+  // thread_pool threads(32ULL,16ULL,64ULL);
+  // uint64_t arr;
+  // {
+  //   std::thread _threads ([&]
+  //     {
+  //       uint64_t  size = 10000000;
+  //       while(size--)
+  //       {
+  //         threads.submit(test);
+  //       }
+  //     });
+  //   Sleep(1000);
+  //   std::cout << num << " ";
+  //   _threads.join();
+  // }
+  // std::cout << num << std::endl;
+  // arr = threads.active_threads();
+  // std::cout << arr << std::endl;
   // threads.submit(test);
   // threads.submit(test);
   return  0;
