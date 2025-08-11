@@ -7,7 +7,9 @@
 #include <future>
 #include <windows.h>
 #include "boost/asio.hpp"
+#include "boost/thread/thread.hpp"
 #include "Thread_pool.hpp"
+#include
 // void read(producer_consumer_queues<std::string> &q)
 // {
 //   for(int i = 0; i < 100; i++)
@@ -62,9 +64,11 @@
 // }
 void test()
 {
-  boost::asio::io_context io_context;
-  boost::asio::ip::tcp ip;
+  boost::asio::io_context io_context; //负责调度io操作
+  boost::asio::ip::tcp ip; //创建协议对象
   boost::asio::ip::tcp::socket socket(io_context);
+  io_context.run(); //运行事件循环
+  boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), 12345); //设定协议和端口号
 }
 int main()
 {

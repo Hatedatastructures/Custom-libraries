@@ -483,7 +483,7 @@ namespace con
     }
   };
   /**
-   * @brief #### 生产者消费者有锁信号量队列
+   * @brief #### 多生产多消费有锁信号量队列
    * @warning 由于标准库限制队列容量只能写死
    * @tparam producers_consumers_semaphore_type  数据类型
    */
