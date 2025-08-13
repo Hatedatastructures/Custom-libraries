@@ -13,44 +13,47 @@ namespace con
 {
   /**
   * @brief #### 单生产单消费无锁队列类`SPSC`
-  * @tparam  producer_consumer_type 数据类型
+  * @tparam  object_type 数据类型
   * @warning 在严格 `SPSC` 场景下，容器保证线程安全
   **/
-  template<typename producer_consumer_type>
-  class producer_consumer_queue
+  template<typename object_type>
+  class pro_con_queue
   {
-  private:
-    std::atomic<uint64_t> _producer;
-    std::atomic<uint64_t> _consumer;
-    const uint64_t _current_capacity;
     static constexpr uint64_t _default_capacity = 10;
-    alignas(CACHE_ALIGNMENT) std::vector<producer_consumer_type> _shared_circular_queue;
+  private:
+    std::atomic<uint64_t> _producer; // 生产者位置
+    std::atomic<uint64_t> _consumer; // 消费者位置
+
+    const uint64_t _current_capacity; // 当前容量
+
+    alignas(CACHE_ALIGNMENT) std::vector<object_type> _shared_circular_queue; // 环形队列
     uint64_t compute_position(uint64_t index) const
     { 
       return index % _current_capacity;
     }
   public:
-    explicit producer_consumer_queue(const uint64_t new_capacity = _default_capacity):_producer(0),_consumer(0),
+    explicit pro_con_queue(const uint64_t new_capacity = _default_capacity):_producer(0),_consumer(0),
     _current_capacity(std::max(new_capacity,static_cast<uint64_t>(1))),_shared_circular_queue(_current_capacity){}
-    producer_consumer_queue(const producer_consumer_queue& another_queue) = delete;
-    producer_consumer_queue(producer_consumer_queue&& another_queue) noexcept = delete;
-    producer_consumer_queue& operator=(const producer_consumer_queue& another_queue) = delete;
-    producer_consumer_queue& operator=(producer_consumer_queue&& another_queue) noexcept = delete;
+    pro_con_queue(const pro_con_queue& another_queue) = delete;
+    pro_con_queue(pro_con_queue&& another_queue) noexcept = delete;
+    pro_con_queue& operator=(const pro_con_queue& another_queue) = delete;
+    pro_con_queue& operator=(pro_con_queue&& another_queue) noexcept = delete;
     /**
      * @brief #### 向队列添加数据
      * @param produce_data 生产数据
      * @return 是否成功
      */
-    bool push(producer_consumer_type&& produce_data)
+    bool push(object_type&& produce_data)
     {
       const uint64_t current_producer = _producer.fetch_add(1,std::memory_order_relaxed);
       const uint64_t position = compute_position(current_producer);
+
       if(current_producer - _consumer.load(std::memory_order_acquire) >= _current_capacity)
       {
         _producer.fetch_sub(1,std::memory_order_release);
         return false;
       }
-      _shared_circular_queue[position] = std::forward<producer_consumer_type>(produce_data);
+      _shared_circular_queue[position] = std::forward<object_type>(produce_data);
       std::atomic_thread_fence(std::memory_order_release);
       return true;
     }
@@ -59,10 +62,11 @@ namespace con
      * @param consume_data 
      * @return 是否成功
      */
-    bool pop(producer_consumer_type& consume_data)
+    bool pop(object_type& consume_data)
     {
       const uint64_t current_consumer = _consumer.fetch_add(1,std::memory_order_relaxed);
       const uint64_t position = compute_position(current_consumer);
+
       if(current_consumer >= _producer.load(std::memory_order_acquire))
       {
         _consumer.fetch_sub(1,std::memory_order_release);
@@ -87,19 +91,23 @@ namespace con
   };
   /**
    * @brief #### 多生产多消费有锁队列类`MPMC`
-   * @tparam producers_consumers_type 数据类型
+   * @tparam object_type 数据类型
    */
-  template<typename producers_consumers_type>
-  class producers_consumers_queue
+  template<typename object_type>
+  class pros_cons_queue
   {
     static constexpr uint64_t _default_capacity = 10;
   private:
-    mutable std::mutex _access_lock;
-    uint64_t _current_capacity;
-    std::atomic<bool> _close_id = false;
-    std::condition_variable _produce_condition;
-    std::condition_variable _consume_condition;
-    alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _shared_queue;
+    mutable std::mutex _access_mutex; // 访问锁
+
+    uint64_t _current_capacity; // 当前容量
+
+    std::atomic<bool> _close_id = false; // 关闭标识
+
+    std::condition_variable _produce_condition; // 生产者条件变量
+    std::condition_variable _consume_condition; // 消费者条件变量
+
+    alignas(CACHE_ALIGNMENT) std::queue<object_type> _shared_queue; // 共享队列
     /**
      * @brief 判断队列是否满
      * @return 满返回 `true`，否则返回 `false`
@@ -126,12 +134,12 @@ namespace con
       _shared_queue.push(std::forward<enqueue_type>(produce_data));
     }
   public:
-    producers_consumers_queue(const uint64_t new_capacity = _default_capacity)
+    pros_cons_queue(const uint64_t new_capacity = _default_capacity)
     :_current_capacity(std::max(new_capacity,static_cast<uint64_t>(1))){}
-    producers_consumers_queue(const producers_consumers_queue& another_queue) = delete;
-    producers_consumers_queue(producers_consumers_queue&& another_queue) noexcept = delete;
-    producers_consumers_queue& operator=(const producers_consumers_queue& another_queue) = delete;
-    producers_consumers_queue& operator=(producers_consumers_queue&& another_queue) noexcept = delete;
+    pros_cons_queue(const pros_cons_queue& another_queue) = delete;
+    pros_cons_queue(pros_cons_queue&& another_queue) noexcept = delete;
+    pros_cons_queue& operator=(const pros_cons_queue& another_queue) = delete;
+    pros_cons_queue& operator=(pros_cons_queue&& another_queue) noexcept = delete;
     /**
      * @brief  #### 阻塞式入队，队列满时等待
      * @tparam push_type
@@ -141,7 +149,7 @@ namespace con
     template<typename push_type>
     bool push(push_type&& produce_data)
     {
-      std::unique_lock<std::mutex> access_lock(_access_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
       while(full_internal() && !_close_id)
       {
         _produce_condition.wait(access_lock);
@@ -161,7 +169,7 @@ namespace con
     template<typename try_push_type>
     bool try_push(try_push_type&& produce_data)
     {
-      std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex,std::try_to_lock);
       if(!access_lock.owns_lock()) return false;
       if(_close_id.load(std::memory_order_relaxed) || full_internal()) return false;
       enqueue(std::forward<try_push_type>(produce_data));
@@ -180,7 +188,7 @@ namespace con
     template<typename push_for_type, typename precision, typename period>
     bool push_for(push_for_type&& produce_data,const std::chrono::duration<precision, period> time_out)
     {
-      std::unique_lock<std::mutex> access_lock(_access_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
       auto status = _produce_condition.wait_for(access_lock,time_out,[this](){return !full_internal() || _close_id;});
       if(_close_id || status == std::cv_status::timeout) return false;
       enqueue(std::forward<push_for_type>(produce_data));
@@ -192,9 +200,9 @@ namespace con
      * @brief #### 阻塞式出队，队列空时等待
      * @return 成功返回 `true`，失败（锁竞争 / 空 / 关闭）返回 `false`
      */
-    bool pop(producers_consumers_type& consume_data)
+    bool pop(object_type& consume_data)
     {
-      std::unique_lock<std::mutex> access_lock(_access_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
       while(empty_internal() && !_close_id)
       {
         _consume_condition.wait(access_lock);
@@ -210,9 +218,9 @@ namespace con
      * @brief  #### 非阻塞式出队，不等待
      * @return 成功返回 `true`，失败（锁竞争 / 空 / 关闭）返回 `false`
      */
-    bool try_pop(producers_consumers_type& consume_data)
+    bool try_pop(object_type& consume_data)
     {
-      std::unique_lock<std::mutex> access_lock(_access_lock,std::try_to_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex,std::try_to_lock);
       if(!access_lock.owns_lock()) return false;
       if(_close_id.load(std::memory_order_relaxed) || empty_internal()) return false;
       consume_data = _shared_queue.front();
@@ -230,9 +238,9 @@ namespace con
      * @return 成功返回 `true`，超时 / 关闭返回 `false`
      */
     template<typename precision, typename period>
-    bool pop_for(producers_consumers_type& consume_data,const std::chrono::duration<precision, period> time_out)
+    bool pop_for(object_type& consume_data,const std::chrono::duration<precision, period> time_out)
     {
-      std::unique_lock<std::mutex> access_lock(_access_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
       auto status = _consume_condition.wait_for(access_lock,time_out,[this](){return !empty_internal() || _close_id;});
       if((_close_id && empty_internal()) || status == std::cv_status::timeout) return false;
       consume_data = _shared_queue.front();
@@ -248,16 +256,17 @@ namespace con
     void close() 
     {
       if(_close_id.load(std::memory_order_acquire)) return;
-      std::unique_lock<std::mutex> access_lock(_access_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
       if(_close_id) return;
       _close_id.store(true,std::memory_order_release);
       access_lock.unlock();
+
       _produce_condition.notify_all();
       _consume_condition.notify_all();
     }
     void clear()
     {
-      std::lock_guard<std::mutex> lock(_access_lock);
+      std::lock_guard<std::mutex> lock(_access_mutex);
       while(!empty_internal())
       {
         _shared_queue.pop();
@@ -266,26 +275,27 @@ namespace con
     void enable()
     {
       if(!_close_id.load(std::memory_order_acquire)) return;
-      std::unique_lock<std::mutex> access_lock(_access_lock);
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
       if(!_close_id) return;
       _close_id.store(false,std::memory_order_release);
       access_lock.unlock();
+
       _produce_condition.notify_all();
       _consume_condition.notify_all();
     }
     bool full() const
     {
-      std::lock_guard<std::mutex> access_lock(_access_lock);
+      std::lock_guard<std::mutex> access_lock(_access_mutex);
       return full_internal();
     }
     uint64_t size() const
     {
-      std::lock_guard<std::mutex> access_lock(_access_lock);
+      std::lock_guard<std::mutex> access_lock(_access_mutex);
       return _shared_queue.size();
     }
     bool empty() const
     {
-      std::lock_guard<std::mutex> access_lock(_access_lock);
+      std::lock_guard<std::mutex> access_lock(_access_mutex);
       return empty_internal();
     }
     /**
@@ -298,26 +308,36 @@ namespace con
     }
     double load_judgment() const
     {
-      std::lock_guard<std::mutex> access_lock(_access_lock);
+      std::lock_guard<std::mutex> access_lock(_access_mutex);
       return static_cast<double>(_shared_queue.size()) / static_cast<double>(_current_capacity);
     }
   };
   /**
    * @brief #### 多生产多消费有锁双队列类`MPMC`
-   * @tparam producers_consumers_type 数据类型
+   * @tparam object_type 数据类型
    */
-  template<typename producers_consumers_type>
-  class producer_consumer_queues
+  template<typename object_type>
+  class pro_con_queues
   {
     static constexpr uint64_t _default_capacity = 10;
   private: 
-    uint64_t _current_capacity;
-    std::thread _supporting_thread;
-    std::atomic<bool> _close_id,_switch_id;
-    std::mutex _produce_mutex,_consume_mutex;
-    std::condition_variable _produce_condition,_consume_condition;
-    std::atomic<std::queue<producers_consumers_type>*> _produce,_consume;
-    alignas(CACHE_ALIGNMENT) std::queue<producers_consumers_type> _produce_pipe,_consume_pipe;
+    uint64_t _current_capacity;  //当前容量
+    std::thread _supporting_thread;  //后台辅助线程
+
+    std::atomic<bool> _close_id;    //关闭标志
+    std::atomic<bool> _switch_id;   //交换标志
+
+    std::mutex _produce_mutex;  //生产者互斥锁
+    std::mutex _consume_mutex;  //消费者互斥锁
+
+    std::condition_variable _produce_condition;  //生产者条件变量
+    std::condition_variable _consume_condition;  //消费者条件变量
+
+    std::atomic<std::queue<object_type>*> _produce;  //生产者队列
+    std::atomic<std::queue<object_type>*> _consume;  //消费者队列
+
+    alignas(CACHE_ALIGNMENT) std::queue<object_type> _produce_pipe;  //原生生产者队列
+    alignas(CACHE_ALIGNMENT) std::queue<object_type> _consume_pipe;  //原生消费者队列
     /**
      * @brief #### 检测队列是否为空
      * @note - 队列空时，交换队列
@@ -327,6 +347,7 @@ namespace con
       if(_consume.load(std::memory_order_acquire)->empty())
       {
         auto tmp_produce = _produce.load(std::memory_order_relaxed);
+
         _produce.store(_consume.load(std::memory_order_relaxed),std::memory_order_release);
         _consume.store(tmp_produce,std::memory_order_release);
       }
@@ -352,6 +373,7 @@ namespace con
           swap_queue();
         }
         _switch_id.store(false,std::memory_order_release);
+
         _produce_condition.notify_all();
         _consume_condition.notify_one();
       }
@@ -365,10 +387,13 @@ namespace con
       {
         std::lock_guard<std::mutex> proudce_lock(_produce_mutex);
         std::lock_guard<std::mutex> consume_lock(_consume_mutex);
+
         _close_id.store(true,std::memory_order_release);
       }
+
       _produce_condition.notify_all();
       _consume_condition.notify_all();
+      
       if(_supporting_thread.joinable())
       {
         _supporting_thread.join();
@@ -376,16 +401,16 @@ namespace con
     }
 
   public:
-    producer_consumer_queues(uint64_t capacity = _default_capacity)
+    pro_con_queues(uint64_t capacity = _default_capacity)
     :_current_capacity(capacity),_close_id(false),_switch_id(false),_produce(&_produce_pipe),_consume(&_consume_pipe)
     {
       auto transmission = [this](){this->supporting_thread_func();};
       _supporting_thread = std::thread(transmission);
     }
-    producer_consumer_queues(const producer_consumer_queues& other) = delete;
-    producer_consumer_queues& operator=(const producer_consumer_queues& other) = delete;
-    producer_consumer_queues(producer_consumer_queues&& other) = delete;
-    producer_consumer_queues& operator=(producer_consumer_queues&& other) = delete;
+    pro_con_queues(const pro_con_queues& other) = delete;
+    pro_con_queues& operator=(const pro_con_queues& other) = delete;
+    pro_con_queues(pro_con_queues&& other) = delete;
+    pro_con_queues& operator=(pro_con_queues&& other) = delete;
     /**
      * @brief #### 向队列中添加数据
      * @param produce_data 生产数据
@@ -414,7 +439,7 @@ namespace con
      * @param consume_data 消费数据
      * @return true 取出成功，false 取出失败
      */
-    bool pop(producers_consumers_type& consume_data)
+    bool pop(object_type& consume_data)
     {
       std::unique_lock<std::mutex> consume_lock(_consume_mutex);
       while (true)
@@ -455,6 +480,7 @@ namespace con
     void close()
     {
       _close_id.store(true,std::memory_order_release);
+
       _produce_condition.notify_all();
       _consume_condition.notify_all();
     }
@@ -476,7 +502,7 @@ namespace con
       };
       _produce_condition.wait(proudce_lock,waiting_consumption);
     }
-    ~producer_consumer_queues()
+    ~pro_con_queues()
     {
       flush();
       shutdown();
@@ -485,30 +511,29 @@ namespace con
   /**
    * @brief #### 多生产多消费有锁信号量队列
    * @warning 由于标准库限制队列容量只能写死
-   * @tparam producers_consumers_semaphore_type  数据类型
+   * @tparam object_type  数据类型
    */
-  template<typename producers_consumers_semaphore_type>
-  class producers_consumers_semaphore_queue
+  template<typename object_type>
+  class pro_con_semaphore_queue
   {
-  private:
-
     static constexpr uint64_t _largest_semaphore = 10ULL;
-    std::vector<producers_consumers_semaphore_type> _semaphore_queue;
+  private:
+    std::vector<object_type> _semaphore_queue; // 信号量队列
 
-    std::counting_semaphore<_largest_semaphore> _produce_semaphore;
-    std::counting_semaphore<_largest_semaphore> _consume_semaphore;
+    std::counting_semaphore<_largest_semaphore> _produce_semaphore; // 生产者信号量
+    std::counting_semaphore<_largest_semaphore> _consume_semaphore; // 消费者信号量
 
-    std::mutex _produce_mutex;
-    std::mutex _consume_mutex;
+    std::mutex _produce_mutex; // 生产者锁
+    std::mutex _consume_mutex; // 消费者锁
 
-    uint64_t _produce_location;
-    uint64_t _consume_location;
+    uint64_t _produce_location; // 生产者位置
+    uint64_t _consume_location; // 消费者位置
 
   public:
-    producers_consumers_semaphore_queue()
+    pro_con_semaphore_queue()
     :_semaphore_queue(_largest_semaphore),_produce_semaphore(0),_consume_semaphore(_largest_semaphore),
     _produce_location(0),_consume_location(0){}
-    void push(const producers_consumers_semaphore_queue& produce_data)
+    void push(const pro_con_semaphore_queue& produce_data)
     {
       _consume_semaphore.acquire();
       std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
@@ -517,7 +542,7 @@ namespace con
       proudce_lock.unlock();
       _produce_semaphore.release();
     }
-    void pop(producers_consumers_semaphore_type& consume_data)
+    void pop(object_type& consume_data)
     {
       _produce_semaphore.acquire();
       std::unique_lock<std::mutex> consume_lock(_consume_mutex);

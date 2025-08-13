@@ -53,7 +53,7 @@ namespace con
     std::atomic<uint64_t> _closure_threads;   //空闲线程数
 
     std::jthread _monitoring_thread; //后台监控线程
-    producers_consumers_queue<task_function> _tasks; //任务队列
+    con::pros_cons_queue<task_function> _tasks; //任务队列
     alignas(CACHE_ALIGNMENT) std::vector<thread_status> _workers_thread; //线程池
 
     std::function<void(const std::exception &)> _exception_callback; //异常回调函数
@@ -221,12 +221,12 @@ namespace con
      * @return `std::future<return_type>` 任务结果
      */
     template <class... Args, std::invocable<Args...> func>
-    auto submit(func &&task_value, Args &&...args)
+    auto submit(func &&task_body, Args &&...args)
     -> std::future<std::invoke_result_t<func, Args...>>
     {
       using return_type = std::invoke_result_t<func, Args...>;
       auto task = std::make_shared<std::packaged_task<return_type()>>(
-        std::bind(std::forward<func>(task_value), std::forward<Args>(args)...));
+        std::bind(std::forward<func>(task_body), std::forward<Args>(args)...));
       std::future<return_type> result = task->get_future();
       _tasks.push([task](){ (*task)(); });
       _condtion.notify_one();
