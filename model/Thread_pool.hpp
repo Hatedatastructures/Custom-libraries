@@ -22,7 +22,7 @@ namespace con
    */
   class thread_pool
   {
-    struct thread_status
+    struct thread_information
     {
       std::jthread _thread;
       std::stop_source _stop_src; //令牌
@@ -54,7 +54,7 @@ namespace con
 
     std::jthread _monitoring_thread; //后台监控线程
     con::pros_cons_queue<task_function> _tasks; //任务队列
-    alignas(CACHE_ALIGNMENT) std::vector<thread_status> _workers_thread; //线程池
+    alignas(CACHE_ALIGNMENT) std::vector<thread_information> _workers_thread; //线程池
 
     std::function<void(const std::exception &)> _exception_callback; //异常回调函数
 
@@ -69,7 +69,7 @@ namespace con
       std::lock_guard<std::mutex> lock(_mutex);
       for (uint64_t i = 0; i < counter; ++i)
       {
-        thread_status initial;
+        thread_information initial;
         initial._last_active = std::chrono::steady_clock::now();
         _workers_thread.emplace_back(std::move(initial));
         auto &worker = _workers_thread.back();
@@ -118,7 +118,7 @@ namespace con
      * @brief - 处理线程状态转换（空闲/工作）
      * @brief - 响应停止请求
      */
-    void thread_task(std::stop_token stop_tok, thread_status &status)
+    void thread_task(std::stop_token stop_tok, thread_information &status)
     {
       bool idle = true;
       while (!stop_tok.stop_requested() && !_shutdown)

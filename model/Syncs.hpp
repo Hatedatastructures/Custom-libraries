@@ -552,4 +552,9 @@ namespace con
       _consume_semaphore.release();
     }
   };
+  template<typename object_type>
+  class pro_con_priority_queue
+  {
+    std::priority_queue<object_type> _priority_queue;
+  };
 }
