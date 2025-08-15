@@ -14,17 +14,21 @@
 #include <unordered_set> //哈希表
 #include "Syncs.hpp"     //MPMC队列
 
-using task_function = std::function<void()>;
+using async_task = std::function<void()>;
 
-enum class thread_internal_status : uint8_t
+enum class status : uint8_t
 {
   operation, paused, shutdown
 }
-enum class task_priority : uint8_t
+enum class priority : uint8_t
 {
   low, normal, high
 }
-struct thread_pool_metrics  //线程池指标
+enum class scope
+{
+  destructible,not_destructible
+}
+struct metrics  //线程池指标
 {
   std::atomic<uint64_t> _total_tasks_submitted;  // 提交任务数
   std::atomic<uint64_t> _total_tasks_completed;  // 完成任务数
@@ -45,15 +49,59 @@ struct thread_pool_metrics  //线程池指标
 class thread_pool
 {
   using internal_time = std::chrono::milliseconds;
+  void initialize_metrics()
+  {
+    _metrics._total_tasks_submitted = 0;
+    _metrics._total_tasks_completed = 0;
+    _metrics._total_tasks_unsuccess = 0;
+    _metrics._total_tasks_time = 0;
+    _metrics._level_tasks_time = 0;
+    _metrics._total_thread_create = 0;
+    _metrics._total_thread_scorch = 0;
+    _metrics._current_queue_size = 0;
+    _metrics._current_tasks_size = 0;
+    _metrics._execute_threads = 0;
+    _metrics._closure_threads = 0;
+  }
+  void monitoring_thread_func(std::stop_token stop_tok)
+  {
+    while (!stop_tok.stop_requested() && !_shutdown)
+    {
+      std::this_thread::sleep_for(_readjust);
+      uint64_t current_threads = _metrics._execute_threads.load() + _metrics._closure_threads.load();
+      uint64_t tasks_count = _tasks.size();
+      if (tasks_count > _metrics._execute_threads.load() * 2 && current_threads < _max_threads)
+      {
+        const uint64_t standard_number = (tasks_count + 1) / 2;
+        const uint64_t increase_threads = std::min(standard_number, _max_threads - current_threads);
+        expand_capacity(increase_threads);
+      }
+      else if (tasks_count < _metrics._execute_threads.load() && current_threads > _min_threads)
+      {
+        const uint64_t standard_number = current_threads - _min_threads;
+        const uint64_t decrease_threads = std::min(standard_number, _closure_threads.load());
+        shrink_capacity(decrease_threads);
+      }
+    }
+  }
+  void expand_capacity(uint64_t increase_threads)
+  {
+
+  }
+  void shrink_capacity(uint64_t decrease_threads)
+  {
+
+  }
   struct thread_status
   {
     std::stop_source _stop_src; // 令牌
-    thread_internal_status _status; // 运行状态
+    status _status; // 运行状态
     std::chrono::steady_clock::time_point _last_active; // 上次活动时间
   };
   struct thread_information
   {
-    std::jthread  _thread;
+    scope _scope;
+    std::jthread _thread;
     thread_status _status; // 线程状态
     std::string _thread_name; // 线程标识
     std::atomic<bool> _priority; // 优先级标识
@@ -66,8 +114,8 @@ class thread_pool
   struct task_information
   {
     uint64_t _task_id; // 任务ID
-    task_function _task; // 任务函数
-    task_priority _property; // 任务优先级
+    async_task _task; // 任务函数
+    priority _property; // 任务优先级
     task_dependence _dependence; // 任务依赖关系
   };
 
@@ -82,6 +130,7 @@ class thread_pool
   static constexpr internal_time _backup_overtime  = internal_time(20);   // 线程超时时间
 
   mutable std::mutex _mutex; // 线程池锁
+  mutable std::mutex _map_mutex; // 任务id映射表锁
   mutable std::mutex _name_mutex; // 线程池标识称锁
   mutable std::shared_mutex _exclusive_mutex;  // 回调函数锁
 
@@ -97,14 +146,15 @@ class thread_pool
 
   std::atomic<uint64_t> _distributor{0}; // 分配器
 
-  thread_pool_metrics _metrics; // 线程池指标
+  metrics _metrics; // 线程池指标
 
   std::jthread _monitoring_thread; // 后台监控线程
 
-  con::pros_cons_queue<task_function> _tasks_queue; // 任务队列
-  std::priority_queue<task_function> _tasks_priority_queue; // 优先级任务队列
+  con::mpmc_queue<async_task> _tasks_queue; // 任务队列
+  std::priority_queue<async_task> _tasks_priority_queue; // 优先级任务队列
 
-  std::unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射
+  std::unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射表
+  std::unordered_map<std::string,thread_information> _thread_name; // 线程池标识映射表
 
   alignas(CACHE_ALIGNMENT) std::vector<thread_information> _workers_thread; // 线程池
 
@@ -115,5 +165,22 @@ public:
   internal_time inactive = _backup_inactive, internal_time readjust = _backup_readjust, internal_time overtime = _backup_overtime)
   :_max_threads(max_threads), _min_threads(min_threads), _inactive(inactive), _readjust(readjust), _overtime(overtime),_tasks_queue(threads*4),
   _tasks_priority_queue(threads*3), _workers_thread(threads*2)
-  
+  {
+    initialize_metrics();
+  }
+  std::string get_thread_pool_name();
+  metrics get_thread_pool_metrics();
+  void set_exception_callback(const std::function<void(const std::exception &)> &callback);
+  void set_thread_pool_name(const std::string &name);
+  void set_thread_pool_inactive(internal_time inactive);
+  void set_thread_pool_readjust(internal_time readjust);
+  void set_thread_pool_overtime(internal_time overtime);
+  void set_thread_pool_max_threads(uint64_t max_threads);
+  void set_thread_pool_min_threads(uint64_t min_threads);
+  void set_thread_priority(std::string thread_name, bool priority);
+  void set_thread_scope(std::string thread_name, scope scope);
+  // void get_thread_information(std::string thread_name);
+  void add_priority_task(async_task task, priority property = priority::normal);
+  void add_thread(const std::string &name,bool property = false);
+  void add_task(async_task task);
 };

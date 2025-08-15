@@ -6,6 +6,7 @@
 #include <semaphore>
 #include <thread>
 #include <vector>
+#include <set>
 #include <unordered_map>
 #include <shared_mutex>
 static constexpr uint64_t CACHE_ALIGNMENT = 64;
@@ -17,9 +18,9 @@ namespace con
   * @warning 在严格 `SPSC` 场景下，容器保证线程安全
   **/
   template<typename object_type>
-  class pro_con_queue
+  class spsc_queue
   {
-    static constexpr uint64_t _default_capacity = 10;
+    static constexpr uint64_t _backup_capacity = 10;
   private:
     std::atomic<uint64_t> _producer; // 生产者位置
     std::atomic<uint64_t> _consumer; // 消费者位置
@@ -32,12 +33,12 @@ namespace con
       return index % _current_capacity;
     }
   public:
-    explicit pro_con_queue(const uint64_t new_capacity = _default_capacity):_producer(0),_consumer(0),
+    explicit spsc_queue(const uint64_t new_capacity = _backup_capacity):_producer(0),_consumer(0),
     _current_capacity(std::max(new_capacity,static_cast<uint64_t>(1))),_shared_circular_queue(_current_capacity){}
-    pro_con_queue(const pro_con_queue& another_queue) = delete;
-    pro_con_queue(pro_con_queue&& another_queue) noexcept = delete;
-    pro_con_queue& operator=(const pro_con_queue& another_queue) = delete;
-    pro_con_queue& operator=(pro_con_queue&& another_queue) noexcept = delete;
+    spsc_queue(const spsc_queue& another_queue) = delete;
+    spsc_queue(spsc_queue&& another_queue) noexcept = delete;
+    spsc_queue& operator=(const spsc_queue& another_queue) = delete;
+    spsc_queue& operator=(spsc_queue&& another_queue) noexcept = delete;
     /**
      * @brief #### 向队列添加数据
      * @param produce_data 生产数据
@@ -94,9 +95,9 @@ namespace con
    * @tparam object_type 数据类型
    */
   template<typename object_type>
-  class pros_cons_queue
+  class mpmc_queue
   {
-    static constexpr uint64_t _default_capacity = 10;
+    static constexpr uint64_t _backup_capacity = 10;
   private:
     mutable std::mutex _access_mutex; // 访问锁
 
@@ -134,12 +135,12 @@ namespace con
       _shared_queue.push(std::forward<enqueue_type>(produce_data));
     }
   public:
-    pros_cons_queue(const uint64_t new_capacity = _default_capacity)
+    mpmc_queue(const uint64_t new_capacity = _backup_capacity)
     :_current_capacity(std::max(new_capacity,static_cast<uint64_t>(1))){}
-    pros_cons_queue(const pros_cons_queue& another_queue) = delete;
-    pros_cons_queue(pros_cons_queue&& another_queue) noexcept = delete;
-    pros_cons_queue& operator=(const pros_cons_queue& another_queue) = delete;
-    pros_cons_queue& operator=(pros_cons_queue&& another_queue) noexcept = delete;
+    mpmc_queue(const mpmc_queue& another_queue) = delete;
+    mpmc_queue(mpmc_queue&& another_queue) noexcept = delete;
+    mpmc_queue& operator=(const mpmc_queue& another_queue) = delete;
+    mpmc_queue& operator=(mpmc_queue&& another_queue) noexcept = delete;
     /**
      * @brief  #### 阻塞式入队，队列满时等待
      * @tparam push_type
@@ -317,9 +318,9 @@ namespace con
    * @tparam object_type 数据类型
    */
   template<typename object_type>
-  class pro_con_queues
+  class mpmc_queues
   {
-    static constexpr uint64_t _default_capacity = 10;
+    static constexpr uint64_t _backup_capacity = 10;
   private: 
     uint64_t _current_capacity;  //当前容量
     std::thread _supporting_thread;  //后台辅助线程
@@ -401,16 +402,16 @@ namespace con
     }
 
   public:
-    pro_con_queues(uint64_t capacity = _default_capacity)
+    mpmc_queues(uint64_t capacity = _backup_capacity)
     :_current_capacity(capacity),_close_id(false),_switch_id(false),_produce(&_produce_pipe),_consume(&_consume_pipe)
     {
       auto transmission = [this](){this->supporting_thread_func();};
       _supporting_thread = std::thread(transmission);
     }
-    pro_con_queues(const pro_con_queues& other) = delete;
-    pro_con_queues& operator=(const pro_con_queues& other) = delete;
-    pro_con_queues(pro_con_queues&& other) = delete;
-    pro_con_queues& operator=(pro_con_queues&& other) = delete;
+    mpmc_queues(const mpmc_queues& other) = delete;
+    mpmc_queues& operator=(const mpmc_queues& other) = delete;
+    mpmc_queues(mpmc_queues&& other) = delete;
+    mpmc_queues& operator=(mpmc_queues&& other) = delete;
     /**
      * @brief #### 向队列中添加数据
      * @param produce_data 生产数据
@@ -502,7 +503,7 @@ namespace con
       };
       _produce_condition.wait(proudce_lock,waiting_consumption);
     }
-    ~pro_con_queues()
+    ~mpmc_queues()
     {
       flush();
       shutdown();
@@ -514,7 +515,7 @@ namespace con
    * @tparam object_type  数据类型
    */
   template<typename object_type>
-  class pro_con_semaphore_queue
+  class semaphore_queue
   {
     static constexpr uint64_t _largest_semaphore = 10ULL;
   private:
@@ -530,10 +531,10 @@ namespace con
     uint64_t _consume_location; // 消费者位置
 
   public:
-    pro_con_semaphore_queue()
+    semaphore_queue()
     :_semaphore_queue(_largest_semaphore),_produce_semaphore(0),_consume_semaphore(_largest_semaphore),
     _produce_location(0),_consume_location(0){}
-    void push(const pro_con_semaphore_queue& produce_data)
+    void push(const object_type& produce_data)
     {
       _consume_semaphore.acquire();
       std::unique_lock<std::mutex> proudce_lock(_produce_mutex);
@@ -552,9 +553,63 @@ namespace con
       _consume_semaphore.release();
     }
   };
-  template<typename object_type>
-  class pro_con_priority_queue
+  template<typename object_type,typename comparator = std::less<object_type>>
+  class mpmc_priority_queue
   {
-    std::priority_queue<object_type> _priority_queue;
+    static constexpr uint64_t _backup_capacity = 10;
+  private:
+    mutable std::mutex _access_mutex;
+
+    std::condition_variable _produce_condition;
+    std::condition_variable _consume_condition;
+
+    std::atomic<uint64_t> _current_capacity;
+    std::atomic<uint64_t> _current_size;
+    std::priority_queue<object_type,std::vector<object_type>,comparator> _priority_queue;
+  public:
+    mpmc_priority_queue(uint64_t max_capacity = _backup_capacity)
+    {
+      _current_capacity.store(max_capacity);
+      _current_size.store(0);
+    }
+    template<typename push_type>
+    void push(push_type&& produce_data)
+    {
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
+      while (full())
+      {
+        _produce_condition.wait(access_lock, [this] { return !full(); });
+      }
+      _priority_queue.push(std::forward<push_type>(produce_data));
+      _current_size++;
+      access_lock.unlock();
+      _consume_condition.notify_one(); 
+    }
+    void pop(object_type& consume_data)
+    {
+      std::unique_lock<std::mutex> access_lock(_access_mutex);
+      while (_priority_queue.empty())
+      {
+        _consume_condition.wait(access_lock, [this] { return !_priority_queue.empty(); });
+      }
+      consume_data = std::move(_priority_queue.top());
+      _priority_queue.pop();
+      _current_size--;
+      access_lock.unlock();
+      _produce_condition.notify_one();
+    }
+    uint64_t size()
+    {
+      return _current_size.load(std::memory_order_relaxed);
+    }
+    bool empty()
+    {
+      return _current_size.load(std::memory_order_relaxed) == 0;
+    }
+    bool full()
+    {
+      return _current_size.load(std::memory_order_relaxed) 
+      == _current_capacity.load(std::memory_order_relaxed);
+    }
   };
 }

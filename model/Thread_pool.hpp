@@ -13,7 +13,7 @@
 #include <chrono>      //时间
 #include "Syncs.hpp"   //MPMC队列
 
-using task_function = std::function<void()>;
+using async_task = std::function<void()>;
 namespace con
 {
   /**
@@ -53,7 +53,7 @@ namespace con
     std::atomic<uint64_t> _closure_threads;   //空闲线程数
 
     std::jthread _monitoring_thread; //后台监控线程
-    con::pros_cons_queue<task_function> _tasks; //任务队列
+    con::mpmc_queue<async_task> _tasks; //任务队列
     alignas(CACHE_ALIGNMENT) std::vector<thread_information> _workers_thread; //线程池
 
     std::function<void(const std::exception &)> _exception_callback; //异常回调函数
@@ -123,7 +123,7 @@ namespace con
       bool idle = true;
       while (!stop_tok.stop_requested() && !_shutdown)
       {
-        task_function task;
+        async_task task;
         if (_tasks.pop(task))
         {
           idle ? (_closure_threads -= 1, _execute_threads += 1, idle = false) : false;
@@ -400,4 +400,5 @@ namespace con
       }
     }
   };
+  
 }
