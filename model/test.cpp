@@ -11,7 +11,7 @@
 #include <memory>        //智能指针
 #include <type_traits>   //类型萃取
 #include <chrono>        //时间
-#include <unordered_set> //哈希表
+#include "Concurrent_container.hpp"
 #include "Syncs.hpp"     //MPMC队列
 
 using async_task = std::function<void()>;
@@ -151,12 +151,12 @@ class thread_pool
   std::jthread _monitoring_thread; // 后台监控线程
 
   con::mpmc_queue<async_task> _tasks_queue; // 任务队列
-  std::priority_queue<async_task> _tasks_priority_queue; // 优先级任务队列
+  con::concurrent_priority_queue<async_task> _tasks_priority_queue; // 优先级任务队列
 
-  std::unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射表
-  std::unordered_map<std::string,thread_information> _thread_name; // 线程池标识映射表
+  con::concurrent_unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射表
+  con::concurrent_unordered_map<std::string,thread_information> _thread_name; // 线程池标识映射表
 
-  alignas(CACHE_ALIGNMENT) std::vector<thread_information> _workers_thread; // 线程池
+  alignas(CACHE_ALIGNMENT) con::concurrent_vector<thread_information> _workers_thread; // 线程池
 
   std::function<void(const std::exception &)> _exception_callback; // 异常回调函数
 

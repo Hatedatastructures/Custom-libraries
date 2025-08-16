@@ -20,7 +20,7 @@ namespace con
 {
   /**
    * @class concurrent_queue
-   * @brief 线程安全的先进先出队列
+   * @brief 线程安全的通用先进先出队列
    * @tparam value 元素类型
    */
   template <typename value>

@@ -1,5 +1,5 @@
 #include <iostream>
-#include "Syncs.hpp"
+// #include "Syncs.hpp"
 #include "Concurrent_container.hpp"
 
 // void read(con::mpmc_priority_queue<int>& q)
@@ -23,6 +23,12 @@ int main()
   // read_thread.join();
   std::string s = "hello world";
   std::string t = "hello";
+  con::concurrent_deque<int> concurrent_deque{1,2,3,4,5};
+  con::concurrent_annular_queue<int> annular_queue(10);
+  con::concurrent_queue<int> queue;
+  con::concurrent_priority_queue<int> priority_queue;
+  con::concurrent_vector<int> vec;
+  con::concurrent_stack<int> stack;
   con::concurrent_map<std::string,std::string> map;
   con::concurrent_set<std::string> set;
   con::concurrent_unordered_map<std::string,std::string> unordered_map;

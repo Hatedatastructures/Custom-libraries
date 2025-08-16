@@ -92,22 +92,22 @@ namespace con
      * @param value 待入队元素
      * @note 若队列已满将阻塞等待；入队后唤醒一个等待 `pop` 的线程
      */
-    void push(const value &value)
+    void push(const value &value_data)
     {
       std::unique_lock<std::mutex> lock(_access_mutex);
       if (_max_cap != 0)
         _cv_not_full.wait(lock, [this]{ return _priority_queue.size() < _max_cap; });
-      _priority_queue.push(value);
+      _priority_queue.push(value_data);
       _cv_not_empty.notify_one();
     }
 
     /** @brief #### 入队（移动） */
-    void push(value &&value)
+    void push(value &&value_data)
     {
       std::unique_lock<std::mutex> lock(_access_mutex);
       if (_max_cap != 0)
         _cv_not_full.wait(lock, [this]{ return _priority_queue.size() < _max_cap; });
-      _priority_queue.push(std::move(value));
+      _priority_queue.push(std::move(value_data));
       _cv_not_empty.notify_one();
     }
 
@@ -126,7 +126,7 @@ namespace con
     }
 
     /**
-     * @brief #### 出队（阻塞等待）
+     * @brief #### 出队（阻塞等待） 
      * @param out 接收最高优先级元素的引用
      * @note 若队列为空将阻塞等待；出队后唤醒一个等待 push 的线程
      */

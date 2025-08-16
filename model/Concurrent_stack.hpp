@@ -24,27 +24,20 @@ namespace con
   /**
    * @class concurrent_stack
    * @brief 线程安全的后进先出栈
-   * @tparam T         元素类型
-   * @tparam Container 底层容器，默认 std::vector<T>
-   *
-   * 使用示例：
-   *   concurrent_stack<int> st(10); // 最大容量 10
-   *   st.push(42);
-   *   int val;
-   *   st.pop(val); // 取出栈顶元素
+   * @tparam value      元素类型
+   * @tparam container  底层容器，默认 std::vector<value>
    */
-  template <typename T,
-            typename Container = std::vector<T>>
+  template <typename value,typename container = std::vector<value>>
   class concurrent_stack
   {
-    using base_stack = std::stack<T, Container>;
+    using standard_library_stack = std::stack<value, container>;
 
   private:
-    base_stack _st;                        /**< 底层栈容器 */
-    mutable std::mutex _mtx;               /**< 互斥锁 */
-    std::condition_variable _cv_not_full;  /**< 等待栈未满 */
-    std::condition_variable _cv_not_empty; /**< 等待栈非空 */
-    std::size_t _max_cap;                  /**< 最大容量（0 表示无界） */
+    standard_library_stack _stack;                       
+    mutable std::mutex _access_mutex;             
+    std::condition_variable _cv_not_full;  
+    std::condition_variable _cv_not_empty; 
+    std::size_t _max_cap;               
 
   public:
     /**
@@ -52,7 +45,7 @@ namespace con
      * @param max_capacity 最大元素个数，0 表示无界
      */
     explicit concurrent_stack(std::size_t max_capacity = 0)
-        : _max_cap(max_capacity) {}
+      : _max_cap(max_capacity) {}
 
     /** 禁止拷贝，允许移动 */
     concurrent_stack(const concurrent_stack &) = delete;
@@ -61,24 +54,24 @@ namespace con
     concurrent_stack &operator=(concurrent_stack &&) = default;
 
     /**
-     * @brief 获取当前栈元素个数
+     * @brief #### 获取当前栈元素个数
      * @return 元素数量
      */
     std::size_t size() const
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      return _st.size();
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      return _stack.size();
     }
 
-    /** @brief 判断栈是否为空 */
+    /** @brief #### 判断栈是否为空 */
     bool empty() const
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      return _st.empty();
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      return _stack.empty();
     }
 
     /**
-     * @brief 获取最大容量
+     * @brief ####  获取最大容量
      * @return 最大元素个数；0 表示无界
      */
     std::size_t max_capacity() const
@@ -87,103 +80,99 @@ namespace con
     }
 
     /**
-     * @brief 判断栈是否已满
-     * @return true 已满；false 未满或无界
+     * @brief #### 判断栈是否已满
+     * @return `true` 已满；`false` 未满或无界
      */
     bool full() const
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      return _max_cap != 0 && _st.size() >= _max_cap;
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      return _max_cap != 0 && _stack.size() >= _max_cap;
     }
 
     /**
-     * @brief 入栈（拷贝）
-     * @param value 待入栈元素
+     * @brief #### 入栈（拷贝）
+     * @param value_data 待入栈元素
      * @note 若栈已满将阻塞等待；入栈后唤醒一个等待 pop 的线程
      */
-    void push(const T &value)
+    void push(const value &value_data)
     {
-      std::unique_lock<std::mutex> lock(_mtx);
+      std::unique_lock<std::mutex> lock(_access_mutex);
       if (_max_cap != 0)
-        _cv_not_full.wait(lock, [this]
-                          { return _st.size() < _max_cap; });
-      _st.push(value);
+        _cv_not_full.wait(lock, [this]{ return _stack.size() < _max_cap; });
+      _stack.push(value_data);
       _cv_not_empty.notify_one(); // 通知等待 pop 的线程
     }
 
-    /** @brief 入栈（移动） */
-    void push(T &&value)
+    /** @brief #### 入栈（移动） */
+    void push(value &&value_data)
     {
-      std::unique_lock<std::mutex> lock(_mtx);
+      std::unique_lock<std::mutex> lock(_access_mutex);
       if (_max_cap != 0)
-        _cv_not_full.wait(lock, [this]
-                          { return _st.size() < _max_cap; });
-      _st.push(std::move(value));
+        _cv_not_full.wait(lock, [this]{ return _stack.size() < _max_cap; });
+      _stack.push(std::move(value_data));
       _cv_not_empty.notify_one();
     }
 
     /**
-     * @brief 就地构造入栈
+     * @brief #### 就地构造入栈
      * @param args 构造元素所需参数
      */
     template <typename... Args>
     void emplace(Args &&...args)
     {
-      std::unique_lock<std::mutex> lock(_mtx);
+      std::unique_lock<std::mutex> lock(_access_mutex);
       if (_max_cap != 0)
-        _cv_not_full.wait(lock, [this]
-                          { return _st.size() < _max_cap; });
-      _st.emplace(std::forward<Args>(args)...);
+        _cv_not_full.wait(lock, [this]{ return _stack.size() < _max_cap; });
+      _stack.emplace(std::forward<Args>(args)...);
       _cv_not_empty.notify_one();
     }
 
     /**
-     * @brief 出栈（阻塞等待）
+     * @brief #### 出栈（阻塞等待）
      * @param out 接收栈顶元素的引用
-     * @note 若栈为空将阻塞等待；出栈后唤醒一个等待 push 的线程
+     * @note 若栈为空将阻塞等待；出栈后唤醒一个等待 `push` 的线程
      */
-    void pop(T &out)
+    void pop(value &out)
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      _cv_not_empty.wait(lock, [this]
-                        { return !_st.empty(); });
-      out = std::move(_st.top());
-      _st.pop();
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      _cv_not_empty.wait(lock, [this]{ return !_stack.empty(); });
+      out = std::move(_stack.top());
+      _stack.pop();
       if (_max_cap != 0)
         _cv_not_full.notify_one(); // 栈空出一位，可唤醒 push
     }
 
     /**
-     * @brief 尝试出栈（非阻塞）
+     * @brief #### 尝试出栈（非阻塞）
      * @param out 接收栈顶元素的引用
-     * @return true 成功出栈；false 栈为空
+     * @return `true` 成功出栈；`false` 栈为空
      */
-    bool try_pop(T &out)
+    bool try_pop(value &out)
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      if (_st.empty())
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      if (_stack.empty())
         return false;
-      out = std::move(_st.top());
-      _st.pop();
+      out = std::move(_stack.top());
+      _stack.pop();
       if (_max_cap != 0)
         _cv_not_full.notify_one();
       return true;
     }
 
     /**
-     * @brief 清空栈
-     * @note  会唤醒所有等待 pop 的线程，但此时栈已空，它们将继续等待
+     * @brief #### 清空栈
+     * @note  会唤醒所有等待 `pop` 的线程，但此时栈已空，它们将继续等待
      */
     void clear()
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      while (!_st.empty())
-        _st.pop();
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      while (!_stack.empty())
+        _stack.pop();
       _cv_not_full.notify_all(); // 唤醒所有等待 push 的线程
     }
 
     /**
-     * @brief 与另一线程安全栈交换内容
+     * @brief #### 与另一线程安全栈交换内容
      * @param other 另一个实例
      * @note  采用双锁避免死锁
      */
@@ -191,29 +180,31 @@ namespace con
     {
       if (this == &other)
         return;
-      std::unique_lock<std::mutex> lhs_lock(_mtx);
-      std::unique_lock<std::mutex> rhs_lock(other._mtx);
-      _st.swap(other._st);
+      std::unique_lock<std::mutex> lhs_lock(_access_mutex);
+      std::unique_lock<std::mutex> rhs_lock(other._access_mutex);
+      _stack.swap(other._stack);
       std::swap(_max_cap, other._max_cap);
       lhs_lock.unlock();
       rhs_lock.unlock();
+
       _cv_not_empty.notify_all();
       _cv_not_full.notify_all();
+      
       other._cv_not_empty.notify_all();
       other._cv_not_full.notify_all();
     }
 
     /**
-     * @brief 获取当前栈快照（栈顶在前）
-     * @return std::vector<T> 元素副本，顺序与出栈顺序一致
+     * @brief ####  获取当前栈快照（栈顶在前）
+     * @return `std::vector<value>` 元素副本，顺序与出栈顺序一致
      * @note  内部加锁，拷贝后立即释放，外部可安全遍历
      */
-    std::vector<T> snapshot() const
+    std::vector<value> snapshot() const
     {
-      std::unique_lock<std::mutex> lock(_mtx);
-      std::vector<T> vec;
-      vec.reserve(_st.size());
-      base_stack tmp = _st; // 拷贝一份
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      std::vector<value> vec;
+      vec.reserve(_stack.size());
+      standard_library_stack tmp = _stack; // 拷贝一份
       while (!tmp.empty())
       {
         vec.emplace_back(std::move(tmp.top()));
