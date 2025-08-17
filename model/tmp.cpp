@@ -23,6 +23,15 @@ int main()
   // read_thread.join();
   std::string s = "hello world";
   std::string t = "hello";
+  con::concurrent_multimap<std::string,std::string> multimap;
+  auto lis = multimap.value_comp();
+  con::concurrent_multiset<std::string> multiset;
+  multiset.insert(s);
+  multimap.insert({s,t});
+  con::concurrent_unordered_multimap<std::string,std::string> unordered_multimap;
+  con::concurrent_unordered_multiset<std::string> unordered_multiset;
+  unordered_multiset.insert(s);
+  unordered_multimap.insert({s,t});
   con::concurrent_deque<int> concurrent_deque{1,2,3,4,5};
   con::concurrent_annular_queue<int> annular_queue(10);
   con::concurrent_queue<int> queue;

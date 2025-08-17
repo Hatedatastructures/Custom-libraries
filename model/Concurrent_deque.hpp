@@ -1,6 +1,6 @@
 /**
  * @file Concurrent_deque.hpp
- * @brief 线程安全双端队列（仅用读写锁实现）
+ * @brief 线程安全双端队列
  * @author wang
  * @version 1.0
  * @date 2025-08-15
@@ -26,16 +26,16 @@ namespace con
    * @class concurrent_deque
    * @brief 线程安全双端队列
    * @tparam value         元素类型
-   * @tparam Allocator 分配器，默认 `std::allocator<value>`
+   * @tparam custom_allocator 分配器，默认 `std::allocator<value>`
    */
-  template <typename value, typename Allocator = std::allocator<value>>
+  template <typename value, typename custom_allocator = std::allocator<value>>
   class concurrent_deque
   {
-    using base_deque = std::deque<value, Allocator>;
+    using standard_library_deque = std::deque<value, custom_allocator>;
 
   private:
     mutable std::shared_mutex _access_mutex; 
-    base_deque _deque;                 
+    standard_library_deque _deque;                 
 
   public:
     concurrent_deque() = default;
@@ -44,18 +44,18 @@ namespace con
      * @brief 指定分配器构造
      * @param alloc 分配器实例
      */
-    explicit concurrent_deque(const Allocator &alloc)
+    explicit concurrent_deque(const custom_allocator &alloc)
       : _deque(alloc) {}
 
     /**
      * @brief 范围构造
-     * @tparam InputIt 输入迭代器
+     * @tparam input_it 输入迭代器
      * @param first 起始
      * @param last  终止（不含）
      * @param alloc 分配器
      */
-    template <typename InputIt>
-    concurrent_deque(InputIt first, InputIt last,const Allocator &alloc = Allocator())
+    template <typename input_it>
+    concurrent_deque(input_it first, input_it last,const custom_allocator &alloc = custom_allocator())
       : _deque(first, last, alloc) {}
 
     /**
@@ -63,7 +63,7 @@ namespace con
      * @param init 形如 {1,2,3} 的列表
      * @param alloc 分配器
      */
-    concurrent_deque(std::initializer_list<value> init,const Allocator &alloc = Allocator())
+    concurrent_deque(std::initializer_list<value> init,const custom_allocator &alloc = custom_allocator())
       : _deque(init, alloc) {}
 
     concurrent_deque(const concurrent_deque &) = delete;
@@ -195,12 +195,12 @@ namespace con
 
     /**
      * @brief #### 批量写入（阻塞写完所有）
-     * @tparam InputIt 输入迭代器
+     * @tparam input_it 输入迭代器
      * @param first 起始
      * @param last  终止
      */
-    template <typename InputIt>
-    void push_range(InputIt first, InputIt last)
+    template <typename input_it>
+    void push_range(input_it first, input_it last)
     {
       std::unique_lock<std::shared_mutex> lock(_access_mutex);
       _deque.insert(_deque.end(), first, last);
