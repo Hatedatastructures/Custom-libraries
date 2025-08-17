@@ -6,6 +6,7 @@
 #include "Concurrent_stack.hpp"
 #include "Concurrent_queue.hpp"
 #include "Concurrent_array.hpp"
+#include "Concurrent_bitset.hpp"
 #include "Concurrent_string.hpp"
 #include "Concurrent_vector.hpp"
 #include "Concurrent_multimap.hpp"
