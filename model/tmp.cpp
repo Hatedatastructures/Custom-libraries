@@ -40,6 +40,14 @@ int main()
   con::concurrent_stack<int> stack;
   con::concurrent_map<std::string,std::string> map;
   con::concurrent_set<std::string> set;
+  con::concurrent_list<int> list;
+  con::concurrent_string str;
+  con::concurrent_array<int,32> arr;
+  con::concurrent_forward_list<int> forward_list;
+  forward_list.push_front(1);
+  arr[3] = 1;
+  std::cout << arr[3] << std::endl;
+  list.push_back(1);
   con::concurrent_unordered_map<std::string,std::string> unordered_map;
   con::concurrent_unordered_set<std::string> unordered_set;
   set.insert(s);
