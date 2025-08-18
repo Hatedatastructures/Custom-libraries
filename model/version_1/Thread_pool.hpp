@@ -118,7 +118,7 @@ namespace con
      * @brief - 处理线程状态转换（空闲/工作）
      * @brief - 响应停止请求
      */
-    void thread_task(std::stop_token stop_tok, thread_information &status)
+    void thread_task(std::stop_token stop_tok, thread_information &thread_status)
     {
       bool idle = true;
       while (!stop_tok.stop_requested() && !_shutdown)
@@ -139,7 +139,7 @@ namespace con
             else
               std::cerr << mistake.what() << '\n';
           }
-          status._last_active = std::chrono::steady_clock::now();
+          thread_status._last_active = std::chrono::steady_clock::now();
         }
         else
         {
@@ -148,7 +148,7 @@ namespace con
             _execute_threads -= 1;
             _closure_threads += 1;
             idle = true;
-            status._last_active = std::chrono::steady_clock::now();
+            thread_status._last_active = std::chrono::steady_clock::now();
           }
           std::unique_lock<std::mutex> lock(_mutex);
           auto wait_function = [this, stop_tok]()
@@ -220,13 +220,13 @@ namespace con
      * @param args 任务参数
      * @return `std::future<return_type>` 任务结果
      */
-    template <class... Args, std::invocable<Args...> func>
-    auto submit(func &&task_body, Args &&...args)
-    -> std::future<std::invoke_result_t<func, Args...>>
+    template <class... Args, std::invocable<Args...> func_t>
+    auto submit(func_t &&task_body, Args &&...args)
+    -> std::future<std::invoke_result_t<func_t, Args...>>
     {
-      using return_type = std::invoke_result_t<func, Args...>;
+      using return_type = std::invoke_result_t<func_t, Args...>;
       auto task = std::make_shared<std::packaged_task<return_type()>>(
-        std::bind(std::forward<func>(task_body), std::forward<Args>(args)...));
+        std::bind(std::forward<func_t>(task_body), std::forward<Args>(args)...));
       std::future<return_type> result = task->get_future();
       _tasks.push([task](){ (*task)(); });
       _condtion.notify_one();

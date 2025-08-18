@@ -9,7 +9,6 @@
 #include <set>
 #include <unordered_map>
 #include <shared_mutex>
-static constexpr uint64_t CACHE_ALIGNMENT = 64;
 namespace con
 {
   /**

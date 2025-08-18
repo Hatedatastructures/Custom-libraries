@@ -24,7 +24,7 @@ namespace con
    * @class concurrent_vector
    * @brief 线程安全的动态数组
    * @tparam value         元素类型
-   * @tparam custom_allocator 分配器，默认 std::allocator<value>
+   * @tparam custom_allocator 分配器，默认 `std::allocator<value>`
    */
   template <typename value, typename custom_allocator = std::allocator<value>>
   class concurrent_vector
