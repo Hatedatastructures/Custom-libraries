@@ -81,28 +81,69 @@ public:
   // {
   //   initialize_metrics();
   // }
+  /**
+   * @brief #### 包装任务函数
+   * @param function 任务函数
+   * @param priority_level 任务优先级
+   * @param parameter 任务参数
+   * @return 返回生成的任务和异步结果容器
+   */
   template<class func_t, class... function_parameters>
-  auto make_tesk(func_t&& function, priolevel priority_level, function_parameters&&... parameter)
-  -> std::pair<std::shared_ptr<task_wrapper>,std::future<std::invoke_result_t<func_t, function_parameters...>>>
+  auto make_task(func_t&& function, priolevel priority_level, function_parameters&&... parameter)
+  -> std::pair<std::shared_ptr<task_wrapper>,std::future<std::invoke_result_t<func_t,function_parameters...>>>
   {
-    using return_t   = std::invoke_result_t<func_t, function_parameters...>;
+    using return_t   = std::invoke_result_t<func_t,function_parameters...>;
     using packaged_t = std::packaged_task<return_t()>;
+    //绑定任务参数
     auto fun_t = std::bind(std::forward<func_t>(function), std::forward<function_parameters>(parameter)...);
-    std::shared_ptr<packaged_t>packaged(new packaged_t(std::move(fun_t))); //包装函数任务
+    //包装函数任务交由std::shared_ptr管理资源
+    std::shared_ptr<packaged_t> packaged(new packaged_t(std::move(fun_t)));
     std::shared_ptr<task_wrapper> tmp_task(new task_wrapper);
+    //初始化内部任务信息组件
     tmp_task->_unique_identification = _task_distributor.fetch_add(1);
-    tmp_task->_priority_level        = priority_level;
+    tmp_task->_task_property         = priority_level;
     tmp_task->_task_function_object  = [packaged](){(*packaged)();};
+
     return {tmp_task,packaged->get_future()};
   }
   template <class func_t,class ...function_parameters>
   auto submit(func_t && function, function_parameters &&... parameter)
   -> std::future<std::invoke_result_t<func_t, function_parameters...>>
   {
-    using pair_t = std::pair<std::shared_ptr<task_wrapper>,std::future<std::invoke_result_t<func_t, function_parameters...>>>;
-    auto [first,second] = make_tesk(std::forward<func_t>(function),priolevel::normal,std::forward<function_parameters>(parameter)...);
-    _tasks_priority_queue.push(first);
-    return ;
+    auto [task,future] = make_task(std::forward<func_t>(function),
+      priolevel::normal,std::forward<function_parameters>(parameter)...);
+    _tasks_priority_queue.push(task);
+    _condtion.notify_one();
+    return future;
+  }
+  template <class func_t,class ...function_parameters>
+  auto submit(func_t && function, priolevel priority_level, function_parameters &&... parameter)
+  -> std::future<std::invoke_result_t<func_t, function_parameters...>>
+  {
+    auto [task,future] = make_task(std::forward<func_t>(function),
+    priority_level,std::forward<function_parameters>(parameter)...);
+    _tasks_priority_queue.push(task);
+    _condtion.notify_one();
+    return future;
+  }
+  template <class input_iterator>
+  auto submit_batch(input_iterator first, input_iterator last,const std::vector<priolevel> &priority_levels)
+  -> std::vector<std::future<void>>
+  {
+    std::vector<std::future<void>> futures;
+    futures.reserve(std::distance(first,last));
+    size_t index = 0;
+    for(auto it = first;it != last;it++,index++)
+    {
+      futures.emplace_back(submit(*it,priority_levels[index]));
+    }
+    return futures;
+  }
+  template <class func_t,class pri_t,class... rest>
+  auto submit_batch(func_t && function, pri_t && priority_level, rest &&... parameter)
+  -> std::vector<std::future<void>>
+  {
+    
   }
   // std::string get_thread_pool_name();
   // metrics get_thread_pool_metrics();

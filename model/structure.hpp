@@ -103,7 +103,7 @@ struct task_deps
 {
 public:
   std::vector<uint64_t> _deps_task;       // 依赖任务id表
-  std::atomic<uint16_t> _pending_dep;     // 依赖任务是否完成
+  std::atomic<uint16_t> _pending_dep;     // 依赖任务数量
   task_deps()
   {
     _pending_dep = 0;
@@ -124,7 +124,7 @@ class task_wrapper
 {
 public:
   task_deps _task_dependence;                 // 任务依赖关系
-  priolevel _task_property;               // 任务优先级
+  priolevel _task_property;                   // 任务优先级
   uint64_t _unique_identification;            // 任务ID
   async_task _task_function_object;           // 任务函数
   task_wrapper() = default;
