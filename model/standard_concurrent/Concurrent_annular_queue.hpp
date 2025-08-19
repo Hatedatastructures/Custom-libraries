@@ -22,7 +22,7 @@
 #include <initializer_list>
 #include <optional>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_annular_queue

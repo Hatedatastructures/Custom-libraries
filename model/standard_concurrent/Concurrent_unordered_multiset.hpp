@@ -7,7 +7,7 @@
 #include <utility>
 #include <iterator>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_unordered_multiset

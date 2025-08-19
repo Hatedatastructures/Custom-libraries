@@ -16,7 +16,7 @@
 #include <map>
 #include <mutex>
 #include <iterator>
-namespace con
+namespace multi_concurrent
 {
   /**
    * @brief 线程安全的 有序多重集合

@@ -17,7 +17,7 @@
 #include <shared_mutex>
 #include <vector>
 #include <initializer_list>
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class ·concurrent_unordered_set

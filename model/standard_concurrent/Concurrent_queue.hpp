@@ -16,7 +16,7 @@
 #include <condition_variable>
 #include <utility>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_queue

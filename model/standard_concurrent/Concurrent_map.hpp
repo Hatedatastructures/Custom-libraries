@@ -18,7 +18,7 @@
 #include <mutex>
 #include <vector>
 #include <utility>
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_map

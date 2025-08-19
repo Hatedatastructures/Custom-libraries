@@ -4,7 +4,7 @@
 #include <shared_mutex>
 #include <algorithm>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @file concurrent_string.hpp
@@ -254,9 +254,9 @@ namespace con
 
 }
 // 在 concurrent_string.hpp 末尾（或对应的 .cpp 文件中）
-con::concurrent_string operator+(const con::concurrent_string& lhs, const con::concurrent_string& rhs)
+multi_concurrent::concurrent_string operator+(const multi_concurrent::concurrent_string& lhs, const multi_concurrent::concurrent_string& rhs)
 {
-  con::concurrent_string result(lhs.str());   
+  multi_concurrent::concurrent_string result(lhs.str());   
   result += rhs;                         
   return result;
 }

@@ -5,7 +5,7 @@
 #include <iterator>
 #include <algorithm>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @file concurrent_array.hpp

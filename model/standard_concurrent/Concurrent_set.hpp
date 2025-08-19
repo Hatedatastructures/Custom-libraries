@@ -18,7 +18,7 @@
 #include <mutex>
 #include <vector>
 #include <initializer_list>
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_set

@@ -20,7 +20,7 @@
 #include <chrono>
 #include <initializer_list>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_deque

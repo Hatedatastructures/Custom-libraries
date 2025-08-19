@@ -6,7 +6,7 @@
 #include <iterator>
 #include <algorithm>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @file Concurrent_forward_list.hpp

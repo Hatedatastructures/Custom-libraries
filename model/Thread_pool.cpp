@@ -1,4 +1,5 @@
-#include "structure.hpp"
+#include "Structure.hpp"
+#include "Task.hpp"
 
 class thread_pool
 {
@@ -35,7 +36,6 @@ class thread_pool
   // }
 
   std::string _name; //线程池标识
-
   static constexpr uint64_t _backup_threads = 5; // 初始化线程数
   static constexpr uint64_t _backup_min_threads = 1;  // 最小线程数
   static constexpr uint64_t _backup_max_threads = 32; // 最大线程数
@@ -62,14 +62,14 @@ class thread_pool
 
   std::jthread _monitoring_thread; // 后台监控线程
   
-  con::concurrent_priority_queue<std::shared_ptr<task_wrapper>> _tasks_priority_queue; // 优先级任务队列
+  con::mco::concurrent_priority_queue<std::shared_ptr<task_wrapper>> _tasks_priority_queue; // 优先级任务队列
 
-  con::concurrent_unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射表
-  con::concurrent_unordered_set<uint64_t> _waiting_tasks; // 等待运行的任务id映射表
+  con::mco::concurrent_unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射表
+  con::mco::concurrent_unordered_set<uint64_t> _waiting_tasks; // 等待运行的任务id映射表
 
-  con::concurrent_unordered_map<uint64_t,internal_thread_info> _thread_serial_number; // 线程映射表
+  con::mco::concurrent_unordered_map<uint64_t,internal_thread_info> _thread_serial_number; // 线程映射表
 
-  alignas(CACHE_ALIGNMENT) con::concurrent_vector<internal_thread_info> _workers_thread; // 线程池
+  alignas(CACHE_ALIGNMENT) con::mco::concurrent_vector<internal_thread_info> _workers_thread; // 线程池
 
   std::function<void(const std::exception &)> _exception_callback; // 异常回调函数
 

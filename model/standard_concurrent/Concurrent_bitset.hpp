@@ -4,7 +4,7 @@
 #include <shared_mutex>
 #include <string>
 
-namespace con
+namespace multi_concurrent
 {
   /**
    * @file concurrent_bitset.hpp

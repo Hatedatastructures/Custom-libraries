@@ -18,7 +18,7 @@
 #include <vector>
 #include <utility>
 #include <initializer_list>
-namespace con
+namespace multi_concurrent
 {
   /**
    * @class concurrent_unordered_map
