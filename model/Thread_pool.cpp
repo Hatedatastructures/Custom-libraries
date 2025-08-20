@@ -1,5 +1,6 @@
 #include "Structure.hpp"
 #include "Task.hpp"
+#include <iostream>
 
 class thread_pool
 {
@@ -139,12 +140,12 @@ public:
     }
     return futures;
   }
-  template <class func_t,class pri_t,class... rest>
-  auto submit_batch(func_t && function, pri_t && priority_level, rest &&... parameter)
-  -> std::vector<std::future<void>>
-  {
+  // template <class func_t,class pri_t,class... rest>
+  // auto submit_batch(func_t && function, pri_t && priority_level, rest &&... parameter)
+  // -> std::vector<std::future<void>>
+  // {
     
-  }
+  // }
   // std::string get_thread_pool_name();
   // metrics get_thread_pool_metrics();
   // void set_exception_callback(const std::function<void(const std::exception &)> &callback);
@@ -161,3 +162,7 @@ public:
   // void add_thread(const std::string &name,bool property = false);
   // void add_task(async_task task_information);
 };
+int main()
+{
+  return 0;
+}
