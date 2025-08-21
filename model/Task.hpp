@@ -221,6 +221,11 @@ namespace task_structure
       }
       return false;
     }
+
+    virtual int get_result()
+    {
+      return -1;
+    }
     /**
      * @brief 获取任务状态
      * @return 当前任务状态
@@ -409,6 +414,10 @@ namespace task_structure
         throw task_exception("正常任务执行失败：未知异常: ", get_task_id());
       }
     }
+    int get_result() override
+    {
+      return 0;
+    }
   };
   /**
    * @class task_rslt
@@ -494,7 +503,7 @@ namespace task_structure
      * @return 任务执行结果
      * @throws 任务执行过程中的异常
      */
-    return_t get_result()
+    return_t get_result() override
     {
       if constexpr (std::is_void_v<return_t>)
       {
@@ -634,6 +643,15 @@ namespace task_structure
     bool operator>(const task_prio& other) const noexcept
     { //get_priority函数继承至基类任务类
       return this->task_base::get_priority()  > other.task_base::get_priority();
+    }
+    return_t get_result()
+    {
+      return this->task_rslt<return_t>::get_result();
+    }
+    return_t get()
+    {
+      return this->_future.get();
+
     }
   };
   /**
@@ -1026,198 +1044,6 @@ namespace task_structure
       }
     }
   };
-  // /**
-  //  * @class task_reso
-  //  * @brief 资源继承任务类 - 支持资源传递和管理
-  //  * @tparam resource_t 资源类型
-  //  * @tparam return_t 返回值类型
-  //  *
-  //  * 适用场景：需要共享资源的任务, 数据库连接池管理, 文件句柄传递
-  //  *
-  //  * 调用关系：继承自`task_rslt`, 管理资源的生命周期, 支持资源的获取和释放
-  //  */
-  // template <typename resource_t, typename return_t = void>
-  // class task_reso : public task_rslt<return_t>
-  // {
-  // private:
-  //   mutable std::shared_ptr<resource_t> _resource;                        // 共享资源
-  //   std::function<std::shared_ptr<resource_t>()> _resource_factory;       // 资源工厂函数
-  //   std::function<void(std::shared_ptr<resource_t>)> _resource_cleanup;   // 资源清理函数
-  //   mutable std::atomic<bool> _resource_acquired{false};                  // 资源是否已获取
-  //   mutable std::mutex _resource_mutex;                                   // 资源获取互斥锁
-    
-  //   // RAII资源管理器
-  //   class resource_guard
-  //   {
-  //   private:
-  //     task_reso* _owner;
-  //     std::shared_ptr<resource_t> _resource;
-      
-  //   public:
-  //     explicit resource_guard(task_reso* owner) : _owner(owner)
-  //     {
-  //       _resource = _owner->acquire_resource_safe();
-  //     }
-      
-  //     ~resource_guard()
-  //     {
-  //       if (_owner && _owner->_resource_cleanup && _resource)
-  //       {
-  //         try
-  //         {
-  //           _owner->_resource_cleanup(_resource);
-  //         }
-  //         catch (...)
-  //         {
-  //           // 资源清理异常不应影响主流程
-  //         }
-  //       }
-  //     }
-      
-  //     std::shared_ptr<resource_t> get() const noexcept
-  //     {
-  //       return _resource;
-  //     }
-      
-  //     explicit operator bool() const noexcept
-  //     {
-  //       return static_cast<bool>(_resource);
-  //     }
-  //   };
-
-  // public:
-  //   /**
-  //    * @brief 构造资源任务（使用现有资源）
-  //    * @param func 任务执行函数
-  //    * @param resource 共享资源
-  //    * @param name 任务名称
-  //    * @param priority 任务优先级
-  //    */
-  //   template <typename func>
-  //   explicit task_reso(func &&function, std::shared_ptr<resource_t> resource, const std::string &name = "",
-  //   task_priority priority = task_priority::normal)
-  //   : task_rslt<return_t>([=,this](){return execute_with_resource(function);}, name, priority),
-  //   _resource(std::move(resource))
-  //   {
-  //     if (_resource)
-  //     {
-  //       _resource_acquired.store(true, std::memory_order_release);
-  //     }
-  //   }
-
-  //   /**
-  //    * @brief 构造资源任务（使用资源工厂）
-  //    * @param func 任务执行函数
-  //    * @param resource_factory 资源工厂函数
-  //    * @param resource_cleanup 资源清理函数
-  //    * @param name 任务名称
-  //    * @param priority 任务优先级
-  //    */
-  //   template <typename func, typename factory_func, typename cleanup_func>
-  //   explicit task_reso(func &&function, factory_func &&resource_factory, cleanup_func &&resource_cleanup,
-  //   const std::string &name = "", task_priority priority = task_priority::normal)
-  //   : task_rslt<return_t>([this, function = std::forward<func>(function)]() -> return_t
-  //   {return execute_with_resource(function);}, name, priority),
-  //   _resource_factory(std::forward<factory_func>(resource_factory)),
-  //   _resource_cleanup([cleanup = std::forward<cleanup_func>(resource_cleanup)](std::shared_ptr<resource_t> res) mutable 
-  //   { cleanup(res); }) {}
-
-
-  //   /**
-  //    * @brief 获取资源
-  //    * @return 共享资源指针
-  //    */
-  //   std::shared_ptr<resource_t> get_resource() const
-  //   {
-  //     if (!_resource_acquired.load(std::memory_order_acquire))
-  //     {
-  //       return acquire_resource_safe();
-  //     }
-  //     return _resource;
-  //   }
-
-  //   /**
-  //    * @brief 检查资源是否已获取
-  //    * @return true 资源已获取，false 资源未获取
-  //    */
-  //   bool is_resource_acquired() const noexcept
-  //   {
-  //     return _resource_acquired.load(std::memory_order_acquire);
-  //   }
-
-  //   /**
-  //    * @brief 释放资源
-  //    */
-  //   void release_resource()
-  //   {
-  //     std::lock_guard<std::mutex> lock(_resource_mutex);
-  //     if (_resource_acquired.load(std::memory_order_acquire))
-  //     {
-  //       if (_resource_cleanup && _resource)
-  //       {
-  //         try
-  //         {
-  //           _resource_cleanup(_resource);
-  //         }
-  //         catch (...)
-  //         {
-  //           // 资源清理异常不应影响主流程
-  //         }
-  //       }
-  //       _resource.reset();
-  //       _resource_acquired.store(false, std::memory_order_release);
-  //     }
-  //   }
-
-  // private:
-  //   /**
-  //    * @brief 线程安全地获取资源
-  //    * @return 共享资源指针
-  //    */
-  //   std::shared_ptr<resource_t> acquire_resource_safe() const
-  //   {
-  //     std::lock_guard<std::mutex> lock(_resource_mutex);
-  //     if (!_resource_acquired.load(std::memory_order_acquire))
-  //     {
-  //       if (_resource_factory)
-  //       {
-  //         _resource = _resource_factory();
-  //         if (_resource)
-  //         {
-  //           _resource_acquired.store(true, std::memory_order_release);
-  //         }
-  //       }
-  //     }
-  //     return _resource;
-  //   }
-
-  //   /**
-  //    * @brief 使用资源执行任务
-  //    * @param func 任务执行函数
-  //    * @return 任务执行结果
-  //    */
-  //   template <typename func>
-  //   return_t execute_with_resource(func &&function)
-  //   {
-  //     // 使用RAII资源管理器确保资源正确管理
-  //     resource_guard guard(this);
-      
-  //     if (!guard)
-  //     {
-  //       throw task_exception("获取资源失败", this->task_base::get_task_id());
-  //     }
-
-  //     // 执行任务函数
-  //     if constexpr (std::is_void_v<return_t>)
-  //     {
-  //       function(std::static_pointer_cast<resource_t>(guard.get()));
-  //     }
-  //     else
-  //     {
-  //       return function(std::static_pointer_cast<resource_t>(guard.get()));
-  //     }
-  //   }
-  // };
   /**
    * @brief 任务工厂函数 - 创建普通任务
    * @param func 任务执行函数
@@ -1295,24 +1121,6 @@ namespace task_structure
    * @param priority 任务优先级
    * @return 任务智能指针
    */
-  // template <typename return_t = void, typename resource_t = void, typename func>
-  // std::shared_ptr<task_reso<resource_t, return_t>> make_resource_task(const std::unordered_map<std::string, 
-  // std::shared_ptr<void>> &resources,func &&function, const std::string &name = "", task_priority priority = task_priority::normal)
-  // {
-  //   // 简化实现：使用第一个资源作为主资源
-  //   if (!resources.empty())
-  //   {
-  //     // 把映射的值转换为对应的资源类型
-  //     auto any_ptr = resources.begin()->second;
-  //     auto resource_ptr = std::static_pointer_cast<resource_t>(any_ptr);
-  //     if(!resource_ptr) throw task_exception("资源类型不匹配");
-  //     return std::make_shared<task_reso<resource_t, return_t>>(resource_ptr, std::forward<func>(function), name, priority);
-  //   }
-  //   else
-  //   {
-  //     throw task_exception("资源任务需要至少一个资源");
-  //   }
-  // }
    /**
    * @brief 任务工厂函数 - 创建协程任务
    * @param coro 协程句柄
@@ -1326,5 +1134,4 @@ namespace task_structure
   {
     return std::make_shared<task_coro<return_t>>(std::forward<coroutine_t>(coro), name, priority);
   }
-
 }
