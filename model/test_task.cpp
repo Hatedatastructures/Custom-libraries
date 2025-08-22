@@ -7,7 +7,7 @@
 // #include <string>
 // #include <cassert>
 
-// using namespace _task_structure;
+// using namespace task_structure;
 
 // // 测试资源类
 // class TestResource {
@@ -299,29 +299,29 @@
 // // int main()
 // // {
 // //         // 创建普通任务
-// //     auto norm_task = _task_structure::make_task_norm(
+// //     auto norm_task = task_structure::make_task_norm(
 // //       [](){ std::cout << "Normal task\n"; }, 
 // //       "normal_task"
 // //     );
 // //     norm_task->execute();
 // //     std::cout << "Normal task executed\n";
 // //     // 创建带返回值的任务
-// //     auto rslt_task = _task_structure::make_task_rslt(
+// //     auto rslt_task = task_structure::make_task_rslt(
 // //       [](){ return 42; }, 
 // //       "result_task"
 // //     );
 // //     rslt_task->execute();
 // //     // 创建优先级任务
-// //     auto prio_task = _task_structure::make_task_prio<int>(
+// //     auto prio_task = task_structure::make_task_prio<int>(
 // //       [](){ return 100; }, 
-// //       _task_structure::urgency_level::high, 
+// //       task_structure::urgency_level::high, 
 // //       "prio_task"
 // //     );
 // //     std::cout << "Priority task created\n";
 // //     prio_task->execute();
 // //     std::cout <<  prio_task->get_future().get() << std::endl;
 // //     // 创建超时任务（5秒超时）
-// //     auto time_task = _task_structure::make_task_time(
+// //     auto time_task = task_structure::make_task_time(
 // //       [](){ /* 可能超时的操作 */ }, 
 // //       std::chrono::seconds(5), 
 // //       "timeout_task"
@@ -340,12 +340,12 @@
 #include <string>
 int main()
 {
-    std::vector<std::shared_ptr<_task_structure::task_base>> tasks;
-    auto task1 = _task_structure::make_task_prio
-    ([](){std::cout << "Task 1\n" << std::endl; return std::string("Hello,你好吗?"); },_task_structure::urgency_level::high, "task1");
+    std::vector<std::shared_ptr<task_structure::task_base>> tasks;
+    auto task1 = task_structure::make_task_prio
+    ([](){std::cout << "Task 1\n" << std::endl; return std::string("Hello,你好吗?"); },task_structure::urgency_level::high, "task1");
     tasks.push_back(task1);
     tasks[0]->execute();
-    auto task2 = _task_structure::make_task_norm([](){std::cout << "Task 2\n" << std::endl; }, "task2");
+    auto task2 = task_structure::make_task_norm([](){std::cout << "Task 2\n" << std::endl; }, "task2");
     tasks.push_back(task2);
     tasks[1]->execute();
     std::cout << tasks[0]->get_task_id() << std::endl;
