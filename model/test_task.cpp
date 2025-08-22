@@ -7,7 +7,7 @@
 // #include <string>
 // #include <cassert>
 
-// using namespace task_structure;
+// using namespace _task_structure;
 
 // // 测试资源类
 // class TestResource {
@@ -25,10 +25,10 @@
 // void test_normal_task() {
 //     std::cout << "\n=== 测试普通任务 ===" << std::endl;
     
-//     auto task = make_normal_task([]() {
+//     auto task = make_task_norm([]() {
 //         std::cout << "普通任务执行" << std::endl;
 //         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-//     }, "普通任务", task_priority::normal);
+//     }, "普通任务", urgency_level::normal);
     
 //     assert(task->get_state() == task_state::pending);
 //     task->execute();
@@ -40,10 +40,10 @@
 // void test_result_task() {
 //     std::cout << "\n=== 测试带结果任务 ===" << std::endl;
     
-//     auto task = make_result_task([]() -> int {
+//     auto task = make_task_rslt([]() -> int {
 //         std::cout << "计算任务执行" << std::endl;
 //         return 42;
-//     }, "计算任务", task_priority::high);
+//     }, "计算任务", urgency_level::high);
     
 //     assert(task->get_state() == task_state::pending);
 //     task->execute();
@@ -58,18 +58,18 @@
 // void test_priority_task() {
 //     std::cout << "\n=== 测试优先级任务 ===" << std::endl;
     
-//     auto high_task = make_priority_task<int>([]() -> int {
+//     auto high_task = make_task_prio<int>([]() -> int {
 //         std::cout << "高优先级任务执行" << std::endl;
 //         return 100;
-// }, task_priority::high, "高优先级任务");
+// }, urgency_level::high, "高优先级任务");
     
-//     auto low_task = make_priority_task<int>([]() -> int {
+//     auto low_task = make_task_prio<int>([]() -> int {
 //         std::cout << "低优先级任务执行" << std::endl;
 //         return 10;
-//     }, task_priority::low, "低优先级任务");
+//     }, urgency_level::low, "低优先级任务");
     
-//     // assert(high_task->get_priority() == task_priority::high);
-//     // assert(low_task->get_priority() == task_priority::low);
+//     // assert(high_task->get_priority() == urgency_level::high);
+//     // assert(low_task->get_priority() == urgency_level::low);
     
 //     high_task->execute();
 //     low_task->execute();
@@ -85,7 +85,7 @@
 //     std::cout << "\n=== 测试超时任务 ===" << std::endl;
     
 //     // 正常完成的任务
-//     auto normal_task = make_timeout_task<int>([]() -> int {
+//     auto normal_task = make_task_time<int>([]() -> int {
 //         std::this_thread::sleep_for(std::chrono::milliseconds(50));
 //         return 123;
 //     }, std::chrono::milliseconds(200), "正常超时任务");
@@ -95,7 +95,7 @@
 //     assert(normal_task->get_result() == 123);
     
 //     // 超时的任务
-//     auto timeout_task = make_timeout_task<void>([]() {
+//     auto timeout_task = make_task_time<void>([]() {
 //         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 //     }, std::chrono::milliseconds(100), "超时任务");
     
@@ -110,13 +110,13 @@
 //     std::cout << "\n=== 测试依赖任务 ===" << std::endl;
     
 //     // 创建基础任务
-//     auto base_task1 = make_result_task([]() -> int {
+//     auto base_task1 = make_task_rslt([]() -> int {
 //         std::cout << "基础任务1执行" << std::endl;
 //         std::this_thread::sleep_for(std::chrono::milliseconds(50));
 //         return 10;
 //     }, "基础任务1");
     
-//     auto base_task2 = make_result_task([]() -> int {
+//     auto base_task2 = make_task_rslt([]() -> int {
 //         std::cout << "基础任务2执行" << std::endl;
 //         std::this_thread::sleep_for(std::chrono::milliseconds(30));
 //         return 20;
@@ -124,7 +124,7 @@
     
 //     // 创建依赖任务
 //     std::vector<std::shared_ptr<task_base>> dependencies = {base_task1, base_task2};
-//     auto dep_task = make_dependency_task<int>([&]() -> int {
+//     auto dep_task = make_task_depn<int>([&]() -> int {
 //         std::cout << "依赖任务执行" << std::endl;
 //         return base_task1->get_result() + base_task2->get_result();
 //     }, dependencies, "依赖任务");
@@ -188,11 +188,11 @@
 //     std::cout << "\n=== 测试性能优化 ===" << std::endl;
     
 //     // 测试依赖缓存机制
-//     auto base_task = make_normal_task([]() {
+//     auto base_task = make_task_norm([]() {
 //         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 //     }, "基础任务");
     
-//     auto dep_task = make_dependency_task<void>([]() {
+//     auto dep_task = make_task_depn<void>([]() {
 //         std::cout << "依赖任务执行" << std::endl;
 //     }, {base_task}, "缓存测试任务");
     
@@ -224,7 +224,7 @@
 // // void test_exception_handling() {
 // //     std::cout << "\n=== 测试异常处理 ===" << std::endl;
     
-// //         auto exception_task = make_result_task<void>([]() -> void {
+// //         auto exception_task = make_task_rslt<void>([]() -> void {
 // //         throw std::runtime_error("测试异常");
 // //     }, "异常任务");
 
@@ -299,29 +299,29 @@
 // // int main()
 // // {
 // //         // 创建普通任务
-// //     auto norm_task = task_structure::make_normal_task(
+// //     auto norm_task = _task_structure::make_task_norm(
 // //       [](){ std::cout << "Normal task\n"; }, 
 // //       "normal_task"
 // //     );
 // //     norm_task->execute();
 // //     std::cout << "Normal task executed\n";
 // //     // 创建带返回值的任务
-// //     auto rslt_task = task_structure::make_result_task(
+// //     auto rslt_task = _task_structure::make_task_rslt(
 // //       [](){ return 42; }, 
 // //       "result_task"
 // //     );
 // //     rslt_task->execute();
 // //     // 创建优先级任务
-// //     auto prio_task = task_structure::make_priority_task<int>(
+// //     auto prio_task = _task_structure::make_task_prio<int>(
 // //       [](){ return 100; }, 
-// //       task_structure::task_priority::high, 
+// //       _task_structure::urgency_level::high, 
 // //       "prio_task"
 // //     );
 // //     std::cout << "Priority task created\n";
 // //     prio_task->execute();
 // //     std::cout <<  prio_task->get_future().get() << std::endl;
 // //     // 创建超时任务（5秒超时）
-// //     auto time_task = task_structure::make_timeout_task(
+// //     auto time_task = _task_structure::make_task_time(
 // //       [](){ /* 可能超时的操作 */ }, 
 // //       std::chrono::seconds(5), 
 // //       "timeout_task"
@@ -340,16 +340,19 @@
 #include <string>
 int main()
 {
-    std::vector<std::shared_ptr<task_structure::task_base>> tasks;
-    auto task1 = task_structure::make_priority_task<std::string>
-    ([](){std::cout << "Task 1\n" << std::endl;return std::string("Hello"); },task_structure::task_priority::high, "task1");
+    std::vector<std::shared_ptr<_task_structure::task_base>> tasks;
+    auto task1 = _task_structure::make_task_prio
+    ([](){std::cout << "Task 1\n" << std::endl; return std::string("Hello,你好吗?"); },_task_structure::urgency_level::high, "task1");
     tasks.push_back(task1);
     tasks[0]->execute();
-    auto task2 = task_structure::make_normal_task([](){std::cout << "Task 2\n" << std::endl; }, "task2");
+    auto task2 = _task_structure::make_task_norm([](){std::cout << "Task 2\n" << std::endl; }, "task2");
     tasks.push_back(task2);
     tasks[1]->execute();
     std::cout << tasks[0]->get_task_id() << std::endl;
     std::cout << tasks[1]->get_task_id() << std::endl;
-    std::cout << tasks[0]->get_result()  << std::endl;
+    std::string task_value = tasks[0]->get_result();
+    // std::cout << tasks[0]->get_result()  << std::endl;
+    std::cout << task_value  << std::endl;
+
     return 0;
 }

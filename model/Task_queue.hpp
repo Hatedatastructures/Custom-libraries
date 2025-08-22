@@ -23,7 +23,7 @@
 #include <algorithm>
 #include <functional>
 
-namespace task_structure
+namespace _task_structure
 {
   // 与 queue.hpp 中的定义保持一致
   enum class queue_policy

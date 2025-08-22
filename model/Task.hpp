@@ -12,8 +12,76 @@
 #include <string>
 #include <utility>
 #include <type_traits> 
-namespace task_structure
+
+namespace _task_structure
 {
+  /**
+   * @class derivation
+   * @brief 任务返回值封装类
+   * @details 用于封装任务的返回值，支持任意类型的返回值，同时支持void类型的返回值
+   * @warning 不支持对void类型的返回值进行转换,不能用auto来接收
+   */
+  class task_anomaly;
+  class derivation
+  { // 任务返回值封装类
+  private:
+    std::any _data;
+    bool _void;
+  public:
+    template<typename return_type>
+    derivation(return_type&& value) : _data(std::forward<return_type>(value)), _void(false) {}
+    derivation() : _void(true) {}
+    /**
+     * @brief 隐式类型转换
+     * @tparam implicit_type 
+     */
+    template<typename implicit_type>
+    operator implicit_type() const
+    {
+      static_assert(!std::is_void_v<implicit_type>, "不能对void类型转换");
+      if(_void)
+      {
+        throw task_anomaly("void类型不能转换",0);
+      }
+      return std::any_cast<implicit_type>(_data);
+    }
+    /**
+     * @brief 判断任务是否为void类型
+     * @return `true` - `void`类型, `false` - 非`void`类型
+     */
+    bool is_void() const noexcept
+    {
+      return _void;
+    }
+    /**
+     * @brief 判断任务是否有返回值
+     * @return `true` - 有返回值, `false` - 无返回值
+     */
+    bool has_value()const noexcept
+    {
+      return !_void && _data.has_value();
+    }
+    /**
+     * @brief 显式获取任务返回值
+     * @tparam return_type 任务返回值类型
+     */
+    template<typename return_type>
+    return_type get() const
+    {
+      if (_void) 
+      {
+        throw task_anomaly("任务无返回值，无法获取结果", 0);
+      }
+      try 
+      {
+        return std::any_cast<return_type>(_data);
+      }
+      catch (const std::bad_any_cast& e) 
+      {
+        throw task_anomaly("类型转换失败: " + std::string(e.what()), 0);
+      }
+    }
+  };
   /**
    * @enum task_state
    * @brief 任务状态枚举
@@ -28,10 +96,10 @@ namespace task_structure
     failed = 5     // 执行失败
   };
   /**
-   * @enum task_priority
+   * @enum urgency_level
    * @brief 任务优先级枚举
    */
-  enum class task_priority : std::int32_t
+  enum class urgency_level : std::int32_t
   {
     lowest = -100, // 最低优先级
     low = -50,     // 低优先级
@@ -40,11 +108,39 @@ namespace task_structure
     highest = 100, // 最高优先级
     critical = 200 // 关键优先级
   };
+  inline std::string task_state_to_string(task_state state) noexcept
+  {
+    switch (state)
+    {
+      case task_state::pending:    return "pending";
+      case task_state::running:    return "running";
+      case task_state::completed:  return "completed";
+      case task_state::cancelled:  return "cancelled";
+      case task_state::timeout:    return "timeout";
+      case task_state::failed:     return "failed";
+      default:                     return "unknown";
+    }
+  }
+
+  // 同理，为优先级枚举添加转换函数
+  inline std::string urgency_level_to_string(urgency_level level) noexcept
+  {
+    switch (level)
+    {
+      case urgency_level::lowest:  return "lowest";
+      case urgency_level::low:     return "low";
+      case urgency_level::normal:  return "normal";
+      case urgency_level::high:    return "high";
+      case urgency_level::highest: return "highest";
+      case urgency_level::critical:return "critical";
+      default:                     return std::to_string(static_cast<int>(level));
+    }
+  }
   /**
-   * @class task_exception
+   * @class task_anomaly
    * @brief 任务执行异常类
    */
-  class task_exception : public std::exception
+  class task_anomaly : public std::exception
   {
   private:
     std::string _message;
@@ -56,7 +152,7 @@ namespace task_structure
      * @param message 异常消息
      * @param task_id 任务ID
      */
-    explicit task_exception(const std::string &message, std::uint64_t task_id = 0)
+    explicit task_anomaly(const std::string &message, std::uint64_t task_id = 0)
         : _message(message), _task_id(task_id) {}
 
     /**
@@ -158,7 +254,7 @@ namespace task_structure
      * @param name 任务名称
      * @param priority 任务优先级
      */
-    explicit task_base(const std::string &name = "", task_priority priority = task_priority::normal)
+    explicit task_base(const std::string &name = "", urgency_level priority = urgency_level::normal)
     : _task_id(_next_task_id.fetch_add(1, std::memory_order_relaxed)),
     _task_name(coverage_string(name)), _submit_time(std::chrono::steady_clock::now()),
     _priority(static_cast<std::int32_t>(priority))  {}
@@ -169,12 +265,12 @@ namespace task_structure
     task_base &operator=(task_base &&) = delete;
     /**
      * @brief 执行任务 - 纯虚函数，子类必须实现
-     * @return 任务执行结果(`std::any`类型支持任意返回值)
-     * @throws `task_exception` 任务执行异常
+     * @return 任务执行结果(`derivation`类型支持任意返回值)
+     * @throws `task_anomaly` 任务执行异常
      *
      * 调用者：`worker`线程,被调用者：衍生任务类的具体实现
      */
-    virtual std::any execute() = 0;
+    virtual derivation execute() = 0;
     /**
      * @brief 取消任务
      * @return `true` 取消成功，`false` 任务已开始执行无法取消
@@ -221,11 +317,16 @@ namespace task_structure
       }
       return false;
     }
-
-    virtual int get_result()
-    {
-      return -1;
-    }
+    /**
+     * @brief 获取任务结果
+     * @return  任务执行结果(`derivation`类型支持任意返回值)
+     */
+    virtual derivation get_result() = 0;
+    /**
+     * @brief 检查任务是否有返回值
+     * @return `true` 无返回值，`false` 有返回值
+     */
+    virtual bool is_void_task() const noexcept = 0;
     /**
      * @brief 获取任务状态
      * @return 当前任务状态
@@ -247,7 +348,7 @@ namespace task_structure
      * @brief 设置任务优先级
      * @param priority 新的优先级
      */
-    void set_priority(task_priority priority) noexcept
+    void set_priority(urgency_level priority) noexcept
     {
       _priority.store(static_cast<std::int32_t>(priority), std::memory_order_release);
     }
@@ -383,40 +484,52 @@ namespace task_structure
      * @param priority 任务优先级
      */
     template<typename func>
-    explicit task_norm(func&& function, const std::string& name = "",task_priority priority = task_priority::normal)
+    explicit task_norm(func&& function, const std::string& name = "",urgency_level priority = urgency_level::normal)
     : task_base(name, priority),_task_func(std::forward<func>(function)) {}
 
     /**
      * @brief 执行任务
-     * @return 空的 `std::any`（普通任务无返回值）
-     * @throws `task_exception` 任务执行异常
+     * @return 空的 `derivation`（普通任务无返回值）
+     * @throws `task_anomaly` 任务执行异常
      */
-    std::any execute() override
+    derivation execute() override
     {
       if(!this->mark_running())
       {
-        throw task_exception("任务无法启动", get_task_id());
+        throw task_anomaly("任务无法启动", get_task_id());
       }
       try
       {
         _task_func();
         this->mark_completed();
-        return std::any{};
+        return derivation();
       }
       catch (const std::exception& task_error)
       {
         this->mark_failed();
-        throw task_exception("正常任务执行失败: " + std::string(task_error.what()), get_task_id());
+        throw task_anomaly("正常任务执行失败: " + std::string(task_error.what()), get_task_id());
       }
       catch (...)
       {
         this->mark_failed();
-        throw task_exception("正常任务执行失败：未知异常: ", get_task_id());
+        throw task_anomaly("正常任务执行失败：未知异常: ", get_task_id());
       }
     }
-    int get_result() override
+    /**
+     * @brief 获取任务结果
+     * @return 空的 `derivation`（普通任务无返回值）如果任务有返回值明确类型会隐式转换
+     */
+    derivation get_result() override
     {
-      return 0;
+      return derivation();
+    }
+    /**
+     * @brief 检查任务是否有返回值
+     * @return `true` 无返回值，`false` 有返回值
+     */
+    bool is_void_task() const noexcept override
+    {
+      return true;
     }
   };
   /**
@@ -447,21 +560,21 @@ namespace task_structure
      * @param priority 任务优先级
      */
     template<typename func>
-    explicit task_rslt(func&& function,const std::string& name = "",task_priority priority = task_priority::normal)
+    explicit task_rslt(func&& function,const std::string& name = "",urgency_level priority = urgency_level::normal)
     : task_base(name, priority),_promise(), _future(_promise.get_future()), _task_func(std::forward<func>(function)) {}
 
     /**
      * @brief 执行任务
      * @return 任务执行结果（包装在 `std::any` 中）
-     * @throws `task_exception` 任务执行异常
+     * @throws `task_anomaly` 任务执行异常
      */
-    std::any execute() override
+    derivation execute() override
     {
       if(!this->mark_running())
       {
-        _promise.set_exception(std::make_exception_ptr(task_exception("任务无法启动",get_task_id())));
+        _promise.set_exception(std::make_exception_ptr(task_anomaly("任务无法启动",get_task_id())));
         _result_ready.store(true, std::memory_order_release);
-        throw task_exception("任务无法启动", get_task_id());
+        throw task_anomaly("任务无法启动", get_task_id());
       }
       try
       {
@@ -471,7 +584,7 @@ namespace task_structure
           _promise.set_value();
           _result_ready.store(true, std::memory_order_release);
           this->mark_completed();
-          return std::any{};
+          return derivation();
         }
         else
         {
@@ -479,7 +592,7 @@ namespace task_structure
           _promise.set_value(result);
           _result_ready.store(true, std::memory_order_release);
           this->mark_completed();
-          return std::make_any<return_t>(result);
+          return derivation(result);
         }
       }
       catch (const std::exception& e)
@@ -487,15 +600,23 @@ namespace task_structure
         this->mark_failed();
         _promise.set_exception(std::current_exception());
         _result_ready.store(true, std::memory_order_release);
-        throw task_exception("任务执行失败: " + std::string(e.what()), get_task_id());
+        throw task_anomaly("任务执行失败: " + std::string(e.what()), get_task_id());
       }
       catch (...)
       {
         _promise.set_exception(std::current_exception());
         _result_ready.store(true, std::memory_order_release);
         this->mark_failed();
-        throw task_exception("任务执行失败: 未知错误", get_task_id());
+        throw task_anomaly("任务执行失败: 未知错误", get_task_id());
       }
+    }
+    /**
+     * @brief 检查任务是否有返回值
+     * @return `true` 无返回值，`false` 有返回值
+     */
+    bool is_void_task() const noexcept override
+    {
+      return false;
     }
 
     /**
@@ -503,18 +624,26 @@ namespace task_structure
      * @return 任务执行结果
      * @throws 任务执行过程中的异常
      */
-    return_t get_result() override
+    derivation get_result() override
     {
       if constexpr (std::is_void_v<return_t>)
       {
         _future.get();
+        return derivation();
       }
       else
       {
-        return _future.get();
+        return derivation(_future.get());
       }
     }
-
+    /**
+     * @brief 获取任务执行结果（带超时）
+     * @return 任务执行结果
+     */
+    return_t get()
+    {
+      return _future.get();
+    }
     /**
      * @brief 获取任务执行结果（带超时）
      * @param timeout 等待超时时间
@@ -599,7 +728,7 @@ namespace task_structure
    * 调用关系：继承自`task_rslt`,由`task_queue`（基于`concurrent_priority_queue`）按优先级排序
    * 由`scheduler`调度器管理
    */
-  template <typename return_t = void>
+  template <typename return_t>
   class task_prio : public task_rslt<return_t>
   {
   public:
@@ -610,7 +739,7 @@ namespace task_structure
      * @param name 任务名称
      */
     template<typename func>
-    explicit task_prio(func&& function,task_priority priority,const std::string& name = "")
+    explicit task_prio(func&& function,urgency_level priority,const std::string& name = "")
     : task_rslt<return_t>(std::forward<func>(function), name, priority) {}
     /**
      * @brief 构造优先级任务（自定义优先级值）
@@ -620,7 +749,7 @@ namespace task_structure
      */
     template<typename func>
     explicit task_prio(func&& function,std::int32_t priority_value,const std::string& name = "")
-    : task_rslt<return_t>(std::forward<func>(function), name, task_priority::normal)
+    : task_rslt<return_t>(std::forward<func>(function), name, urgency_level::normal)
     {
       this->set_priority(priority_value);
     }
@@ -644,9 +773,13 @@ namespace task_structure
     { //get_priority函数继承至基类任务类
       return this->task_base::get_priority()  > other.task_base::get_priority();
     }
-    return_t get_result()
+    derivation get_result() override
     {
       return this->task_rslt<return_t>::get_result();
+    }
+    urgency_level get_priority() const noexcept
+    {
+      return static_cast<urgency_level>(this->task_base::get_priority());
     }
     return_t get()
     {
@@ -662,7 +795,7 @@ namespace task_structure
    *
    * 调用关系： 继承自`task_rslt`, 由`scheduler`定期检查超时, 支持超时回调处理
    */
-  template <typename return_t = void>
+  template <typename return_t>
   class task_time : public task_rslt<return_t>
   {
   private:
@@ -678,7 +811,7 @@ namespace task_structure
      */
     template<typename func, typename rep, typename period>
     explicit task_time(func&& function, const std::chrono::duration<rep, period>& timeout,const std::string& name = "",
-    task_priority priority = task_priority::normal)
+    urgency_level priority = urgency_level::normal)
     : task_rslt<return_t>(std::forward<func>(function), name, priority)
     {
       this->task_base::set_timeout(timeout);
@@ -693,7 +826,7 @@ namespace task_structure
      */
     template<typename func, typename timeout_func, typename rep, typename period>
     explicit task_time(func&& function,const std::chrono::duration<rep, period>& timeout,
-    timeout_func&& timeout_callback,const std::string& name = "",task_priority priority = task_priority::normal)
+    timeout_func&& timeout_callback,const std::string& name = "",urgency_level priority = urgency_level::normal)
     : task_rslt<return_t>(std::forward<func>(function), name, priority),
     _timeout_callback(std::forward<timeout_func>(timeout_callback))
     {
@@ -760,7 +893,7 @@ namespace task_structure
    *
    * 调用关系：继承自`task_rslt`, 依赖其他任务的完成状态, 由`scheduler`检查依赖关系
    */
-  template <typename return_t = void>
+  template <typename return_t, uint64_t CACHE_VALIDITY = 100ULL>
   class task_depn : public task_rslt<return_t>
   {
   private:
@@ -770,7 +903,7 @@ namespace task_structure
     mutable std::mutex _dependency_mutex;                     // 依赖检查互斥锁
     mutable std::condition_variable _dependency_cv;           // 依赖状态变更条件变量
     
-    static constexpr std::uint64_t CACHE_VALIDITY_MS = 100;   // 缓存有效期（毫秒）
+    static constexpr std::uint64_t CACHE_VALIDITY_MS = CACHE_VALIDITY;   // 缓存有效期（毫秒）
     
     /**
       * @brief 获取当前时间戳（毫秒）
@@ -804,7 +937,7 @@ namespace task_structure
      */
     template<typename func>
     explicit task_depn(func&& function, const std::vector<std::shared_ptr<task_base>>& dependencies,
-    const std::string& name = "", task_priority priority = task_priority::normal)
+    const std::string& name = "", urgency_level priority = urgency_level::normal)
     : task_rslt<return_t>(std::forward<func>(function), name, priority), _dependencies(dependencies)
     {
       // 过滤掉空指针依赖
@@ -820,7 +953,7 @@ namespace task_structure
      */
     template <typename func>
     explicit task_depn(func &&function, std::shared_ptr<task_base> dependency, const std::string &name = "",
-    task_priority priority = task_priority::normal)
+    urgency_level priority = urgency_level::normal)
     : task_rslt<return_t>(std::forward<func>(function), name, priority)
     {
       if (dependency)
@@ -931,7 +1064,7 @@ namespace task_structure
    *
    * 调用关系：继承自`task_rslt`, 使用`C++20`协程特性, 支持协程的暂停和恢复
    */
-  template <typename return_t = void>
+  template <typename return_t>
   class task_coro : public task_rslt<return_t>
   {
   public:
@@ -978,7 +1111,7 @@ namespace task_structure
      * @param name 任务名称
      * @param priority 任务优先级
      */
-    explicit task_coro(handle_type handle,const std::string &name = "",task_priority priority = task_priority::normal)
+    explicit task_coro(handle_type handle,const std::string &name = "",urgency_level priority = urgency_level::normal)
     : task_rslt<return_t>([this]() -> return_t { return execute_coroutine(); }, name, priority),_coroutine_handle(handle) {}
     /**
      * @brief 移动构造函数
@@ -1023,7 +1156,7 @@ namespace task_structure
     {
       if (!_coroutine_handle)
       {
-        throw task_exception("协程句柄无效", this->task_base::get_task_id());
+        throw task_anomaly("协程句柄无效", this->task_base::get_task_id());
       }
 
       // 等待协程完成
@@ -1052,8 +1185,8 @@ namespace task_structure
    * @return 任务智能指针
    */
   template <typename func>
-  std::shared_ptr<task_norm> make_normal_task(func &&function, const std::string &name = "",
-  task_priority priority = task_priority::normal)
+  std::shared_ptr<task_norm> make_task_norm(func &&function, const std::string &name = "",
+  urgency_level priority = urgency_level::normal)
   {
     return std::make_shared<task_norm>(std::forward<func>(function), name, priority);
   }
@@ -1065,7 +1198,7 @@ namespace task_structure
    * @return 任务智能指针
    */
   template <typename func>
-  auto make_result_task(func &&function, const std::string &name = "",task_priority priority = task_priority::normal)
+  auto make_task_rslt(func &&function, const std::string &name = "",urgency_level priority = urgency_level::normal)
   {
     using return_type = std::invoke_result_t<func>;
     return std::make_shared<task_rslt<return_type>>(std::forward<func>(function), name, priority);
@@ -1077,11 +1210,12 @@ namespace task_structure
    * @param name 任务名称
    * @return 任务智能指针
    */
-  template <typename return_t = void, typename func>
-  std::shared_ptr<task_prio<return_t>> make_priority_task(func &&function, task_priority priority,
+  template <typename func>
+  std::shared_ptr<task_prio<std::invoke_result_t<func>>> make_task_prio(func &&function, urgency_level priority,
    const std::string &name = "")
   {
-    return std::make_shared<task_prio<return_t>>(std::forward<func>(function), priority, name);
+    using return_type = std::invoke_result_t<func>;
+    return std::make_shared<task_prio<return_type>>(std::forward<func>(function), priority, name);
   }
    /**
    * @brief 任务工厂函数 - 创建超时任务
@@ -1091,12 +1225,13 @@ namespace task_structure
    * @param priority 任务优先级
    * @return 任务智能指针
    */
-  template <typename return_t = void, typename func, typename rep, typename period>
-  std::shared_ptr<task_time<return_t>> make_timeout_task(func &&function, 
+  template <typename func, typename rep, typename period>
+  std::shared_ptr<task_time<std::invoke_result_t<func>>> make_task_time(func &&function, 
   const std::chrono::duration<rep, period> &timeout,const std::string &name = "",
-  task_priority priority = task_priority::normal)
+  urgency_level priority = urgency_level::normal)
   {
-    return std::make_shared<task_time<return_t>>(std::forward<func>(function), timeout, name, priority);
+    using return_type = std::invoke_result_t<func>;
+    return std::make_shared<task_time<return_type>>(std::forward<func>(function), timeout, name, priority);
   }
   /**
    * @brief 任务工厂函数 - 创建依赖任务
@@ -1106,21 +1241,14 @@ namespace task_structure
    * @param priority 任务优先级
    * @return 任务智能指针
    */
-  template <typename return_t = void, typename func>
-  std::shared_ptr<task_depn<return_t>> make_dependency_task(func &&function,
+  template <typename func, uint64_t CACHE_VALIDITY = 100ULL>
+  std::shared_ptr<task_depn<std::invoke_result_t<func>, CACHE_VALIDITY>> make_task_depn(func &&function,
   const std::vector<std::shared_ptr<task_base>> &dependencies,const std::string &name = "",
-  task_priority priority = task_priority::normal)
+  urgency_level priority = urgency_level::normal)
   {
-    return std::make_shared<task_depn<return_t>>(std::forward<func>(function), dependencies, name, priority);
+    using return_type = std::invoke_result_t<func>;
+    return std::make_shared<task_depn<return_type, CACHE_VALIDITY>>(std::forward<func>(function), dependencies, name, priority);
   }
-  /**
-   * @brief 任务工厂函数 - 创建资源任务
-   * @param resources 资源映射
-   * @param func 任务执行函数
-   * @param name 任务名称
-   * @param priority 任务优先级
-   * @return 任务智能指针
-   */
    /**
    * @brief 任务工厂函数 - 创建协程任务
    * @param coro 协程句柄
@@ -1128,10 +1256,32 @@ namespace task_structure
    * @param priority 任务优先级
    * @return 任务智能指针
    */
-  template <typename return_t = void, typename coroutine_t>
-  std::shared_ptr<task_coro<return_t>> make_coroutine_task(coroutine_t &&coro, const std::string &name = "",
-  task_priority priority = task_priority::normal)
+  template <typename coroutine_t>
+  std::shared_ptr<task_coro<std::invoke_result_t<coroutine_t>>> make_task_coro(coroutine_t &&coro,
+   const std::string &name = "",urgency_level priority = urgency_level::normal)
   {
-    return std::make_shared<task_coro<return_t>>(std::forward<coroutine_t>(coro), name, priority);
+    using return_type = std::invoke_result_t<coroutine_t>;
+    return std::make_shared<task_coro<return_type>>(std::forward<coroutine_t>(coro), name, priority);
   }
+}
+namespace pool
+{
+  using _task_structure::task_base;
+  using _task_structure::task_norm;
+  using _task_structure::task_rslt;
+  using _task_structure::task_prio;
+  using _task_structure::task_time;
+  using _task_structure::task_depn;
+  using _task_structure::task_coro;
+
+  using _task_structure::make_task_norm;
+  using _task_structure::make_task_rslt;
+  using _task_structure::make_task_prio;
+  using _task_structure::make_task_time;
+  using _task_structure::make_task_depn;
+  using _task_structure::make_task_coro;
+
+  using _task_structure::urgency_level;
+  
+  using task_base_ptr = std::shared_ptr<task_base>;
 }
