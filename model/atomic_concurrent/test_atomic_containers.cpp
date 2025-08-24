@@ -336,6 +336,7 @@
 // }
 
 #include "Atomic_queue.hpp"
+#include <windows.h>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -345,10 +346,10 @@
 #include <iomanip>
 
 // 测试配置
-constexpr size_t TEST_DATA_SIZE = 1000000; // 总数据量（每个线程）
-constexpr int TEST_ROUNDS = 3;             // 测试轮数（取平均值）
-constexpr int MIN_THREADS = 1;             // 最小线程数
-constexpr int MAX_THREADS = 8;             // 最大线程数（根据CPU核心数调整）
+constexpr size_t TEST_DATA_SIZE = 100000;   // 总数据量（每个线程）
+constexpr int TEST_ROUNDS = 10;             // 测试轮数（取平均值）
+constexpr int MIN_THREADS = 32;             // 最小线程数
+constexpr int MAX_THREADS = 32;             // 最大线程数（根据CPU核心数调整）
 
 // 计时工具
 class Timer
@@ -374,11 +375,11 @@ public:
 
 // 生产者线程函数（入队操作）
 template <typename Queue>
-void producer(Queue &q, size_t count, std::atomic<size_t> &completed)
+void producer(Queue &q, size_t start_val, size_t count, std::atomic<size_t> &completed)
 {
     for (size_t i = 0; i < count; ++i)
     {
-        q.push(i); // 入队简单整数（避免数据构造开销）
+        q.push(start_val + i); // 入队简单整数（避免数据构造开销）
     }
     completed.fetch_add(1, std::memory_order_relaxed);
 }
@@ -398,6 +399,11 @@ void consumer(Queue &q, size_t count, std::atomic<size_t> &completed, std::atomi
             local_sum += value;
             actual++;
         }
+        else
+        {
+            // 如果队列为空，短暂休眠避免忙等待
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
     }
 
     checksum.fetch_add(local_sum, std::memory_order_relaxed);
@@ -406,13 +412,13 @@ void consumer(Queue &q, size_t count, std::atomic<size_t> &completed, std::atomi
 
 // 混合模式线程函数（同时进行入队和出队）
 template <typename Queue>
-void mixed_worker(Queue &q, size_t produce_count, size_t consume_count,
+void mixed_worker(Queue &q, size_t start_val, size_t produce_count, size_t consume_count,
                   std::atomic<size_t> &completed, std::atomic<size_t> &checksum)
 {
     // 先生产一部分数据
     for (size_t i = 0; i < produce_count; ++i)
     {
-        q.push(i);
+        q.push(start_val + i);
     }
 
     // 再消费一部分数据
@@ -452,7 +458,7 @@ double test_single_prod_single_cons()
     std::atomic<size_t> checksum(0);
 
     // 启动生产者和消费者
-    std::thread prod(producer<Queue>, std::ref(q), TEST_DATA_SIZE, std::ref(prod_completed));
+    std::thread prod(producer<Queue>, std::ref(q), 0, TEST_DATA_SIZE, std::ref(prod_completed));
     std::thread cons(consumer<Queue>, std::ref(q), TEST_DATA_SIZE, std::ref(cons_completed), std::ref(checksum));
 
     // 等待完成
@@ -495,13 +501,26 @@ double test_multi_prod_multi_cons(size_t thread_count)
     // 启动生产者
     for (int i = 0; i < prod_count; ++i)
     {
-        threads.emplace_back(producer<Queue>, std::ref(q), per_prod, std::ref(completed));
+        size_t start_val = i * per_prod;
+        size_t count = per_prod;
+        // 最后一个生产者处理剩余的数据
+        if (i == prod_count - 1)
+        {
+            count = TEST_DATA_SIZE - start_val;
+        }
+        threads.emplace_back(producer<Queue>, std::ref(q), start_val, count, std::ref(completed));
     }
 
     // 启动消费者
     for (int i = 0; i < cons_count; ++i)
     {
-        threads.emplace_back(consumer<Queue>, std::ref(q), per_cons, std::ref(completed), std::ref(checksum));
+        size_t count = per_cons;
+        // 最后一个消费者处理剩余的数据
+        if (i == cons_count - 1)
+        {
+            count = TEST_DATA_SIZE - i * per_cons;
+        }
+        threads.emplace_back(consumer<Queue>, std::ref(q), count, std::ref(completed), std::ref(checksum));
     }
 
     // 等待所有线程完成
@@ -542,8 +561,17 @@ double test_mixed_mode(size_t thread_count)
     // 启动混合线程
     for (size_t i = 0; i < thread_count; ++i)
     {
-        threads.emplace_back(mixed_worker<Queue>, std::ref(q), per_thread_prod,
-                             per_thread_cons, std::ref(completed), std::ref(checksum));
+        size_t start_val = i * per_thread_prod;
+        size_t prod_count = per_thread_prod;
+        size_t cons_count = per_thread_cons;
+        // 最后一个线程处理剩余的数据
+        if (i == thread_count - 1)
+        {
+            prod_count = TEST_DATA_SIZE - start_val;
+            cons_count = TEST_DATA_SIZE - i * per_thread_cons;
+        }
+        threads.emplace_back(mixed_worker<Queue>, std::ref(q), start_val, prod_count,
+                             cons_count, std::ref(completed), std::ref(checksum));
     }
 
     // 等待所有线程完成
@@ -570,6 +598,8 @@ double test_mixed_mode(size_t thread_count)
 
 int main()
 {
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
     using QueueType = atomic_concurrent::atomic_queue<int>;
     std::cout << "===== atomic_queue 性能测试 =====" << std::endl;
     std::cout << "测试数据量: " << TEST_DATA_SIZE << " 元素/线程" << std::endl;

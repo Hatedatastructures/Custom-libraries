@@ -1,6 +1,4 @@
-#ifndef ATOMIC_ANNULAR_QUEUE_HPP
-#define ATOMIC_ANNULAR_QUEUE_HPP
-
+#pragma once
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -12,7 +10,7 @@
 #include <functional>
 #include <iterator>
 
-namespace wang
+namespace atomic_concurrent
 {
     /**
      * @brief 无锁线程安全的环形队列
@@ -29,33 +27,36 @@ namespace wang
      * - 使用蛇形命名法
      * 
      * @tparam T 元素类型
+     * @tparam Allocator 分配器类型
      */
-    template<typename T>
+    template<typename T, typename Allocator = std::allocator<T>>
     class atomic_annular_queue
     {
     public:
-        // 类型别名
+        // 标准库类型别名
         using value_type = T;
+        using allocator_type = Allocator;
         using size_type = std::size_t;
         using difference_type = std::ptrdiff_t;
         using reference = T&;
         using const_reference = const T&;
-        using pointer = T*;
-        using const_pointer = const T*;
+        using pointer = typename std::allocator_traits<Allocator>::pointer;
+        using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
         
     private:
         // 槽位结构
-        struct slot
+        struct queue_slot
         {
-            std::atomic<T> data;
+            alignas(T) std::atomic<T> data;
             std::atomic<size_type> sequence;
             
-            slot() : sequence(0) {}
+            queue_slot() : sequence(0) {}
         };
         
-        std::unique_ptr<slot[]> _buffer;
+        std::unique_ptr<queue_slot[]> _buffer;
         size_type _capacity;
         size_type _mask; // capacity - 1，用于快速取模
+        allocator_type _allocator;
         
         alignas(64) std::atomic<size_type> _enqueue_pos;
         alignas(64) std::atomic<size_type> _dequeue_pos;
@@ -65,7 +66,7 @@ namespace wang
         /**
          * @brief 检查容量是否为2的幂
          */
-        static bool is_power_of_two(size_type n)
+        static bool is_power_of_two(size_type n) noexcept
         {
             return n > 0 && (n & (n - 1)) == 0;
         }
@@ -73,7 +74,7 @@ namespace wang
         /**
          * @brief 将数字向上舍入到最近的2的幂
          */
-        static size_type next_power_of_two(size_type n)
+        static size_type next_power_of_two(size_type n) noexcept
         {
             if (n <= 1) return 2;
             
@@ -92,9 +93,11 @@ namespace wang
          * @brief 构造函数
          * 
          * @param capacity 队列容量（会自动调整为2的幂）
+         * @param alloc 分配器
          * @throws std::invalid_argument 如果容量为0
          */
-        explicit atomic_annular_queue(size_type capacity)
+        explicit atomic_annular_queue(size_type capacity, const allocator_type& alloc = allocator_type())
+            : _allocator(alloc)
         {
             if (capacity == 0)
             {
@@ -109,7 +112,7 @@ namespace wang
             
             _capacity = capacity;
             _mask = capacity - 1;
-            _buffer = std::make_unique<slot[]>(capacity);
+            _buffer = std::make_unique<queue_slot[]>(capacity);
             
             // 初始化序列号
             for (size_type i = 0; i < capacity; ++i)
@@ -134,6 +137,7 @@ namespace wang
             : _buffer(std::move(other._buffer))
             , _capacity(other._capacity)
             , _mask(other._mask)
+            , _allocator(std::move(other._allocator))
             , _enqueue_pos(other._enqueue_pos.load(std::memory_order_acquire))
             , _dequeue_pos(other._dequeue_pos.load(std::memory_order_acquire))
         {
@@ -154,8 +158,9 @@ namespace wang
                 _buffer = std::move(other._buffer);
                 _capacity = other._capacity;
                 _mask = other._mask;
-                _enqueue_pos.store(other._enqueue_pos.load(std::memory_order_acquire), std::memory_order_release);
-                _dequeue_pos.store(other._dequeue_pos.load(std::memory_order_acquire), std::memory_order_release);
+                _allocator = std::move(other._allocator);
+                _enqueue_pos.store(other._enqueue_pos.load(std::memory_order_acquire), std::memory_order_relaxed);
+                _dequeue_pos.store(other._dequeue_pos.load(std::memory_order_acquire), std::memory_order_relaxed);
                 
                 other._capacity = 0;
                 other._mask = 0;
@@ -163,8 +168,22 @@ namespace wang
             return *this;
         }
         
-        // 析构函数
+        /**
+         * @brief 析构函数
+         */
         ~atomic_annular_queue() = default;
+        
+        // 分配器
+        
+        /**
+         * @brief 获取分配器
+         * 
+         * @return allocator_type 分配器副本
+         */
+        allocator_type get_allocator() const noexcept
+        {
+            return _allocator;
+        }
         
         // 容量
         
@@ -175,27 +194,21 @@ namespace wang
          */
         bool empty() const noexcept
         {
-            return _enqueue_pos.load(std::memory_order_acquire) == _dequeue_pos.load(std::memory_order_acquire);
+            size_type enqueue_pos = _enqueue_pos.load(std::memory_order_acquire);
+            size_type dequeue_pos = _dequeue_pos.load(std::memory_order_acquire);
+            return enqueue_pos == dequeue_pos;
         }
         
         /**
          * @brief 获取队列当前大小（近似值）
          * 
-         * @return size_type 当前元素数量
+         * @return size_type 队列大小
          */
         size_type size() const noexcept
         {
             size_type enqueue_pos = _enqueue_pos.load(std::memory_order_acquire);
             size_type dequeue_pos = _dequeue_pos.load(std::memory_order_acquire);
-            
-            if (enqueue_pos >= dequeue_pos)
-            {
-                return enqueue_pos - dequeue_pos;
-            }
-            else
-            {
-                return _capacity - (dequeue_pos - enqueue_pos);
-            }
+            return enqueue_pos - dequeue_pos;
         }
         
         /**
@@ -218,16 +231,6 @@ namespace wang
             return _capacity;
         }
         
-        /**
-         * @brief 检查队列是否已满
-         * 
-         * @return bool 如果队列已满则返回true
-         */
-        bool full() const noexcept
-        {
-            return size() >= _capacity;
-        }
-        
         // 元素访问
         
         /**
@@ -239,7 +242,7 @@ namespace wang
         bool front(T& item) const
         {
             size_type pos = _dequeue_pos.load(std::memory_order_acquire);
-            slot* slot_ptr = &_buffer[pos & _mask];
+            queue_slot* slot_ptr = &_buffer[pos & _mask];
             size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
             
             if (seq == pos + 1)
@@ -263,7 +266,7 @@ namespace wang
             if (enqueue_pos == 0) return false;
             
             size_type pos = enqueue_pos - 1;
-            slot* slot_ptr = &_buffer[pos & _mask];
+            queue_slot* slot_ptr = &_buffer[pos & _mask];
             size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
             
             if (seq == pos + 1)
@@ -288,7 +291,7 @@ namespace wang
             for (size_type retry = 0; retry < MAX_RETRY_COUNT; ++retry)
             {
                 size_type pos = _enqueue_pos.load(std::memory_order_relaxed);
-                slot* slot_ptr = &_buffer[pos & _mask];
+                queue_slot* slot_ptr = &_buffer[pos & _mask];
                 size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
                 
                 intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
@@ -326,7 +329,7 @@ namespace wang
             for (size_type retry = 0; retry < MAX_RETRY_COUNT; ++retry)
             {
                 size_type pos = _enqueue_pos.load(std::memory_order_relaxed);
-                slot* slot_ptr = &_buffer[pos & _mask];
+                queue_slot* slot_ptr = &_buffer[pos & _mask];
                 size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
                 
                 intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
@@ -413,7 +416,7 @@ namespace wang
             for (size_type retry = 0; retry < MAX_RETRY_COUNT; ++retry)
             {
                 size_type pos = _dequeue_pos.load(std::memory_order_relaxed);
-                slot* slot_ptr = &_buffer[pos & _mask];
+                queue_slot* slot_ptr = &_buffer[pos & _mask];
                 size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
                 
                 intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
@@ -477,6 +480,7 @@ namespace wang
                 std::swap(_buffer, other._buffer);
                 std::swap(_capacity, other._capacity);
                 std::swap(_mask, other._mask);
+                std::swap(_allocator, other._allocator);
                 
                 size_type this_enqueue = _enqueue_pos.load(std::memory_order_acquire);
                 size_type this_dequeue = _dequeue_pos.load(std::memory_order_acquire);
@@ -570,148 +574,24 @@ namespace wang
             return true;
         }
         
-        // 批量操作
+        // 实用工具
         
         /**
-         * @brief 批量入队操作
+         * @brief 获取队列快照（用于调试）
          * 
-         * @tparam InputIt 输入迭代器类型
-         * @param first 起始迭代器
-         * @param last 结束迭代器
-         */
-        template<typename InputIt>
-        void push_range(InputIt first, InputIt last)
-        {
-            for (; first != last; ++first)
-            {
-                push(*first);
-            }
-        }
-        
-        /**
-         * @brief 批量出队操作
-         * 
-         * @tparam OutputIt 输出迭代器类型
-         * @param first 输出迭代器
-         * @param n 出队元素数量
-         */
-        template<typename OutputIt>
-        void pop_range(OutputIt first, size_type n)
-        {
-            for (size_type i = 0; i < n; ++i)
-            {
-                T item;
-                pop(item);
-                *first++ = std::move(item);
-            }
-        }
-        
-        // 查找和算法
-        
-        /**
-         * @brief 检查队列是否包含指定元素
-         * 
-         * @param value 要查找的元素
-         * @return bool 包含返回true，否则返回false
-         */
-        bool contains(const T& value) const
-        {
-            size_type dequeue_pos = _dequeue_pos.load(std::memory_order_acquire);
-            size_type enqueue_pos = _enqueue_pos.load(std::memory_order_acquire);
-            
-            for (size_type pos = dequeue_pos; pos < enqueue_pos; ++pos)
-            {
-                slot* slot_ptr = &_buffer[pos & _mask];
-                size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
-                
-                if (seq == pos + 1 && slot_ptr->data.load(std::memory_order_acquire) == value)
-                {
-                    return true;
-                }
-            }
-            
-            return false;
-        }
-        
-        /**
-         * @brief 统计指定元素的数量
-         * 
-         * @param value 要统计的元素
-         * @return size_type 元素数量
-         */
-        size_type count(const T& value) const
-        {
-            size_type count = 0;
-            size_type dequeue_pos = _dequeue_pos.load(std::memory_order_acquire);
-            size_type enqueue_pos = _enqueue_pos.load(std::memory_order_acquire);
-            
-            for (size_type pos = dequeue_pos; pos < enqueue_pos; ++pos)
-            {
-                slot* slot_ptr = &_buffer[pos & _mask];
-                size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
-                
-                if (seq == pos + 1 && slot_ptr->data.load(std::memory_order_acquire) == value)
-                {
-                    ++count;
-                }
-            }
-            
-            return count;
-        }
-        
-        /**
-         * @brief 查找第一个匹配的元素
-         * 
-         * @tparam Predicate 谓词类型
-         * @param pred 谓词函数
-         * @param item 接收找到元素的引用
-         * @return bool 找到返回true，否则返回false
-         */
-        template<typename Predicate>
-        bool find_if(Predicate pred, T& item) const
-        {
-            size_type dequeue_pos = _dequeue_pos.load(std::memory_order_acquire);
-            size_type enqueue_pos = _enqueue_pos.load(std::memory_order_acquire);
-            
-            for (size_type pos = dequeue_pos; pos < enqueue_pos; ++pos)
-            {
-                slot* slot_ptr = &_buffer[pos & _mask];
-                size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
-                
-                if (seq == pos + 1)
-                {
-                    T current = slot_ptr->data.load(std::memory_order_acquire);
-                    if (pred(current))
-                    {
-                        item = current;
-                        return true;
-                    }
-                }
-            }
-            
-            return false;
-        }
-        
-        // 快照和遍历
-        
-        /**
-         * @brief 获取队列快照
-         * 
-         * @return std::vector<T> 当前所有元素的副本
+         * @return std::vector<T> 队列内容的快照
          */
         std::vector<T> snapshot() const
         {
             std::vector<T> result;
-            
             size_type dequeue_pos = _dequeue_pos.load(std::memory_order_acquire);
             size_type enqueue_pos = _enqueue_pos.load(std::memory_order_acquire);
             
             for (size_type pos = dequeue_pos; pos < enqueue_pos; ++pos)
             {
-                slot* slot_ptr = &_buffer[pos & _mask];
+                queue_slot* slot_ptr = &_buffer[pos & _mask];
                 size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
                 
-                // 检查槽位是否有效
                 if (seq == pos + 1)
                 {
                     result.push_back(slot_ptr->data.load(std::memory_order_acquire));
@@ -722,10 +602,10 @@ namespace wang
         }
         
         /**
-         * @brief 对每个元素执行函数
+         * @brief 对队列中的每个元素执行函数
          * 
          * @tparam Func 函数类型
-         * @param func 要执行的函数
+         * @param func 要执行的函数，接受 value 参数
          */
         template<typename Func>
         void for_each(Func&& func) const
@@ -735,7 +615,7 @@ namespace wang
             
             for (size_type pos = dequeue_pos; pos < enqueue_pos; ++pos)
             {
-                slot* slot_ptr = &_buffer[pos & _mask];
+                queue_slot* slot_ptr = &_buffer[pos & _mask];
                 size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
                 
                 if (seq == pos + 1)
@@ -746,7 +626,7 @@ namespace wang
         }
         
         /**
-         * @brief 对每个元素及其索引执行函数
+         * @brief 对队列中的每个元素执行带索引的函数
          * 
          * @tparam Func 函数类型
          * @param func 要执行的函数，接受 (index, value) 参数
@@ -760,7 +640,7 @@ namespace wang
             
             for (size_type pos = dequeue_pos; pos < enqueue_pos; ++pos)
             {
-                slot* slot_ptr = &_buffer[pos & _mask];
+                queue_slot* slot_ptr = &_buffer[pos & _mask];
                 size_type seq = slot_ptr->sequence.load(std::memory_order_acquire);
                 
                 if (seq == pos + 1)
@@ -777,11 +657,12 @@ namespace wang
      * @brief 交换两个 atomic_annular_queue
      * 
      * @tparam T 元素类型
+     * @tparam Allocator 分配器类型
      * @param lhs 第一个队列
      * @param rhs 第二个队列
      */
-    template<typename T>
-    void swap(atomic_annular_queue<T>& lhs, atomic_annular_queue<T>& rhs) noexcept
+    template<typename T, typename Allocator>
+    void swap(atomic_annular_queue<T, Allocator>& lhs, atomic_annular_queue<T, Allocator>& rhs) noexcept
     {
         lhs.swap(rhs);
     }
@@ -790,12 +671,13 @@ namespace wang
      * @brief 比较两个 atomic_annular_queue 是否相等
      * 
      * @tparam T 元素类型
+     * @tparam Allocator 分配器类型
      * @param lhs 第一个队列
      * @param rhs 第二个队列
      * @return bool 如果相等则返回true
      */
-    template<typename T>
-    bool operator==(const atomic_annular_queue<T>& lhs, const atomic_annular_queue<T>& rhs)
+    template<typename T, typename Allocator>
+    bool operator==(const atomic_annular_queue<T, Allocator>& lhs, const atomic_annular_queue<T, Allocator>& rhs)
     {
         if (lhs.size() != rhs.size())
         {
@@ -812,16 +694,15 @@ namespace wang
      * @brief 比较两个 atomic_annular_queue 是否不相等
      * 
      * @tparam T 元素类型
+     * @tparam Allocator 分配器类型
      * @param lhs 第一个队列
      * @param rhs 第二个队列
      * @return bool 如果不相等则返回true
      */
-    template<typename T>
-    bool operator!=(const atomic_annular_queue<T>& lhs, const atomic_annular_queue<T>& rhs)
+    template<typename T, typename Allocator>
+    bool operator!=(const atomic_annular_queue<T, Allocator>& lhs, const atomic_annular_queue<T, Allocator>& rhs)
     {
         return !(lhs == rhs);
     }
     
-} // namespace wang
-
-#endif // ATOMIC_ANNULAR_QUEUE_HPP
+} // namespace atomic_concurrent

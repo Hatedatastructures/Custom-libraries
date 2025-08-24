@@ -23,6 +23,7 @@
 #include <functional>
 #include <chrono>
 #include <thread>
+#include <mutex>
 
 namespace atomic_concurrent
 {
@@ -50,96 +51,48 @@ namespace atomic_concurrent
     // 队列节点结构
     struct queue_node
     {
-      std::atomic<value_type *> data;
+      value_type data;
       std::atomic<queue_node *> next;
-      std::atomic<bool> is_valid;
-
-      queue_node() : data(nullptr), next(nullptr), is_valid(true) {}
-
-      ~queue_node()
-      {
-        value_type *ptr = data.load();
-        if (ptr)
-        {
-          allocator_type alloc;
-          std::allocator_traits<allocator_type>::destroy(alloc, ptr);
-          std::allocator_traits<allocator_type>::deallocate(alloc, ptr, 1);
-        }
-      }
+      
+      queue_node() : next(nullptr) {}
+      explicit queue_node(const value_type &val) : data(val), next(nullptr) {}
+      explicit queue_node(value_type &&val) : data(std::move(val)), next(nullptr) {}
+      
+      template <typename... args_t>
+      explicit queue_node(args_t &&...args) : data(std::forward<args_t>(args)...), next(nullptr) {}
     };
 
     std::atomic<queue_node *> _head;
     std::atomic<queue_node *> _tail;
     std::atomic<size_t> _size;
     allocator_type _allocator;
-
-    // 内部辅助函数
-    queue_node *create_dummy_node()
-    {
-      return new queue_node();
-    }
-
-    queue_node *create_data_node(const value_type &value_data)
-    {
-      queue_node *node = new queue_node();
-      value_type *data = std::allocator_traits<allocator_type>::allocate(_allocator, 1);
-      std::allocator_traits<allocator_type>::construct(_allocator, data, value_data);
-      node->data.store(data);
-      return node;
-    }
-
-    queue_node *create_data_node(value_type &&value_data)
-    {
-      queue_node *node = new queue_node();
-      value_type *data = std::allocator_traits<allocator_type>::allocate(_allocator, 1);
-      std::allocator_traits<allocator_type>::construct(_allocator, data, std::move(value_data));
-      node->data.store(data);
-      return node;
-    }
-
-    template <typename... args_t>
-    queue_node *create_emplace_node(args_t &&...args)
-    {
-      queue_node *node = new queue_node();
-      value_type *data = std::allocator_traits<allocator_type>::allocate(_allocator, 1);
-      std::allocator_traits<allocator_type>::construct(_allocator, data, std::forward<args_t>(args)...);
-      node->data.store(data);
-      return node;
-    }
-
-    void cleanup_nodes()
-    {
-      queue_node *current = _head.load();
-      while (current)
-      {
-        queue_node *next = current->next.load();
-        delete current;
-        current = next;
-      }
-    }
+    mutable std::mutex _head_mutex;
+    mutable std::mutex _tail_mutex;
 
   public:
-    /** @brief 默认构造空队列 */
+    /**
+     * @brief 默认构造函数
+     */
     atomic_queue() : _size(0), _allocator()
     {
-      queue_node *dummy = create_dummy_node();
-      _head.store(dummy);
-      _tail.store(dummy);
+      queue_node *dummy = new queue_node();
+      _head.store(dummy, std::memory_order_relaxed);
+      _tail.store(dummy, std::memory_order_relaxed);
     }
 
     /**
-     * @brief 初始化列表构造
-     * @param init 形如 {1, 2, 3} 的列表
+     * @brief 初始化列表构造函数
+     * @param init 初始化列表
      * @param alloc 分配器
      */
     atomic_queue(std::initializer_list<value_type> init,
                  const allocator_type &alloc = allocator_type())
         : _size(0), _allocator(alloc)
     {
-      queue_node *dummy = create_dummy_node();
-      _head.store(dummy);
-      _tail.store(dummy);
-
+      queue_node *dummy = new queue_node();
+      _head.store(dummy, std::memory_order_relaxed);
+      _tail.store(dummy, std::memory_order_relaxed);
+      
       for (const auto &item : init)
       {
         push(item);
@@ -147,10 +100,10 @@ namespace atomic_concurrent
     }
 
     /**
-     * @brief 范围构造
-     * @tparam input_iterator_t 输入迭代器
-     * @param first 起始
-     * @param last  终止（不含）
+     * @brief 迭代器范围构造函数
+     * @tparam input_iterator_t 输入迭代器类型
+     * @param first 起始迭代器
+     * @param last 结束迭代器
      * @param alloc 分配器
      */
     template <typename input_iterator_t>
@@ -158,55 +111,65 @@ namespace atomic_concurrent
                  const allocator_type &alloc = allocator_type())
         : _size(0), _allocator(alloc)
     {
-      queue_node *dummy = create_dummy_node();
-      _head.store(dummy);
-      _tail.store(dummy);
-
+      queue_node *dummy = new queue_node();
+      _head.store(dummy, std::memory_order_relaxed);
+      _tail.store(dummy, std::memory_order_relaxed);
+      
       for (auto it = first; it != last; ++it)
       {
         push(*it);
       }
     }
 
-    /** @brief 拷贝构造（线程安全） */
+    /**
+     * @brief 拷贝构造函数
+     * @param other 其他队列
+     */
     atomic_queue(const atomic_queue &other)
         : _size(0), _allocator(other._allocator)
     {
-      queue_node *dummy = create_dummy_node();
-      _head.store(dummy);
-      _tail.store(dummy);
-
-      // 获取快照并逐个添加
-      auto snapshot_data = other.snapshot();
-      for (const auto &item : snapshot_data)
+      queue_node *dummy = new queue_node();
+      _head.store(dummy, std::memory_order_relaxed);
+      _tail.store(dummy, std::memory_order_relaxed);
+      
+      // 拷贝所有元素
+      std::vector<value_type> snapshot = other.snapshot();
+      for (const auto &item : snapshot)
       {
         push(item);
       }
     }
 
-    /** @brief 移动构造 */
+    /**
+     * @brief 移动构造函数
+     * @param other 其他队列
+     */
     atomic_queue(atomic_queue &&other) noexcept
-        : _head(other._head.exchange(nullptr)),
-          _tail(other._tail.exchange(nullptr)),
-          _size(other._size.exchange(0)),
+        : _head(other._head.exchange(nullptr, std::memory_order_acq_rel)),
+          _tail(other._tail.exchange(nullptr, std::memory_order_acq_rel)),
+          _size(other._size.exchange(0, std::memory_order_acq_rel)),
           _allocator(std::move(other._allocator))
     {
-      // 为 other 创建新的空队列
-      queue_node *dummy = create_dummy_node();
-      other._head.store(dummy);
-      other._tail.store(dummy);
+      // 为other创建新的dummy节点
+      queue_node *dummy = new queue_node();
+      other._head.store(dummy, std::memory_order_relaxed);
+      other._tail.store(dummy, std::memory_order_relaxed);
     }
 
-    /** @brief 拷贝赋值（线程安全） */
+    /**
+     * @brief 拷贝赋值运算符
+     * @param other 其他队列
+     * @return 当前队列引用
+     */
     atomic_queue &operator=(const atomic_queue &other)
     {
       if (this != &other)
       {
         clear();
         _allocator = other._allocator;
-
-        auto snapshot_data = other.snapshot();
-        for (const auto &item : snapshot_data)
+        
+        std::vector<value_type> snapshot = other.snapshot();
+        for (const auto &item : snapshot)
         {
           push(item);
         }
@@ -214,95 +177,109 @@ namespace atomic_concurrent
       return *this;
     }
 
-    /** @brief 移动赋值 */
+    /**
+     * @brief 移动赋值运算符
+     * @param other 其他队列
+     * @return 当前队列引用
+     */
     atomic_queue &operator=(atomic_queue &&other) noexcept
     {
       if (this != &other)
       {
-        cleanup_nodes();
-
-        _head.store(other._head.exchange(nullptr));
-        _tail.store(other._tail.exchange(nullptr));
-        _size.store(other._size.exchange(0));
+        clear();
+        
+        _head.store(other._head.exchange(nullptr, std::memory_order_acq_rel), std::memory_order_relaxed);
+        _tail.store(other._tail.exchange(nullptr, std::memory_order_acq_rel), std::memory_order_relaxed);
+        _size.store(other._size.exchange(0, std::memory_order_acq_rel), std::memory_order_relaxed);
         _allocator = std::move(other._allocator);
-
-        // 为 other 创建新的空队列
-        queue_node *dummy = create_dummy_node();
-        other._head.store(dummy);
-        other._tail.store(dummy);
+        
+        // 为other创建新的dummy节点
+        queue_node *dummy = new queue_node();
+        other._head.store(dummy, std::memory_order_relaxed);
+        other._tail.store(dummy, std::memory_order_relaxed);
       }
       return *this;
     }
 
-    /** @brief 析构函数 */
+    /**
+     * @brief 析构函数
+     */
     ~atomic_queue()
     {
-      cleanup_nodes();
+      clear();
+      delete _head.load();
     }
-
-    // 容量相关
-
-    /** @brief 当前元素数量 */
-    size_t size() const noexcept
-    {
-      return _size.load();
-    }
-
-    /** @brief 是否为空 */
-    bool empty() const noexcept
-    {
-      return _size.load() == 0;
-    }
-
-    /** @brief 最大元素数（理论值） */
-    size_t max_size() const noexcept
-    {
-      return std::allocator_traits<allocator_type>::max_size(_allocator);
-    }
-
-    // 元素访问
 
     /**
-     * @brief 获取队首元素（不移除）
-     * @param out 输出参数，接收元素值
+     * @brief 获取队列大小
+     * @return 队列中元素个数
+     */
+    size_t size() const noexcept
+    {
+      return _size.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief 检查队列是否为空
+     * @return true 为空；false 非空
+     */
+    bool empty() const noexcept
+    {
+      return _size.load(std::memory_order_relaxed) == 0;
+    }
+
+    /**
+     * @brief 获取队列最大容量
+     * @return 最大容量
+     */
+    size_t max_size() const noexcept
+    {
+      return std::numeric_limits<size_t>::max();
+    }
+
+    /**
+     * @brief 获取队首元素（非阻塞）
+     * @param out 接收队首元素的引用
      * @return true 成功；false 队列为空
      */
     bool front(value_type &out) const
     {
-      queue_node *head = _head.load();
-      queue_node *first = head->next.load();
-
-      if (!first)
-        return false;
-
-      value_type *data = first->data.load();
-      if (data)
+      queue_node *head = _head.load(std::memory_order_acquire);
+      queue_node *next = head->next.load(std::memory_order_acquire);
+      
+      if (next == nullptr)
       {
-        out = *data;
-        return true;
+        return false; // 队列为空
       }
-      return false;
+      
+      out = next->data;
+      return true;
     }
 
     /**
-     * @brief 获取队尾元素（不移除）
-     * @param out 输出参数，接收元素值
+     * @brief 获取队尾元素（非阻塞）
+     * @param out 接收队尾元素的引用
      * @return true 成功；false 队列为空
      */
     bool back(value_type &out) const
     {
-      queue_node *tail = _tail.load();
-      value_type *data = tail->data.load();
-
-      if (data)
+      if (empty())
       {
-        out = *data;
-        return true;
+        return false;
       }
-      return false;
+      
+      // 简单实现：遍历到最后一个元素
+      queue_node *current = _head.load(std::memory_order_acquire)->next.load(std::memory_order_acquire);
+      if (!current) return false;
+      
+      while (current->next.load(std::memory_order_acquire) != nullptr)
+      {
+        current = current->next.load(std::memory_order_acquire);
+      }
+      
+      out = current->data;
+      return true;
     }
-
-    // 修改操作
 
     /**
      * @brief 入队（拷贝）
@@ -310,10 +287,12 @@ namespace atomic_concurrent
      */
     void push(const value_type &value_data)
     {
-      queue_node *new_node = create_data_node(value_data);
-      queue_node *prev_tail = _tail.exchange(new_node);
-      prev_tail->next.store(new_node);
-      _size.fetch_add(1);
+      queue_node *new_node = new queue_node(value_data);
+      std::lock_guard<std::mutex> lock(_tail_mutex);
+      queue_node *prev_tail = _tail.load(std::memory_order_relaxed);
+      prev_tail->next.store(new_node, std::memory_order_release);
+      _tail.store(new_node, std::memory_order_relaxed);
+      _size.fetch_add(1, std::memory_order_relaxed);
     }
 
     /**
@@ -322,71 +301,71 @@ namespace atomic_concurrent
      */
     void push(value_type &&value_data)
     {
-      queue_node *new_node = create_data_node(std::move(value_data));
-      queue_node *prev_tail = _tail.exchange(new_node);
-      prev_tail->next.store(new_node);
-      _size.fetch_add(1);
+      queue_node *new_node = new queue_node(std::move(value_data));
+      std::lock_guard<std::mutex> lock(_tail_mutex);
+      queue_node *prev_tail = _tail.load(std::memory_order_relaxed);
+      prev_tail->next.store(new_node, std::memory_order_release);
+      _tail.store(new_node, std::memory_order_relaxed);
+      _size.fetch_add(1, std::memory_order_relaxed);
     }
 
     /**
-     * @brief 就地构造入队
+     * @brief 原地构造入队
+     * @tparam args_t 构造参数类型
      * @param args 构造参数
      */
     template <typename... args_t>
     void emplace(args_t &&...args)
     {
-      queue_node *new_node = create_emplace_node(std::forward<args_t>(args)...);
-      queue_node *prev_tail = _tail.exchange(new_node);
-      prev_tail->next.store(new_node);
-      _size.fetch_add(1);
+      queue_node *new_node = new queue_node(std::forward<args_t>(args)...);
+      std::lock_guard<std::mutex> lock(_tail_mutex);
+      queue_node *prev_tail = _tail.load(std::memory_order_relaxed);
+      prev_tail->next.store(new_node, std::memory_order_release);
+      _tail.store(new_node, std::memory_order_relaxed);
+      _size.fetch_add(1, std::memory_order_relaxed);
     }
 
     /**
-     * @brief 出队（阻塞等待）
+     * @brief 阻塞出队
      * @param out 接收出队元素的引用
-     * @return true 成功；false 失败（理论上不会发生）
+     * @return true 成功；false 失败
      */
     bool pop(value_type &out)
     {
       while (true)
       {
         if (try_pop(out))
+        {
           return true;
-
-        // 短暂等待后重试
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+        std::this_thread::yield();
       }
     }
 
     /**
-     * @brief 尝试出队（非阻塞）
+     * @brief 非阻塞出队
      * @param out 接收出队元素的引用
      * @return true 成功；false 队列为空
      */
     bool try_pop(value_type &out)
     {
-      queue_node *head = _head.load();
-      queue_node *first = head->next.load();
-
-      if (!first)
-        return false;
-
-      value_type *data = first->data.load();
-      if (!data)
-        return false;
-
-      out = std::move(*data);
-
-      // 更新头节点
-      if (_head.compare_exchange_weak(head, first))
+      std::lock_guard<std::mutex> lock(_head_mutex);
+      queue_node *head = _head.load(std::memory_order_relaxed);
+      queue_node *next = head->next.load(std::memory_order_acquire);
+      
+      if (next == nullptr)
       {
-        first->data.store(nullptr); // 清空数据指针
-        _size.fetch_sub(1);
-        delete head; // 删除旧头节点
-        return true;
+        // 队列为空
+        return false;
       }
-
-      return false;
+      
+      out = std::move(next->data);
+      _head.store(next, std::memory_order_relaxed);
+      _size.fetch_sub(1, std::memory_order_relaxed);
+      
+      // 安全删除旧head节点
+      delete head;
+      return true;
     }
 
     /**
@@ -397,37 +376,37 @@ namespace atomic_concurrent
      */
     bool pop_for(value_type &out, size_t timeout_ms)
     {
-      auto start_time = std::chrono::steady_clock::now();
-      auto timeout_duration = std::chrono::milliseconds(timeout_ms);
-
-      while (true)
+      auto start = std::chrono::steady_clock::now();
+      auto timeout = std::chrono::milliseconds(timeout_ms);
+      
+      while (std::chrono::steady_clock::now() - start < timeout)
       {
         if (try_pop(out))
+        {
           return true;
-
-        auto current_time = std::chrono::steady_clock::now();
-        if (current_time - start_time >= timeout_duration)
-          return false;
-
+        }
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
+      return false;
     }
 
     /**
      * @brief 批量入队
-     * @param values 待入队元素的容器
+     * @tparam container_t 容器类型
+     * @param values 待入队的值容器
      */
     template <typename container_t>
     void push_range(const container_t &values)
     {
-      for (const auto &value_data : values)
+      for (const auto &value : values)
       {
-        push(value_data);
+        push(value);
       }
     }
 
     /**
      * @brief 批量出队
+     * @tparam container_t 容器类型
      * @param out 接收出队元素的容器
      * @param max_count 最大出队数量
      * @return 实际出队数量
@@ -437,13 +416,13 @@ namespace atomic_concurrent
     {
       size_t count = 0;
       value_type temp;
-
+      
       while (count < max_count && try_pop(temp))
       {
         out.push_back(std::move(temp));
         ++count;
       }
-
+      
       return count;
     }
 
@@ -452,137 +431,128 @@ namespace atomic_concurrent
      */
     void clear()
     {
-      value_type dummy;
-      while (try_pop(dummy))
+      value_type temp;
+      while (try_pop(temp))
       {
-        // 继续出队直到为空
+        // 继续出队直到队列为空
       }
     }
 
     /**
-     * @brief 与另一无锁队列交换内容
-     * @param other 另一个实例
+     * @brief 交换两个队列
+     * @param other 其他队列
      */
     void swap(atomic_queue &other) noexcept
     {
-      if (this == &other)
-        return;
-
-      queue_node *this_head = _head.exchange(other._head.load());
-      queue_node *this_tail = _tail.exchange(other._tail.load());
-      size_t this_size = _size.exchange(other._size.load());
-
-      other._head.store(this_head);
-      other._tail.store(this_tail);
-      other._size.store(this_size);
-
-      std::swap(_allocator, other._allocator);
+      if (this != &other)
+      {
+        queue_node *temp_head = _head.exchange(other._head.exchange(_head.load(std::memory_order_relaxed), std::memory_order_acq_rel), std::memory_order_acq_rel);
+        queue_node *temp_tail = _tail.exchange(other._tail.exchange(_tail.load(std::memory_order_relaxed), std::memory_order_acq_rel), std::memory_order_acq_rel);
+        size_t temp_size = _size.exchange(other._size.exchange(_size.load(std::memory_order_relaxed), std::memory_order_acq_rel), std::memory_order_acq_rel);
+        
+        std::swap(_allocator, other._allocator);
+      }
     }
 
-    // 查找和算法
-
     /**
-     * @brief 判断元素是否存在
-     * @param value_data 待查找值
-     * @return true 存在；false 不存在
+     * @brief 检查队列是否包含指定元素
+     * @param value_data 待查找元素
+     * @return true 包含；false 不包含
      */
     bool contains(const value_type &value_data) const
     {
-      queue_node *current = _head.load()->next.load();
-
-      while (current)
+      queue_node *current = _head.load(std::memory_order_acquire)->next.load(std::memory_order_acquire);
+      
+      while (current != nullptr)
       {
-        value_type *data = current->data.load();
-        if (data && *data == value_data)
+        if (current->data == value_data)
+        {
           return true;
-        current = current->next.load();
+        }
+        current = current->next.load(std::memory_order_acquire);
       }
+      
       return false;
     }
 
     /**
-     * @brief 统计指定值的元素个数
-     * @param value_data 待统计值
-     * @return 元素个数
+     * @brief 统计指定元素的数量
+     * @param value_data 待统计元素
+     * @return 元素数量
      */
     size_t count(const value_type &value_data) const
     {
-      size_t result = 0;
-      queue_node *current = _head.load()->next.load();
-
-      while (current)
+      size_t count = 0;
+      queue_node *current = _head.load(std::memory_order_acquire)->next.load(std::memory_order_acquire);
+      
+      while (current != nullptr)
       {
-        value_type *data = current->data.load();
-        if (data && *data == value_data)
-          ++result;
-        current = current->next.load();
+        if (current->data == value_data)
+        {
+          ++count;
+        }
+        current = current->next.load(std::memory_order_acquire);
       }
-      return result;
+      
+      return count;
     }
 
     /**
-     * @brief 对每个元素执行函数
-     * @param func 函数对象
+     * @brief 对每个元素执行指定函数
+     * @tparam function_t 函数类型
+     * @param func 待执行函数
      */
     template <typename function_t>
     void for_each(function_t func) const
     {
-      queue_node *current = _head.load()->next.load();
-
-      while (current)
+      queue_node *current = _head.load(std::memory_order_acquire)->next.load(std::memory_order_acquire);
+      
+      while (current != nullptr)
       {
-        value_type *data = current->data.load();
-        if (data)
-          func(*data);
-        current = current->next.load();
+        func(current->data);
+        current = current->next.load(std::memory_order_acquire);
       }
     }
 
     /**
-     * @brief 获取当前队列的只读快照
-     * @return std::vector<value_type> 元素副本，按 FIFO 顺序
-     * @note 返回的是拷贝，外部可安全遍历
+     * @brief 获取队列快照
+     * @return 包含所有元素的vector
      */
     std::vector<value_type> snapshot() const
     {
       std::vector<value_type> result;
-      queue_node *current = _head.load()->next.load();
-
-      while (current)
+      queue_node *current = _head.load(std::memory_order_acquire)->next.load(std::memory_order_acquire);
+      
+      while (current != nullptr)
       {
-        value_type *data = current->data.load();
-        if (data)
-          result.push_back(*data);
-        current = current->next.load();
+        result.push_back(current->data);
+        current = current->next.load(std::memory_order_acquire);
       }
-
+      
       return result;
     }
 
-    // 比较操作
-
     /**
-     * @brief 相等比较
-     * @param other 另一个 atomic_queue
+     * @brief 相等比较运算符
+     * @param other 其他队列
      * @return true 相等；false 不相等
      */
     bool operator==(const atomic_queue &other) const
     {
-      if (this == &other)
-        return true;
-
-      if (_size.load() != other._size.load())
+      if (size() != other.size())
+      {
         return false;
-
-      auto this_snapshot = snapshot();
-      auto other_snapshot = other.snapshot();
-
+      }
+      
+      std::vector<value_type> this_snapshot = snapshot();
+      std::vector<value_type> other_snapshot = other.snapshot();
+      
       return this_snapshot == other_snapshot;
     }
 
     /**
-     * @brief 不等比较
-     * @param other 另一个 atomic_queue
+     * @brief 不等比较运算符
+     * @param other 其他队列
      * @return true 不相等；false 相等
      */
     bool operator!=(const atomic_queue &other) const
@@ -591,12 +561,12 @@ namespace atomic_concurrent
     }
   };
 
-  // 全局函数
-
   /**
-   * @brief 交换两个 atomic_queue
-   * @param lhs 第一个队列
-   * @param rhs 第二个队列
+   * @brief 交换两个队列（全局函数）
+   * @tparam value_type 元素类型
+   * @tparam allocator_type 分配器类型
+   * @param lhs 左操作数
+   * @param rhs 右操作数
    */
   template <typename value_type, typename allocator_type>
   void swap(atomic_queue<value_type, allocator_type> &lhs,
@@ -604,4 +574,5 @@ namespace atomic_concurrent
   {
     lhs.swap(rhs);
   }
-}
+
+} // namespace atomic_concurrent

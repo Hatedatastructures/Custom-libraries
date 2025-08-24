@@ -33,7 +33,11 @@ namespace multi_concurrent
 
   public:
     concurrent_queue() = default;
-    ~concurrent_queue() = default;
+    ~concurrent_queue() 
+    {
+      std::unique_lock<std::mutex> lock(_access_mutex);
+      _cv_empty.notify_all();
+    }
     concurrent_queue(const concurrent_queue &) = delete;
     concurrent_queue &operator=(const concurrent_queue &) = delete;
     concurrent_queue(concurrent_queue &&) = default;
@@ -125,6 +129,7 @@ namespace multi_concurrent
       std::unique_lock<std::mutex> lock(_access_mutex);
       while (!_queue.empty())
         _queue.pop();
+      _cv_empty.notify_all();
     }
     /**
      * @brief #### 获取当前队列快照
@@ -133,7 +138,14 @@ namespace multi_concurrent
     std::vector<value> snapshot() const
     {
       std::unique_lock<std::mutex> lock(_access_mutex);
-      return {_queue.begin(), _queue.end()};
+      std::vector<value> snapshot;
+      std::queue<value> temp_queue = _queue;
+      while (!temp_queue.empty())
+      {
+        snapshot.push_back(temp_queue.front());
+        temp_queue.pop();
+      }
+      return snapshot;
     }
   };
 }
