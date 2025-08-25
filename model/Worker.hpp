@@ -121,7 +121,6 @@ namespace _implemented_internally::_worker_structure
    */
   class worker_base
   {
-    using task_ptr = std::shared_ptr<_implemented_internally::task_structure::task_base>;
   protected:
     std::unique_ptr<std::jthread> worker_thread; ///< 线程对象
 
@@ -133,7 +132,7 @@ namespace _implemented_internally::_worker_structure
     worker_statistics statistics; ///< 统计信息
     std::shared_ptr<base_queue> task_queue; ///< 任务队列
 
-    std::function<void(const std::string&, task_ptr&)> start_callback; ///< 任务开始回调
+    std::function<void(const std::string&, task_ptr&)> start_callback;  ///< 任务开始回调
     std::function<void(const std::string&, task_ptr&)> finish_callback; ///< 任务完成回调
     std::function<void(const std::string&, const std::exception&)> abnormal_callback; ///< 任务异常回调 
   public:

@@ -1266,7 +1266,7 @@ namespace _implemented_internally
     }
   }
 }
-
+using task_ptr = std::shared_ptr<_implemented_internally::task_structure::task_base>;
 namespace pool
 {
   using _implemented_internally::task_structure::task_base;
