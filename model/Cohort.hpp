@@ -163,7 +163,7 @@ namespace _implemented_internally
        */
       bool push(_interior_task_ptr task) override
       {
-        if (task.get() != nullptr || _closed.load(std::memory_order_acquire))
+        if (task.get() == nullptr || _closed.load(std::memory_order_acquire))
         {
           return false;
         }
@@ -369,7 +369,7 @@ namespace _implemented_internally
        */
       bool push(_interior_task_ptr task) override
       {
-        if (!task || _closed.load(std::memory_order_acquire))
+        if (task.get() == nullptr || _closed.load(std::memory_order_acquire))
         {
           return false;
         }
@@ -586,7 +586,7 @@ namespace _implemented_internally
        */
       bool push(_interior_task_ptr task) override
       {
-        if (task.get() != nullptr || _closed.load(std::memory_order_acquire))
+        if (task.get() == nullptr || _closed.load(std::memory_order_acquire))
         {
           return false;
         }
@@ -811,7 +811,7 @@ namespace _implemented_internally
           }
 
           // 休眠一小段时间，避免过度占用CPU
-          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
       }
     };
@@ -901,7 +901,7 @@ namespace _implemented_internally
 
           if (_cohort_list.empty())
           {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
             continue;
           }
 
@@ -1135,7 +1135,7 @@ namespace _implemented_internally
      * @param max_size 最大队列大小
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_base> make_cohort_order(std::size_t max = 0)
+    inline std::unique_ptr<cohort_order> make_cohort_order(std::size_t max = 0)
     {
       return std::make_unique<cohort_order>(max);
     }
@@ -1144,7 +1144,7 @@ namespace _implemented_internally
      * @param max_size 最大队列大小
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_base> make_cohort_prior(std::size_t max_size = 0)
+    inline std::unique_ptr<cohort_prior> make_cohort_prior(std::size_t max_size = 0)
     {
       return std::make_unique<cohort_prior>(max_size);
     }
@@ -1153,7 +1153,7 @@ namespace _implemented_internally
      * @param max_size 最大队列大小
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_base> make_cohort_delay(std::size_t max_size = 0)
+    inline std::unique_ptr<cohort_delay> make_cohort_delay(std::size_t max_size = 0)
     {
       return std::make_unique<cohort_delay>(max_size);
     }
@@ -1162,7 +1162,7 @@ namespace _implemented_internally
      * @param policy 调度策略
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_base> make_cohort_multi(cohort_strategy policy = cohort_strategy::round_robin)
+    inline std::unique_ptr<cohort_multi> make_cohort_multi(cohort_strategy policy = cohort_strategy::round_robin)
     {
       return std::make_unique<cohort_multi>(policy);
     }

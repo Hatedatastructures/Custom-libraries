@@ -1,169 +1,252 @@
-#include "Structure.hpp"
-#include "Cohort.hpp"
-#include "Task.hpp"
 #include <iostream>
+#include <vector>
+#include <chrono>
+#include <thread>
+#include <atomic>
+#include <iomanip>
+#include <memory>
+#include <numeric>
+#include <algorithm>
+#include "Task.hpp"
+#include "Cohort.hpp"
+using namespace _implemented_internally::structure_cohort;
+using namespace _implemented_internally::structure_task;
 
-class thread_pool
-{
-  static constexpr uint64_t CACHE_ALIGNMENT = 64;
-  // void monitoring_thread_func(std::stop_token stop_tok)
-  // {
-  //   while (!stop_tok.stop_requested())
-  //   {
-  //     std::this_thread::sleep_for(_readjust);
-  //     uint64_t current_threads = _metrics._execute_threads.load() + _metrics._closure_threads.load();
-  //     uint64_t tasks_count = _tasks_priority_queue.size();
-  //     if (tasks_count > _metrics._execute_threads.load() * 2 && current_threads < _max_threads)
-  //     {
-  //       const uint64_t standard_number = (tasks_count + 1) / 2;
-  //       const uint64_t increase_threads = std::min(standard_number, _max_threads - current_threads);
-  //       expand_capacity(increase_threads);
-  //     }
-  //     else if (tasks_count < _metrics._execute_threads.load() && current_threads > _min_threads)
-  //     {
-  //       const uint64_t standard_number = current_threads - _min_threads;
-  //       const uint64_t decrease_threads = std::min(standard_number, _closure_threads.load());
-  //       auto  ls = std::thread::get_id();
-  //       shrink_capacity(decrease_threads);
-  //     }
-  //   }
-  // }
-  // void expand_capacity(uint64_t increase_threads)
-  // {
+// 命名空间补充（与任务系统保持一致）
+namespace task_system {
+    // 实际调度器应基于线程池实现，此处简化为模拟调度
+    class Scheduler {
+    private:
+        // 模拟线程池执行任务（实际应使用多线程）
+        static void execute_task(std::shared_ptr<task_base> task) {
+            if (!task) return;
 
-  // }
-  // void shrink_capacity(uint64_t decrease_threads)
-  // {
+            // 处理依赖任务：先执行所有依赖
+            if (auto dep_task = dynamic_cast<task_depn<int>*>(task.get())) {
+                auto deps = dep_task->get_pending_dependencies();
+                for (auto& dep : deps) {
+                    execute_task(dep); // 递归执行依赖
+                }
+                dep_task->wait_for_dependencies(std::chrono::seconds(5)); // 等待依赖完成
+            }
 
-  // }
+            // 标记任务运行并执行
+            if (task->mark_running()) {
+                try {
+                    task->execute();
+                } catch (const task_anomaly& e) {
+                    std::cerr << "任务执行异常 (ID: " << e.get_task_id() << "): " << e.what() << std::endl;
+                    task->mark_failed();
+                }
+            }
 
-  std::string _name; //线程池标识
-  static constexpr uint64_t _backup_threads = 5; // 初始化线程数
-  static constexpr uint64_t _backup_min_threads = 1;  // 最小线程数
-  static constexpr uint64_t _backup_max_threads = 32; // 最大线程数
+            // 处理协程任务：恢复执行
+            if (auto coro_task = dynamic_cast<task_coro<int>*>(task.get())) {
+                while (!coro_task->is_coroutine_done()) {
+                    coro_task->resume_coroutine(); // 主动恢复协程
+                    std::this_thread::yield();
+                }
+            }
+        }
 
-  static constexpr internal_time _backup_inactive  = internal_time(5);    // 线程休眠时间
-  static constexpr internal_time _backup_readjust  = internal_time(500);  // 调整频率
-  static constexpr internal_time _backup_overtime  = internal_time(20);   // 线程超时时间
+    public:
+        // 提交任务并等待完成（使用任务内置的wait方法，避免轮询）
+        template<typename TaskType>
+        static void submit_and_wait(std::vector<std::shared_ptr<TaskType>>& tasks) {
+            // 1. 提交所有任务到调度器（模拟线程池分配）
+            for (auto& task : tasks) {
+                std::thread(execute_task, task).detach(); // 实际应使用线程池，避免创建大量线程
+            }
 
-  mutable std::shared_mutex _exclusive_mutex;  // 回调函数锁
+            // 2. 等待所有任务完成（使用任务的wait方法，基于条件变量）
+            for (auto& task : tasks) {
+                if (!task->wait_for(std::chrono::seconds(10))) { // 10秒超时保护
+                    std::cerr << "任务超时未完成: " << task->get_task_name() << std::endl;
+                    task->mark_timeout();
+                }
+            }
+        }
+    };
 
-  uint64_t _max_threads;
-  uint64_t _min_threads;
+    // 性能测试工具类（保持不变）
+    class PerformanceTester {
+    public:
+        using TimePoint = std::chrono::steady_clock::time_point;
+        using Duration = std::chrono::duration<double, std::milli>;
 
-  internal_time _inactive;    
-  internal_time _readjust;  
-  internal_time _overtime;   
-  
-  std::condition_variable _condtion;  // 条件变量
+        static TimePoint start() { return std::chrono::steady_clock::now(); }
+        static double end(const TimePoint& start) {
+            return Duration(std::chrono::steady_clock::now() - start).count();
+        }
+        static void print_result(const std::string& test_name, size_t task_count, double total_time) {
+            const double throughput = task_count / (total_time / 1000.0);
+            const double avg_latency = total_time / task_count;
+            std::cout << "=== " << test_name << " 测试结果 ===" << std::endl;
+            std::cout << "任务总数: " << task_count << std::endl;
+            std::cout << "总耗时: " << std::fixed << std::setprecision(2) << total_time << " ms" << std::endl;
+            std::cout << "平均延迟: " << std::fixed << std::setprecision(4) << avg_latency << " ms" << std::endl;
+            std::cout << "吞吐量: " << std::fixed << std::setprecision(2) << throughput << " 任务/秒" << std::endl;
+            std::cout << "========================================\n" << std::endl;
+        }
+    };
 
-  std::atomic<uint64_t> _task_distributor{0}; // 任务分配器
-  std::atomic<uint64_t> _thread__distributor{0}; // 线程分配器
-
-  metrics _metrics; // 线程池指标
-
-  std::jthread _monitoring_thread; // 后台监控线程
-  
-  con::mco::concurrent_priority_queue<std::shared_ptr<task_wrapper>> _tasks_priority_queue; // 优先级任务队列
-
-  con::mco::concurrent_unordered_set<uint64_t> _running_tasks; // 正在运行的任务id映射表
-  con::mco::concurrent_unordered_set<uint64_t> _waiting_tasks; // 等待运行的任务id映射表
-
-  con::mco::concurrent_unordered_map<uint64_t,internal_thread_info> _thread_serial_number; // 线程映射表
-
-  alignas(CACHE_ALIGNMENT) con::mco::concurrent_vector<internal_thread_info> _workers_thread; // 线程池
-
-  std::function<void(const std::exception &)> _exception_callback; // 异常回调函数
-
-public:
-  // thread_pool(uint64_t threads = _backup_threads, uint64_t max_threads = _backup_max_threads, uint64_t min_threads = _backup_min_threads,
-  // internal_time inactive = _backup_inactive, internal_time readjust = _backup_readjust, internal_time overtime = _backup_overtime)
-  // :_max_threads(max_threads), _min_threads(min_threads), _inactive(inactive), _readjust(readjust), _overtime(overtime)
-  // _tasks_priority_queue(threads*3), _workers_thread(threads*2)
-  // {
-  //   initialize_metrics();
-  // }
-  /**
-   * @brief #### 包装任务函数
-   * @param function 任务函数
-   * @param priority_level 任务优先级
-   * @param parameter 任务参数
-   * @return 返回生成的任务和异步结果容器
-   */
-  template<class func_t, class... function_parameters>
-  auto make_task(func_t&& function, priolevel priority_level, function_parameters&&... parameter)
-  -> std::pair<std::shared_ptr<task_wrapper>,std::future<std::invoke_result_t<func_t,function_parameters...>>>
-  {
-    using return_t   = std::invoke_result_t<func_t,function_parameters...>;
-    using packaged_t = std::packaged_task<return_t()>;
-    //绑定任务参数
-    auto fun_t = std::bind(std::forward<func_t>(function), std::forward<function_parameters>(parameter)...);
-    //包装函数任务交由std::shared_ptr管理资源
-    std::shared_ptr<packaged_t> packaged(new packaged_t(std::move(fun_t)));
-    std::shared_ptr<task_wrapper> tmp_task(new task_wrapper);
-    //初始化内部任务信息组件
-    tmp_task->_unique_identification = _task_distributor.fetch_add(1);
-    tmp_task->_task_property         = priority_level;
-    tmp_task->_task_function_object  = [packaged](){(*packaged)();};
-
-    return {tmp_task,packaged->get_future()};
-  }
-  template <class func_t,class ...function_parameters>
-  auto submit(func_t && function, function_parameters &&... parameter)
-  -> std::future<std::invoke_result_t<func_t, function_parameters...>>
-  {
-    auto [task,future] = make_task(std::forward<func_t>(function),
-      priolevel::normal,std::forward<function_parameters>(parameter)...);
-    _tasks_priority_queue.push(task);
-    _condtion.notify_one();
-    return future;
-  }
-  template <class func_t,class ...function_parameters>
-  auto submit(func_t && function, priolevel priority_level, function_parameters &&... parameter)
-  -> std::future<std::invoke_result_t<func_t, function_parameters...>>
-  {
-    auto [task,future] = make_task(std::forward<func_t>(function),
-    priority_level,std::forward<function_parameters>(parameter)...);
-    _tasks_priority_queue.push(task);
-    _condtion.notify_one();
-    return future;
-  }
-  template <class input_iterator>
-  auto submit_batch(input_iterator first, input_iterator last,const std::vector<priolevel> &priority_levels)
-  -> std::vector<std::future<void>>
-  {
-    std::vector<std::future<void>> futures;
-    futures.reserve(std::distance(first,last));
-    size_t index = 0;
-    for(auto it = first;it != last;it++,index++)
-    {
-      futures.emplace_back(submit(*it,priority_levels[index]));
+    // 1. 普通任务测试（保持不变）
+    void test_normal_tasks(size_t task_count) {
+        std::vector<std::shared_ptr<task_norm>> tasks;
+        tasks.reserve(task_count);
+        for (size_t i = 0; i < task_count; ++i) {
+            tasks.emplace_back(std::make_shared<task_norm>(
+                []() { std::this_thread::sleep_for(std::chrono::nanoseconds(100)); },
+                "normal_task_" + std::to_string(i)
+            ));
+        }
+        auto start = PerformanceTester::start();
+        Scheduler::submit_and_wait(tasks);
+        PerformanceTester::print_result("普通任务", task_count, PerformanceTester::end(start));
     }
-    return futures;
-  }
-  // template <class func_t,class pri_t,class... rest>
-  // auto submit_batch(func_t && function, pri_t && priority_level, rest &&... parameter)
-  // -> std::vector<std::future<void>>
-  // {
-    
-  // }
-  // std::string get_thread_pool_name();
-  // metrics get_thread_pool_metrics();
-  // void set_exception_callback(const std::function<void(const std::exception &)> &callback);
-  // void set_thread_pool_name(const std::string &name);
-  // void set_thread_pool_inactive(internal_time inactive);
-  // void set_thread_pool_readjust(internal_time readjust);
-  // void set_thread_pool_overtime(internal_time overtime);
-  // void set_thread_pool_max_threads(uint64_t max_threads);
-  // void set_thread_pool_min_threads(uint64_t min_threads);
-  // void set_thread_priority(std::string thread_name, bool priolevel);
-  // void set_thread_scope(std::string thread_name, scope scope);
-  // // void get_thread_information(std::string thread_name);
-  // void add_priority_task(async_task task_information, priolevel property = priolevel::normal);
-  // void add_thread(const std::string &name,bool property = false);
-  // void add_task(async_task task_information);
-};
-int main()
-{
-  return 0;
+
+    // 2. 带返回值任务测试（保持不变）
+    void test_result_tasks(size_t task_count) {
+        std::vector<std::shared_ptr<task_rslt<int>>> tasks;
+        tasks.reserve(task_count);
+        for (size_t i = 0; i < task_count; ++i) {
+            tasks.emplace_back(std::make_shared<task_rslt<int>>(
+                []() -> int { 
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+                    return 42; 
+                },
+                "result_task_" + std::to_string(i)
+            ));
+        }
+        auto start = PerformanceTester::start();
+        Scheduler::submit_and_wait(tasks);
+        PerformanceTester::print_result("带返回值任务", task_count, PerformanceTester::end(start));
+    }
+
+    // 3. 依赖任务测试（修复依赖执行逻辑）
+    void test_dependency_tasks(size_t chain_length) {
+        std::vector<std::shared_ptr<task_depn<int>>> tasks;
+        std::shared_ptr<task_base> prev_task = std::make_shared<task_norm>([]() {}, "dep_root");
+
+        for (size_t i = 0; i < chain_length; ++i) {
+            auto task = std::make_shared<task_depn<int>>(
+                []() -> int { 
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+                    return 0; 
+                },
+                prev_task, // 依赖前一个任务
+                "dep_task_" + std::to_string(i)
+            );
+            tasks.push_back(task);
+            prev_task = task; // 更新前序任务
+        }
+
+        auto start = PerformanceTester::start();
+        Scheduler::submit_and_wait(tasks);
+        PerformanceTester::print_result("依赖链任务 (" + std::to_string(chain_length) + "个节点)",
+                                       chain_length, PerformanceTester::end(start));
+    }
+
+    // 4. 超时任务测试（增加超时回调验证）
+    void test_timeout_tasks(size_t task_count, bool should_timeout) {
+        std::vector<std::shared_ptr<task_time<int>>> tasks;
+        tasks.reserve(task_count);
+
+        auto task_duration = should_timeout ? 
+            std::chrono::milliseconds(20) : 
+            std::chrono::milliseconds(5);
+        auto timeout = std::chrono::milliseconds(10);
+
+        for (size_t i = 0; i < task_count; ++i) {
+            tasks.emplace_back(std::make_shared<task_time<int>>(
+                [task_duration]() -> int { 
+                    std::this_thread::sleep_for(task_duration);
+                    return 0; 
+                },
+                timeout,
+                []() { std::cout << "任务超时回调触发" << std::endl; }, // 超时回调
+                "timeout_task_" + std::to_string(i)
+            ));
+        }
+
+        auto start = PerformanceTester::start();
+        Scheduler::submit_and_wait(tasks);
+        std::string test_name = should_timeout ? "超时任务（触发超时）" : "超时任务（正常完成）";
+        PerformanceTester::print_result(test_name, task_count, PerformanceTester::end(start));
+    }
+
+    // 5. 协程任务测试（修复协程恢复逻辑）
+    #if __cpp_lib_coroutines >= 201902L
+    task_coro<int> create_coro_task(int value) {
+        co_await std::suspend_always{}; // 模拟挂起，需要resume才能继续
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+        co_return value;
+    }
+
+    void test_coroutine_tasks(size_t task_count) {
+        std::vector<std::shared_ptr<task_coro<int>>> tasks;
+        tasks.reserve(task_count);
+
+        for (size_t i = 0; i < task_count; ++i) {
+            auto coro = create_coro_task(i); // 创建协程
+            auto handle = std::coroutine_handle<task_coro<int>::promise_type>::from_promise(
+                coro.promise()
+            );
+            tasks.emplace_back(std::make_shared<task_coro<int>>(
+                handle,
+                "coro_task_" + std::to_string(i)
+            ));
+        }
+
+        auto start = PerformanceTester::start();
+        Scheduler::submit_and_wait(tasks);
+        PerformanceTester::print_result("协程任务", task_count, PerformanceTester::end(start));
+    }
+    #endif
+
+    // 6. 优先级任务测试（保持不变）
+    void test_priority_scheduling(size_t task_count) {
+        std::vector<std::shared_ptr<task_norm>> tasks;
+        tasks.reserve(task_count);
+
+        std::vector<urgency_level> priorities = {
+            urgency_level::lowest, urgency_level::low, urgency_level::normal,
+            urgency_level::high, urgency_level::highest
+        };
+
+        for (size_t i = 0; i < task_count; ++i) {
+            auto prio = priorities[i % priorities.size()];
+            tasks.emplace_back(std::make_shared<task_norm>(
+                []() { std::this_thread::sleep_for(std::chrono::nanoseconds(100)); },
+                "prio_task_" + std::to_string(i),
+                prio
+            ));
+        }
+
+        auto start = PerformanceTester::start();
+        Scheduler::submit_and_wait(tasks);
+        PerformanceTester::print_result("多优先级任务调度", task_count, PerformanceTester::end(start));
+    }
+} // namespace task_system
+
+int main() {
+    const size_t BASE_TASK_COUNT = 1000; // 减少任务数量，避免线程创建过多
+
+    using namespace task_system;
+    test_normal_tasks(BASE_TASK_COUNT);
+    test_result_tasks(BASE_TASK_COUNT);
+    test_dependency_tasks(BASE_TASK_COUNT / 10);
+    test_timeout_tasks(BASE_TASK_COUNT / 2, false);
+    test_timeout_tasks(BASE_TASK_COUNT / 2, true);
+    test_priority_scheduling(BASE_TASK_COUNT);
+
+    #if __cpp_lib_coroutines >= 201902L
+    test_coroutine_tasks(BASE_TASK_COUNT);
+    #else
+    std::cout << "=== 协程任务测试 ===" << std::endl;
+    std::cout << "编译器不支持C++20协程，跳过测试" << std::endl;
+    std::cout << "========================================\n" << std::endl;
+    #endif
+
+    return 0;
 }

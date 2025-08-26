@@ -130,7 +130,7 @@ namespace _implemented_internally::_worker_structure
 
     std::string worker_name; ///< 线程名称
     worker_statistics statistics; ///< 统计信息
-    
+
     std::shared_ptr<_implemented_internally::structure_cohort::cohort_base> task_queue; ///< 任务队列
 
     std::function<void(const std::string&, _interior_task_ptr&)> start_callback;  ///< 任务开始回调
@@ -138,4 +138,8 @@ namespace _implemented_internally::_worker_structure
     std::function<void(const std::string&, const std::exception&)> abnormal_callback; ///< 任务异常回调 
   public:
   };
+}
+namespace pool
+{
+  
 }
