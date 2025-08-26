@@ -8,7 +8,7 @@
 #include <unordered_map>
 
 /**
- * @brief 进行任务队列安全转换
+ * @brief 任务队列类型的安全转换
  * @tparam originally_type 要转换的类型
  * @tparam function 转换函数
  * @tparam downgrade_function 降级调用函数 
