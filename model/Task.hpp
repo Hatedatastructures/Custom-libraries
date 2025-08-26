@@ -14,7 +14,7 @@
 #include <type_traits> 
 namespace _implemented_internally
 {
-  namespace task_structure
+  namespace structure_task
   {
     /**
      * @class derivation
@@ -291,7 +291,7 @@ namespace _implemented_internally
       }
       /**
        * @brief 检查任务是否超时
-       * @return `true` 已超时，`false` 未超时或无超时设置
+       * @return `true` 未超时，`false` 超时或无超时设置
        *
        * 调用者：`scheduler`调度器,依赖：超时时间点比较
        */
@@ -299,7 +299,7 @@ namespace _implemented_internally
       {
         if (!_has_deadline.load(std::memory_order_acquire))
           return false;
-        return std::chrono::steady_clock::now() > _deadline;
+        return std::chrono::steady_clock::now() < _deadline;
       }
       /**
        * @brief 标记任务超时
@@ -380,7 +380,13 @@ namespace _implemented_internally
       {
         return _task_name;
       }
-
+      /**
+       * @brief 获取任务超时时间点
+       */
+      std::chrono::steady_clock::time_point get_deadline() const
+      {
+        return _deadline;
+      }
       /**
        * @brief 设置超时时间
        * @param timeout 超时时长
@@ -1266,25 +1272,23 @@ namespace _implemented_internally
     }
   }
 }
-using task_ptr = std::shared_ptr<_implemented_internally::task_structure::task_base>;
 namespace pool
 {
-  using _implemented_internally::task_structure::task_base;
-  using _implemented_internally::task_structure::task_norm;
-  using _implemented_internally::task_structure::task_rslt;
-  using _implemented_internally::task_structure::task_prio;
-  using _implemented_internally::task_structure::task_time;
-  using _implemented_internally::task_structure::task_depn;
-  using _implemented_internally::task_structure::task_coro;
+  using _implemented_internally::structure_task::task_base;
+  using _implemented_internally::structure_task::task_norm;
+  using _implemented_internally::structure_task::task_rslt;
+  using _implemented_internally::structure_task::task_prio;
+  using _implemented_internally::structure_task::task_time;
+  using _implemented_internally::structure_task::task_depn;
+  using _implemented_internally::structure_task::task_coro;
 
-  using _implemented_internally::task_structure::make_task_norm;
-  using _implemented_internally::task_structure::make_task_rslt;
-  using _implemented_internally::task_structure::make_task_prio;
-  using _implemented_internally::task_structure::make_task_time;
-  using _implemented_internally::task_structure::make_task_depn;
-  using _implemented_internally::task_structure::make_task_coro;
+  using _implemented_internally::structure_task::make_task_norm;
+  using _implemented_internally::structure_task::make_task_rslt;
+  using _implemented_internally::structure_task::make_task_prio;
+  using _implemented_internally::structure_task::make_task_time;
+  using _implemented_internally::structure_task::make_task_depn;
+  using _implemented_internally::structure_task::make_task_coro;
 
-  using _implemented_internally::task_structure::urgency_level;
+  using _implemented_internally::structure_task::urgency_level;
 
-  using task_base_ptr = std::shared_ptr<_implemented_internally::task_structure::task_base>;
 }

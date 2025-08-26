@@ -1,4 +1,5 @@
 #include "Structure.hpp"
+#include "Cohort.hpp"
 #include "Task.hpp"
 #include <iostream>
 

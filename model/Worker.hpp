@@ -1,5 +1,5 @@
 #include ".Task.hpp"
-#include "./Queue.hpp"
+#include "./Cohort.hpp"
 #include <thread>
 #include <atomic>
 #include <vector>
@@ -23,11 +23,11 @@ namespace _implemented_internally::_worker_structure
    */
   enum class worker_state
   {
-    idle,     ///< 空闲状态 - 等待任务
-    running,  ///< 运行状态 - 正在执行任务
-    stopping, ///< 停止中 - 正在停止但未完全停止
-    stopped,  ///< 已停止 - 线程已结束
-    error     ///< 错误状态 - 发生异常
+    idle,     // 空闲状态 - 等待任务
+    running,  // 运行状态 - 正在执行任务
+    stopping, // 停止中   - 正在停止但未完全停止
+    stopped,  // 已停止   - 线程已结束
+    error     // 错误状态 - 发生异常
   };
 
   /**
@@ -130,10 +130,11 @@ namespace _implemented_internally::_worker_structure
 
     std::string worker_name; ///< 线程名称
     worker_statistics statistics; ///< 统计信息
-    std::shared_ptr<base_queue> task_queue; ///< 任务队列
+    
+    std::shared_ptr<_implemented_internally::structure_cohort::cohort_base> task_queue; ///< 任务队列
 
-    std::function<void(const std::string&, task_ptr&)> start_callback;  ///< 任务开始回调
-    std::function<void(const std::string&, task_ptr&)> finish_callback; ///< 任务完成回调
+    std::function<void(const std::string&, _interior_task_ptr&)> start_callback;  ///< 任务开始回调
+    std::function<void(const std::string&, _interior_task_ptr&)> finish_callback; ///< 任务完成回调
     std::function<void(const std::string&, const std::exception&)> abnormal_callback; ///< 任务异常回调 
   public:
   };
