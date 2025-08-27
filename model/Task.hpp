@@ -16,13 +16,13 @@ namespace _implemented_internally
 {
   namespace structure_task
   {
+    class task_anomaly;
     /**
      * @class derivation
      * @brief 任务返回值封装类
      * @details 用于封装任务的返回值，支持任意类型的返回值，同时支持void类型的返回值
      * @warning 不支持对void类型的返回值进行转换,不能用auto来接收
      */
-    class task_anomaly;
     class derivation
     { 
     private:
@@ -291,15 +291,20 @@ namespace _implemented_internally
       }
       /**
        * @brief 检查任务是否超时
-       * @return `true` 未超时，`false` 超时或无超时设置
+       * @return `true` 未超时，`false` 超时
        *
        * 调用者：`scheduler`调度器,依赖：超时时间点比较
        */
       virtual bool is_timeout() const
       {
-        if (!_has_deadline.load(std::memory_order_acquire))
-          return false;
         return std::chrono::steady_clock::now() < _deadline;
+      }
+      /**
+       * @brief 是否设置任务超时
+       */
+      bool has_deadline() const noexcept
+      {
+        return _has_deadline.load(std::memory_order_acquire);
       }
       /**
        * @brief 标记任务超时

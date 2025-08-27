@@ -1172,7 +1172,7 @@ namespace _implemented_internally
      * @param max_size 最大队列大小
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_base> make_task_queue(cohort_strategy policy, std::size_t max_size = 0)
+    inline std::unique_ptr<cohort_base> make_cohort(cohort_strategy policy, std::size_t max_size = 0)
     {
       switch (policy)
       {
@@ -1181,7 +1181,7 @@ namespace _implemented_internally
       case cohort_strategy::priority:
         return make_cohort_prior(max_size);
       case cohort_strategy::delay:
-        return make_cohort_delay(max_size);
+        return make_cohort_delay(max_size); 
       case cohort_strategy::round_robin:
         return make_cohort_multi(policy);
       default:
@@ -1205,5 +1205,5 @@ namespace pool
   using _implemented_internally::structure_cohort::make_cohort_prior;
 
   using _implemented_internally::structure_cohort::cohort_strategy;
-  using _implemented_internally::structure_cohort::make_task_queue;
+  using _implemented_internally::structure_cohort::make_cohort;
 }
