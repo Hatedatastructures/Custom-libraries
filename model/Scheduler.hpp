@@ -411,17 +411,70 @@ namespace _implemented_internally
       }
       /**
        * @brief 手动扩容
+       * @warning 按照配置扩容步长来控制扩容数量
        */
       void manual_scale_up()
       {
         scale_up();
       }
       /**
+       * @brief 手动扩容
+       * @param count 扩容数量
+       */
+      void mutual_scale_ups(std::size_t count)
+      {
+        auto scale_threads = _scaling_config.max_threads - get_thread_count();
+        auto scale_count = std::min(count, scale_threads);
+
+        if (scale_count > 0 && create_workers(scale_count))
+        {
+          _total_scaling_operations.fetch_add(1, std::memory_order_relaxed);
+
+          if (_event_callback)
+          {
+            _event_callback("Scaled up by " + std::to_string(scale_count) + " threads");
+          }
+        }
+      }
+      /**
        * @brief 手动缩容
+       * @warning 按照缩容步长来缩容
        */
       void manual_scale_down()
       {
         scale_down();
+      }
+      /**
+       * @brief 手动缩容
+       * @param count 缩容数量
+       */
+      void manual_scale_downs(std::size_t count)
+      {
+        auto scale_threads = get_thread_count() - _scaling_config.min_threads;
+        auto scale_count = std::min(count, scale_threads);
+
+        if (scale_count > 0)
+        {
+          std::unique_lock<std::shared_mutex> lock(_workers_mutex);
+
+          // 停止最后几个工作线程
+          for (std::size_t i = 0; i < scale_count && !_workers.empty(); ++i)
+          {
+            auto &worker = _workers.back();
+            if (worker)
+            {
+              worker->stop(true);
+            }
+            _workers.pop_back();
+          }
+
+          _total_scaling_operations.fetch_add(1, std::memory_order_relaxed);
+
+          if (_event_callback)
+          {
+            _event_callback("Scaled down by " + std::to_string(scale_count) + " threads");
+          }
+        }
       }
       /**
        * @brief 检查调度器是否正在运行
