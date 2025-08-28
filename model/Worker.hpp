@@ -1,3 +1,4 @@
+#pragma once
 #include "./Task.hpp"
 #include "./Cohort.hpp"
 #include <thread>
@@ -116,7 +117,7 @@ namespace _implemented_internally
      *
      * 设计模式： 模板方法模式：定义线程执行流程，策略模式：支持不同的任务获取策略
      *
-     * 调用关系：被`thread_pool`管理和调用， 从`task_queue`获取任务， 执行`base_task`及其派生类
+     * 调用关系：被`thread_pool`管理和调用， 从`cohort_struct`获取任务， 执行`base_task`及其派生类
      */
     class worker_base
     {
@@ -146,10 +147,10 @@ namespace _implemented_internally
       /**
        * @brief 构造工作线程
        * @param worker_name 线程ID
-       * @param task_queue 任务队列
+       * @param cohort_struct 任务队列
        */
-      worker_base(const std::string &worker_name,_interior_cohort_ptr task_queue)
-        : _worker_name(worker_name), _task_queue(std::move(task_queue)) {}
+      worker_base(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
+        : _worker_name(worker_name), _task_queue(std::move(cohort_struct)) {}
       /**
        * @brief 虚析构函数
        */
@@ -512,10 +513,10 @@ namespace _implemented_internally
       /**
        * @brief 构造标准工作线程
        * @param worker_name 线程ID
-       * @param task_queue 任务队列
+       * @param cohort_struct 任务队列
        */
-      worker_standard(const std::string &worker_name, _interior_cohort_ptr task_queue)
-        : worker_base(worker_name, std::move(task_queue)) {}
+      worker_standard(const std::string &worker_name, _interior_cohort_ptr cohort_struct)
+        : worker_base(worker_name, std::move(cohort_struct)) {}
       /**
        * @brief 析构函数
        */
@@ -541,12 +542,12 @@ namespace _implemented_internally
       /**
        * @brief 构造优先级工作线程
        * @param worker_name 线程ID
-       * @param task_queue 任务队列
+       * @param cohort_struct 任务队列
        * @param min_priority 最低处理优先级
        */
-      worker_priority(const std::string &worker_name,_interior_cohort_ptr task_queue,
+      worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
       structure_task::urgency_level min_priority = structure_task::urgency_level::low)
-        : worker_base(worker_name, std::move(task_queue)), _min_priority(min_priority) {}
+        : worker_base(worker_name, std::move(cohort_struct)), _min_priority(min_priority) {}
       /**
        * @brief 析构函数
        */
@@ -662,11 +663,11 @@ namespace _implemented_internally
       /**
        * @brief 构造协程工作线程
        * @param worker_name 线程ID
-       * @param task_queue 任务队列
+       * @param cohort_struct 任务队列
        * @param max_concurrent 最大并发协程数
        */
-      worker_fibersvr(const std::string &worker_name,_interior_cohort_ptr task_queue,std::size_t max_concurrent = 100)
-        : worker_base(worker_name, std::move(task_queue)), _max_concurrent_coroutines(max_concurrent){}
+      worker_fibersvr(const std::string &worker_name,_interior_cohort_ptr cohort_struct,std::size_t max_concurrent = 100)
+        : worker_base(worker_name, std::move(cohort_struct)), _max_concurrent_coroutines(max_concurrent){}
       /**
        * @brief 析构函数
        */
@@ -803,10 +804,10 @@ namespace _implemented_internally
     /**
        * @brief 构造自适应工作线程
        * @param worker_name 线程ID
-       * @param task_queue 任务队列
+       * @param cohort_struct 任务队列
        */
-      worker_adaptive(const std::string &worker_name,_interior_cohort_ptr task_queue)
-        : worker_base(worker_name, std::move(task_queue)){}
+      worker_adaptive(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
+        : worker_base(worker_name, std::move(cohort_struct)){}
       /**
        * @brief 析构函数
        */
@@ -903,46 +904,46 @@ namespace _implemented_internally
      /**
      * @brief 工作线程工厂函数 - 创建标准工作线程
      * @param worker_name 线程ID
-     * @param task_queue 任务队列
+     * @param cohort_struct 任务队列
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_standard(const std::string &worker_name,_interior_task_ptr task_queue)
+    inline std::unique_ptr<worker_base> make_worker_standard(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
     {
-      return std::make_unique<worker_standard>(worker_name, std::move(task_queue));
+      return std::make_unique<worker_standard>(worker_name, std::move(cohort_struct));
     }
     /**
      * @brief 工作线程工厂函数 - 创建优先级工作线程
      * @param worker_name 线程ID
-     * @param task_queue 任务队列
+     * @param cohort_struct 任务队列
      * @param min_priority 最低处理优先级
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_priority(const std::string &worker_name,_interior_task_ptr task_queue,
+    inline std::unique_ptr<worker_base> make_worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
       structure_task::urgency_level min_priority =  structure_task::urgency_level::low)
     {
-      return std::make_unique<worker_priority>(worker_name, std::move(task_queue), min_priority);
+      return std::make_unique<worker_priority>(worker_name, std::move(cohort_struct), min_priority);
     }
     /**
      * @brief 工作线程工厂函数 - 创建协程工作线程
      * @param worker_name 线程ID
-     * @param task_queue 任务队列
+     * @param cohort_struct 任务队列
      * @param max_concurrent 最大并发协程数
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_fibersvr(const std::string &worker_name,_interior_task_ptr task_queue,
+    inline std::unique_ptr<worker_base> make_worker_fibersvr(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
       std::size_t max_concurrent = 100)
     {
-      return std::make_unique<worker_fibersvr>(worker_name, std::move(task_queue), max_concurrent);
+      return std::make_unique<worker_fibersvr>(worker_name, std::move(cohort_struct), max_concurrent);
     }
     /**
      * @brief 工作线程工厂函数 - 创建自适应工作线程
      * @param worker_name 线程ID
-     * @param task_queue 任务队列
+     * @param cohort_struct 任务队列
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_adaptive(const std::string &worker_name,_interior_task_ptr task_queue)
+    inline std::unique_ptr<worker_base> make_worker_adaptive(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
     {
-      return std::make_unique<worker_adaptive>(worker_name, std::move(task_queue));
+      return std::make_unique<worker_adaptive>(worker_name, std::move(cohort_struct));
     }
   }
 }
