@@ -12,9 +12,9 @@
 #include <string>
 #include <utility>
 #include <type_traits> 
-namespace _implemented_internally
+namespace internals
 {
-  namespace structure_task
+  namespace structure_t
   {
     class task_anomaly;
     /**
@@ -1279,21 +1279,21 @@ namespace _implemented_internally
 }
 namespace pool
 {
-  using _implemented_internally::structure_task::task_base;
-  using _implemented_internally::structure_task::task_norm;
-  using _implemented_internally::structure_task::task_rslt;
-  using _implemented_internally::structure_task::task_prio;
-  using _implemented_internally::structure_task::task_time;
-  using _implemented_internally::structure_task::task_depn;
-  using _implemented_internally::structure_task::task_coro;
+  using internals::structure_t::task_base;
+  using internals::structure_t::task_norm;
+  using internals::structure_t::task_rslt;
+  using internals::structure_t::task_prio;
+  using internals::structure_t::task_time;
+  using internals::structure_t::task_depn;
+  using internals::structure_t::task_coro;
 
-  using _implemented_internally::structure_task::make_task_norm;
-  using _implemented_internally::structure_task::make_task_rslt;
-  using _implemented_internally::structure_task::make_task_prio;
-  using _implemented_internally::structure_task::make_task_time;
-  using _implemented_internally::structure_task::make_task_depn;
-  using _implemented_internally::structure_task::make_task_coro;
+  using internals::structure_t::make_task_norm;
+  using internals::structure_t::make_task_rslt;
+  using internals::structure_t::make_task_prio;
+  using internals::structure_t::make_task_time;
+  using internals::structure_t::make_task_depn;
+  using internals::structure_t::make_task_coro;
 
-  using _implemented_internally::structure_task::urgency_level;
+  using internals::structure_t::urgency_level;
 
 }

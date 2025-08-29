@@ -9,12 +9,12 @@
 #include <mutex>
 #include <shared_mutex>
 #include <condition_variable>
-namespace _implemented_internally
+namespace internals
 {
-  namespace structure_worker
+  namespace structure_w
   {
-    using _interior_task_ptr   = std::shared_ptr<_implemented_internally::structure_task::task_base>;
-    using _interior_cohort_ptr = std::shared_ptr<_implemented_internally::structure_cohort::cohort_base>;
+    using _interior_task_ptr   = std::shared_ptr<internals::structure_t::task_base>;
+    using _interior_cohort_ptr = std::shared_ptr<internals::structure_c::cohort_base>;
     /**
      * @enum worker_state
      * @brief 工作线程状态枚举
@@ -496,7 +496,10 @@ namespace _implemented_internally
       virtual void on_thread_stop()
       {
         // 派生类重写此方法进行清理
-        _worker_finish_callback();
+        if(_worker_finish_callback)
+        {
+          _worker_finish_callback();
+        }
       }
     };
     /**
@@ -537,7 +540,7 @@ namespace _implemented_internally
     {
     private:
       std::atomic<bool> _preemptive_mode{false}; // 是否处于抢占模式
-      std::atomic<structure_task::urgency_level> _min_priority; // 当前最低处理优先级
+      std::atomic<structure_t::urgency_level> _min_priority; // 当前最低处理优先级
     public:
       /**
        * @brief 构造优先级工作线程
@@ -546,7 +549,7 @@ namespace _implemented_internally
        * @param min_priority 最低处理优先级
        */
       worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
-      structure_task::urgency_level min_priority = structure_task::urgency_level::low)
+      structure_t::urgency_level min_priority = structure_t::urgency_level::low)
         : worker_base(worker_name, std::move(cohort_struct)), _min_priority(min_priority) {}
       /**
        * @brief 析构函数
@@ -556,7 +559,7 @@ namespace _implemented_internally
        * @brief 设置最低处理优先级
        * @param priority 最低优先级
        */
-      void set_min_priority(structure_task::urgency_level priority)
+      void set_min_priority(structure_t::urgency_level priority)
       {
         _min_priority.store(priority, std::memory_order_release);
       }
@@ -564,7 +567,7 @@ namespace _implemented_internally
        * @brief 获取最低处理优先级
        * @return 最低优先级
        */
-      structure_task::urgency_level get_min_priority() const
+      structure_t::urgency_level get_min_priority() const
       {
         return _min_priority.load(std::memory_order_acquire);
       }
@@ -709,7 +712,7 @@ namespace _implemented_internally
         }
         execute_coroutine_task(task);
         // 检查是否为协程任务
-        // auto coroutine_task = std::dynamic_pointer_cast<structure_task::task_coro>(task);
+        // auto coroutine_task = std::dynamic_pointer_cast<structure_t::task_coro>(task);
         // if (coroutine_task)
         // {
         //   execute_coroutine_task(coroutine_task);
@@ -919,7 +922,7 @@ namespace _implemented_internally
      * @return 工作线程智能指针
      */
     inline std::unique_ptr<worker_base> make_worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
-      structure_task::urgency_level min_priority =  structure_task::urgency_level::low)
+      structure_t::urgency_level min_priority =  structure_t::urgency_level::low)
     {
       return std::make_unique<worker_priority>(worker_name, std::move(cohort_struct), min_priority);
     }
@@ -950,16 +953,16 @@ namespace _implemented_internally
 
 namespace pool
 {
-  using _implemented_internally::structure_worker::worker_adaptive;
-  using _implemented_internally::structure_worker::worker_fibersvr;
-  using _implemented_internally::structure_worker::worker_priority;
-  using _implemented_internally::structure_worker::worker_standard;
+  using internals::structure_w::worker_adaptive;
+  using internals::structure_w::worker_fibersvr;
+  using internals::structure_w::worker_priority;
+  using internals::structure_w::worker_standard;
 
-  using _implemented_internally::structure_worker::make_worker_standard;
-  using _implemented_internally::structure_worker::make_worker_adaptive;
-  using _implemented_internally::structure_worker::make_worker_priority;
-  using _implemented_internally::structure_worker::make_worker_fibersvr;
+  using internals::structure_w::make_worker_standard;
+  using internals::structure_w::make_worker_adaptive;
+  using internals::structure_w::make_worker_priority;
+  using internals::structure_w::make_worker_fibersvr;
 
-  using _implemented_internally::structure_worker::worker_statistics;
-  using _implemented_internally::structure_worker::worker_state;
+  using internals::structure_w::worker_statistics;
+  using internals::structure_w::worker_state;
 }

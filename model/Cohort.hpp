@@ -8,11 +8,11 @@
 #include <functional>
 #include <shared_mutex>
 #include <unordered_map>
-namespace _implemented_internally
+namespace internals
 {
-  namespace structure_cohort
+  namespace structure_c
   {
-    using _interior_task_ptr = std::shared_ptr<_implemented_internally::structure_task::task_base>;
+    using _interior_task_ptr = std::shared_ptr<internals::structure_t::task_base>;
     /**
      * @brief 任务队列类型的安全转换
      * @tparam originally_type 要转换的类型
@@ -1192,18 +1192,18 @@ namespace _implemented_internally
 }
 namespace pool
 {
-  using _implemented_internally::structure_cohort::automatic_derivation;
+  using internals::structure_c::automatic_derivation;
 
-  using _implemented_internally::structure_cohort::cohort_delay;
-  using _implemented_internally::structure_cohort::cohort_multi;
-  using _implemented_internally::structure_cohort::cohort_order;
-  using _implemented_internally::structure_cohort::cohort_prior;
+  using internals::structure_c::cohort_delay;
+  using internals::structure_c::cohort_multi;
+  using internals::structure_c::cohort_order;
+  using internals::structure_c::cohort_prior;
 
-  using _implemented_internally::structure_cohort::make_cohort_delay;
-  using _implemented_internally::structure_cohort::make_cohort_multi;
-  using _implemented_internally::structure_cohort::make_cohort_order;
-  using _implemented_internally::structure_cohort::make_cohort_prior;
+  using internals::structure_c::make_cohort_delay;
+  using internals::structure_c::make_cohort_multi;
+  using internals::structure_c::make_cohort_order;
+  using internals::structure_c::make_cohort_prior;
 
-  using _implemented_internally::structure_cohort::cohort_strategy;
-  using _implemented_internally::structure_cohort::make_cohort;
+  using internals::structure_c::cohort_strategy;
+  using internals::structure_c::make_cohort;
 }

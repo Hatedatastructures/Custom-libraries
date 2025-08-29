@@ -10,9 +10,9 @@
 #include <cmath>
 #include <numeric>
 
-namespace _implemented_internally
+namespace internals
 {
-  namespace structure_scheduler
+  namespace structure_s
   {
     /**
      * @enum scheduling_tactics
@@ -114,9 +114,9 @@ namespace _implemented_internally
       std::chrono::milliseconds scale_up_delay{1000};   // 扩容延迟
       std::chrono::milliseconds scale_down_delay{5000}; // 缩容延迟
     };
-    using _interior_task_ptr   = std::shared_ptr<_implemented_internally::structure_task::task_base>;
-    using _interior_cohort_ptr = std::shared_ptr<_implemented_internally::structure_cohort::cohort_base>;
-    using _interior_thread_ptr = std::unique_ptr<_implemented_internally::structure_worker::worker_base>;
+    using _interior_task_ptr   = std::shared_ptr<internals::structure_t::task_base>;
+    using _interior_cohort_ptr = std::shared_ptr<internals::structure_c::cohort_base>;
+    using _interior_thread_ptr = std::unique_ptr<internals::structure_w::worker_base>;
     /**
      * @class scheduler_base
      * @brief 调度器基类
@@ -165,7 +165,7 @@ namespace _implemented_internally
         _start_time = std::chrono::steady_clock::now();
         _worker_factory = [this] (const std::string &name) -> _interior_thread_ptr 
         {
-          return _implemented_internally::structure_worker::make_worker_standard(name, _task_queue); 
+          return internals::structure_w::make_worker_standard(name, _task_queue); 
         };
       }
       /**
@@ -778,7 +778,7 @@ namespace _implemented_internally
     {
     private:
       mutable std::mutex _stats_mutex; // 统计锁
-      std::unordered_map<_implemented_internally::structure_task::urgency_level,std::size_t> _priority_stats; //优先级统计
+      std::unordered_map<internals::structure_t::urgency_level,std::size_t> _priority_stats; //优先级统计
     public:
       /**
        * @brief 构造优先级调度器
@@ -791,15 +791,15 @@ namespace _implemented_internally
         // 设置优先级工作线程工厂
         _worker_factory = [this](const std::string &worker_id)
         {
-          return _implemented_internally::structure_worker::make_worker_priority(worker_id, _task_queue, 
-            _implemented_internally::structure_task::urgency_level::lowest);
+          return internals::structure_w::make_worker_priority(worker_id, _task_queue, 
+            internals::structure_t::urgency_level::lowest);
         };
       }
       /**
        * @brief 获取优先级统计
        * @return 优先级统计映射
        */
-      std::unordered_map<_implemented_internally::structure_task::urgency_level,std::size_t> get_priority_statistics() const
+      std::unordered_map<internals::structure_t::urgency_level,std::size_t> get_priority_statistics() const
       {
         std::lock_guard<std::mutex> lock(_stats_mutex);
         return _priority_stats;
@@ -814,12 +814,12 @@ namespace _implemented_internally
       {
         {
           std::lock_guard<std::mutex> lock(_stats_mutex);
-          _priority_stats[static_cast<_implemented_internally::structure_task::urgency_level>(task->get_priority())]++;
+          _priority_stats[static_cast<internals::structure_t::urgency_level>(task->get_priority())]++;
         }
 
         // 检查是否需要优先级抢占
         if (task->get_priority() == static_cast<std::int32_t>
-        (_implemented_internally::structure_task::urgency_level::critical))
+        (internals::structure_t::urgency_level::critical))
         {
           handle_critical_task(task);
         }
@@ -845,7 +845,7 @@ namespace _implemented_internally
         if (total_tasks > 0)
         {
           auto critical_ratio = static_cast<double>
-          (_priority_stats[_implemented_internally::structure_task::urgency_level::critical]) / total_tasks;
+          (_priority_stats[internals::structure_t::urgency_level::critical]) / total_tasks;
           // 可以基于关键任务比例调整调度策略
           if (critical_ratio > 0.1)
           {
@@ -929,7 +929,7 @@ namespace _implemented_internally
       {
         _worker_factory = [this](const std::string &worker_id) 
         {
-          return _implemented_internally::structure_worker::make_worker_adaptive(worker_id, _task_queue);
+          return internals::structure_w::make_worker_adaptive(worker_id, _task_queue);
         };
       }
       /**
@@ -1073,9 +1073,9 @@ namespace _implemented_internally
         if (predicted_duration > std::chrono::milliseconds(1000) && current_load > 0.8)
         {
           // 长任务在高负载时降低优先级
-          if (task->get_priority() > static_cast<std::int32_t>(_implemented_internally::structure_task::urgency_level::low))
+          if (task->get_priority() > static_cast<std::int32_t>(internals::structure_t::urgency_level::low))
           {
-            task->set_priority(static_cast<_implemented_internally::structure_task::urgency_level>
+            task->set_priority(static_cast<internals::structure_t::urgency_level>
               (static_cast<int>(task->get_priority()) - 1));
           }
         }
@@ -1237,18 +1237,18 @@ namespace _implemented_internally
 namespace pool
 {
 
-  using _implemented_internally::structure_scheduler::scheduler_adaptive;
-  using _implemented_internally::structure_scheduler::scheduler_priority;
-  using _implemented_internally::structure_scheduler::scheduler_standard;
+  using internals::structure_s::scheduler_adaptive;
+  using internals::structure_s::scheduler_priority;
+  using internals::structure_s::scheduler_standard;
 
-  using _implemented_internally::structure_scheduler::make_scheduler;
-  using _implemented_internally::structure_scheduler::make_scheduler_adaptive;
-  using _implemented_internally::structure_scheduler::make_scheduler_priority;
-  using _implemented_internally::structure_scheduler::make_scheduler_standard;
+  using internals::structure_s::make_scheduler;
+  using internals::structure_s::make_scheduler_adaptive;
+  using internals::structure_s::make_scheduler_priority;
+  using internals::structure_s::make_scheduler_standard;
 
-  using _implemented_internally::structure_scheduler::load_metrics;
-  using _implemented_internally::structure_scheduler::scaling_config;
-  using _implemented_internally::structure_scheduler::expansion_strategy;
-  using _implemented_internally::structure_scheduler::scheduling_tactics;
+  using internals::structure_s::load_metrics;
+  using internals::structure_s::scaling_config;
+  using internals::structure_s::expansion_strategy;
+  using internals::structure_s::scheduling_tactics;
 
 }
