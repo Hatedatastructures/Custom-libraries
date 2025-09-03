@@ -1,7 +1,9 @@
 #pragma once
 
 // #include "./standard_concurrent/Concurrent_container.hpp"
+#include <variant>
 #include <atomic>
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <future>
