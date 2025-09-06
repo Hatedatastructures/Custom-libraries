@@ -32,13 +32,13 @@
 #include <iostream>
 int main()
 {
-  {
-    internals::structure_t::uint_standard d([](){ return 42; });
-    d.execute();
-    // int a = d.get_result();
-    // std::cout << a << std::endl;
-    std::cout << d.get_future().get() << std::endl;
-  }
+  // {
+  //   internals::structure_t::uint_standard d([](){ return 42; });
+  //   d.execute();
+  //   // int a = d.get_result();
+  //   // std::cout << a << std::endl;
+  //   std::cout << d.get_future().get() << std::endl;
+  // }
   {
     internals::structure_t::uint_priority p([](){ return 100; }, "High Priority Task", internals::structure_t::urgency_level::high);
     std::cout << p.get_priority() << std::endl;

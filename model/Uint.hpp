@@ -55,6 +55,17 @@ namespace internals
     public:
       template<typename convert_t>
       derivation(convert_t&& value) : _data(std::forward<convert_t>(value)), _void(false) {}
+      derivation(derivation&& other) noexcept 
+      : _data(std::move(other._data)), _void(std::move(other._void)) {}
+      derivation& operator= (derivation&& other) noexcept
+      {
+        if(this != &other)
+        {
+          _data = std::move(other._data);
+          _void = other._void;
+        }
+        return *this;
+      }
       derivation() : _void(true) {}
       /**
        * @brief 隐式类型转换
@@ -311,6 +322,10 @@ namespace internals
        */
       bool is_void_task() const noexcept 
       {
+        if(std::is_void_v<result>)
+        {
+          return true;
+        }
         return false;
       }
       /**
@@ -609,7 +624,7 @@ namespace internals
        * @brief #### 标记任务超时（重写`uint_standard`类方法）
        * @return `true` 标记成功，`false` 任务已开始执行
        */
-      bool make_timeout() override
+      bool mark_timeout() override
       {
         if(uint_standard<execute_function>::mark_timeout())
         {
@@ -648,10 +663,16 @@ namespace internals
        * @brief #### 检查超时是否已处理
        * @return `true` 已处理，`false` 未处理
        */
-      bool is_timeout_handled() const noexcept
+      bool is_timeout_handled() const noexcept      
       {
         return _timeout_handled.load(std::memory_order_acquire);
       }
+    };
+    template<typename execute_function>
+    class uint_reliance : public uint_standard<execute_function>
+    {
+    protected:
+      std::vector<std::shared_ptr<uint_standard<>>> _dependencies; // 依赖任务列表
     };
   }
 }
