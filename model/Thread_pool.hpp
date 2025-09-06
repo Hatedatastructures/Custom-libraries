@@ -225,7 +225,7 @@ namespace internals
 
     // 任务
     mutable std::shared_mutex _tasks_mutex; // 任务映射读写锁
-    std::unordered_map<std::string, std::shared_ptr<task_base>> _active_tasks; // 活跃任务映射
+    std::unordered_map<std::string, std::shared_ptr<uint_standard>> _active_tasks; // 活跃任务映射
 
     // 扩展和插件
     mutable std::mutex _plugins_mutex; // 插件互斥锁
@@ -484,7 +484,7 @@ namespace internals
 
       auto task = make_task_norm(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
 
-      auto task_id = task->get_task_id();
+      auto task_id = task->get_identifier();
 
       if (!submit_task_internal(task))
       {
@@ -631,7 +631,7 @@ namespace internals
       // 添加到活跃任务映射
       {
         std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-        _active_tasks[std::to_string(task->get_task_id())] = task;
+        _active_tasks[std::to_string(task->get_identifier())] = task;
       }
 
       // 提交到调度器
@@ -646,7 +646,7 @@ namespace internals
       {
         // 提交失败，从活跃任务中移除
         std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-        _active_tasks.erase(std::to_string(task->get_task_id()));
+        _active_tasks.erase(std::to_string(task->get_identifier()));
       }
       return result;
     }
@@ -870,7 +870,7 @@ namespace internals
       }
 
       auto task = make_task_coro(std::forward<coroutine_type>(coro));
-      auto task_id = std::to_string(task->get_task_id());
+      auto task_id = std::to_string(task->get_identifier());
 
       if (!submit_task_internal(task))
       {
@@ -990,7 +990,7 @@ namespace internals
 
       for (const auto &[task_id, task] : _active_tasks)
       {
-        if (task->get_state() == task_state::pending && task->cancel())
+        if (task->get_state() == current_status::pending && task->cancel())
         {
           ++cancelled_count;
         }
@@ -1005,7 +1005,7 @@ namespace internals
      * @param task_id 任务ID
      * @return 任务状态
      */
-    task_state get_task_state(const std::string &task_id) const
+    current_status get_task_state(const std::string &task_id) const
     {
       std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
 
@@ -1015,7 +1015,7 @@ namespace internals
         return it->second->get_state();
       }
 
-      return task_state::pending;
+      return current_status::pending;
     }
     /**
      * @brief 等待任务完成
