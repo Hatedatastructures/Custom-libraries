@@ -114,7 +114,7 @@ namespace internals
       std::chrono::milliseconds scale_up_delay{1000};   // 扩容延迟
       std::chrono::milliseconds scale_down_delay{5000}; // 缩容延迟
     };
-    using _interior_task_ptr   = std::shared_ptr<internals::structure_t::uint_standard>;
+    using _interior_task_ptr   = std::shared_ptr<internals::structure_t::uint_ordinary>;
     using _interior_cohort_ptr = std::shared_ptr<internals::structure_c::cohort_base>;
     using _interior_thread_ptr = std::unique_ptr<internals::structure_w::worker_base>;
     /**

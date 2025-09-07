@@ -177,7 +177,7 @@ namespace internals
       }
     };
     /**
-     * @class uint_standard
+     * @class uint_ordinary
      * @brief #### 任务基类 - 定义所有任务的通用接口
      *
      * 核心功能： 线程安全的任务状态管理, 优先级设置和获取, 超时时间管理
@@ -187,7 +187,7 @@ namespace internals
      * 
      *  调用者：衍生任务类、`thread_pool`管理器
      */
-    class uint_standard
+    class uint_ordinary
     {
     protected:
       /**
@@ -257,15 +257,15 @@ namespace internals
        * @param name 任务名称
        * @param priority 任务优先级
        */
-      explicit uint_standard(const std::string &name = "", urgency_level priority = urgency_level::normal)
+      explicit uint_ordinary(const std::string &name = "", urgency_level priority = urgency_level::normal)
       : _identifier(_next_task_id.fetch_add(1, std::memory_order_relaxed)),
       _task_name(coverage_string(name)), _submit_time(std::chrono::steady_clock::now()),
       _priority(static_cast<std::int32_t>(priority))  {}
-      virtual ~uint_standard() = default;
-      uint_standard(const uint_standard &) = delete;
-      uint_standard &operator=(const uint_standard &) = delete;
-      uint_standard(uint_standard &&) = delete;
-      uint_standard &operator=(uint_standard &&) = delete;
+      virtual ~uint_ordinary() = default;
+      uint_ordinary(const uint_ordinary &) = delete;
+      uint_ordinary &operator=(const uint_ordinary &) = delete;
+      uint_ordinary(uint_ordinary &&) = delete;
+      uint_ordinary &operator=(uint_ordinary &&) = delete;
       /**
        * @brief #### 执行任务 - 纯虚函数，子类必须实现
        * @return 任务执行结果(`derivation`类型支持任意返回值)
@@ -476,19 +476,19 @@ namespace internals
         _state_cv.wait(lock, await_func);
       }
     };
-    std::atomic<std::uint64_t> uint_standard::_next_task_id{1};
+    std::atomic<std::uint64_t> uint_ordinary::_next_task_id{1};
     /**
      * @class task_norm
      * @brief #### 普通任务类 - 无返回值的简单异步任务
      *
      * 适用场景：简单的异步操作, 不需要返回值的任务, 日志记录、数据清理等
      * 
-     * 调用关系：继承自`uint_standard`, 由`thread_pool::submit()`创建, 由`worker`线程执行
+     * 调用关系：继承自`uint_ordinary`, 由`thread_pool::submit()`创建, 由`worker`线程执行
      */
-    class task_norm : public uint_standard
+    class task_norm : public uint_ordinary
     {
     private:
-      std::function<void()> _task_func;  // 任务执行函数
+      std::function<void()> _ordinary_execution;  // 任务执行函数
 
     public:
       /**
@@ -499,7 +499,7 @@ namespace internals
        */
       template<typename func>
       explicit task_norm(func&& function, const std::string& name = "",urgency_level priority = urgency_level::normal)
-      : uint_standard(name, priority),_task_func(std::forward<func>(function)) {}
+      : uint_ordinary(name, priority),_ordinary_execution(std::forward<func>(function)) {}
 
       /**
        * @brief #### 执行任务
@@ -514,7 +514,7 @@ namespace internals
         }
         try
         {
-          _task_func();
+          _ordinary_execution();
           this->mark_completed();
           return derivation();
         }
@@ -553,18 +553,18 @@ namespace internals
      *
      * 适用场景：需要获取执行结果的任务,计算密集型任务,数据处理和转换
      * 
-     * 调用关系：继承自`uint_standard`,使用`std::promise`和`std::future`实现结果同步
+     * 调用关系：继承自`uint_ordinary`,使用`std::promise`和`std::future`实现结果同步
      * 由`thread_pool::submit()`创建,由`worker`线程执行
      */
     template<typename result>
-    class task_rslt : public uint_standard
+    class task_rslt : public uint_ordinary
     {
     private:
       std::promise<result> _promise;             // 结果承诺
       std::future<result> _future;               // 结果期望
 
-      std::function<result()> _task_func;        // 任务执行函数
-      std::atomic<bool> _result_ready{false};      // 结果是否就绪
+      std::function<result()> _ordinary_execution;        // 任务执行函数
+      std::atomic<bool> _ready_state{false};      // 结果是否就绪
 
     public:
       /**
@@ -575,7 +575,7 @@ namespace internals
        */
       template<typename func>
       explicit task_rslt(func&& function,const std::string& name = "",urgency_level priority = urgency_level::normal)
-      : uint_standard(name, priority),_promise(), _future(_promise.get_future()), _task_func(std::forward<func>(function)) {}
+      : uint_ordinary(name, priority),_promise(), _future(_promise.get_future()), _ordinary_execution(std::forward<func>(function)) {}
 
       /**
        * @brief #### 执行任务
@@ -587,24 +587,24 @@ namespace internals
         if(!this->mark_running())
         {
           _promise.set_exception(std::make_exception_ptr(anomaly("任务无法启动",get_identifier())));
-          _result_ready.store(true, std::memory_order_release);
+          _ready_state.store(true, std::memory_order_release);
           throw anomaly("任务无法启动", get_identifier());
         }
         try
         {
           if constexpr (std::is_void_v<result>)
           {
-            _task_func();
+            _ordinary_execution();
             _promise.set_value();
-            _result_ready.store(true, std::memory_order_release);
+            _ready_state.store(true, std::memory_order_release);
             this->mark_completed();
             return derivation();
           }
           else
           {
-            auto result = _task_func();
+            auto result = _ordinary_execution();
             _promise.set_value(result);
-            _result_ready.store(true, std::memory_order_release);
+            _ready_state.store(true, std::memory_order_release);
             this->mark_completed();
             return derivation(result);
           }
@@ -613,13 +613,13 @@ namespace internals
         {
           this->mark_failed();
           _promise.set_exception(std::current_exception());
-          _result_ready.store(true, std::memory_order_release);
+          _ready_state.store(true, std::memory_order_release);
           throw anomaly("任务执行失败: " + std::string(e.what()), get_identifier());
         }
         catch (...)
         {
           _promise.set_exception(std::current_exception());
-          _result_ready.store(true, std::memory_order_release);
+          _ready_state.store(true, std::memory_order_release);
           this->mark_failed();
           throw anomaly("任务执行失败: 未知错误", get_identifier());
         }
@@ -689,7 +689,7 @@ namespace internals
        */
       bool is_result_ready() const noexcept
       {
-        return _result_ready.load(std::memory_order_acquire);
+        return _ready_state.load(std::memory_order_acquire);
       }
 
       /**
@@ -772,11 +772,11 @@ namespace internals
        * @param other 另一个任务
        * @return true 当前任务优先级更高
        */
-      // 在 uint_standard 中显式删除移动构造和移动赋值
+      // 在 uint_ordinary 中显式删除移动构造和移动赋值
       
       bool operator<(const task_prio& other) const noexcept
       {
-        return this->uint_standard::get_priority() < other.uint_standard::get_priority();
+        return this->uint_ordinary::get_priority() < other.uint_ordinary::get_priority();
       }
       /**
        * @brief #### 比较操作符（用于优先级队列排序）
@@ -785,7 +785,7 @@ namespace internals
        */
       bool operator>(const task_prio& other) const noexcept
       { //get_priority函数继承至基类任务类
-        return this->uint_standard::get_priority()  > other.uint_standard::get_priority();
+        return this->uint_ordinary::get_priority()  > other.uint_ordinary::get_priority();
       }
       derivation get_result() override
       {
@@ -793,7 +793,7 @@ namespace internals
       }
       urgency_level get_priority() const noexcept
       {
-        return static_cast<urgency_level>(this->uint_standard::get_priority());
+        return static_cast<urgency_level>(this->uint_ordinary::get_priority());
       }
       result get()
       {
@@ -828,7 +828,7 @@ namespace internals
       urgency_level priority = urgency_level::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority)
       {
-        this->uint_standard::set_timeout(timeout);
+        this->uint_ordinary::set_timeout(timeout);
       }
       /**
        * @brief #### 构造带超时回调的超时任务
@@ -844,15 +844,15 @@ namespace internals
       : task_rslt<result>(std::forward<func>(function), name, priority),
       _timeout_callback(std::forward<timeout_func>(timeout_callback))
       {
-        this->uint_standard::set_timeout(timeout);
+        this->uint_ordinary::set_timeout(timeout);
       }
       /**
-       * @brief #### 标记任务超时（重写`uint_standard`类方法）
+       * @brief #### 标记任务超时（重写`uint_ordinary`类方法）
        * @return `true` 标记成功，`false` 任务已开始执行
        */
       bool mark_timeout() override
       {
-        if (uint_standard::mark_timeout())
+        if (uint_ordinary::mark_timeout())
         {
           handle_timeout();
           return true;
@@ -911,7 +911,7 @@ namespace internals
     class task_depn : public task_rslt<result>
     {
     private:
-      std::vector<std::shared_ptr<uint_standard>> _dependencies;    // 依赖的任务列表
+      std::vector<std::shared_ptr<uint_ordinary>> _dependencies;    // 依赖的任务列表
       mutable std::atomic<bool> _dependencies_satisfied{false}; // 依赖是否已满足（缓存）
       mutable std::atomic<std::uint64_t> _last_check_time{0};   // 上次检查时间戳
       mutable std::mutex _dependency_mutex;                     // 依赖检查互斥锁
@@ -935,7 +935,7 @@ namespace internals
         */
       bool are_dependencies_satisfied_unsafe() const
       {
-        auto satisfied_func = [](const std::shared_ptr<uint_standard>& dep) 
+        auto satisfied_func = [](const std::shared_ptr<uint_ordinary>& dep) 
         {
           return dep && dep->get_state() == current_status::completed;
         };
@@ -950,13 +950,13 @@ namespace internals
        * @param priority 任务优先级
        */
       template<typename func>
-      explicit task_depn(func&& function, const std::vector<std::shared_ptr<uint_standard>>& dependencies,
+      explicit task_depn(func&& function, const std::vector<std::shared_ptr<uint_ordinary>>& dependencies,
       const std::string& name = "", urgency_level priority = urgency_level::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority), _dependencies(dependencies)
       {
         // 过滤掉空指针依赖
         _dependencies.erase(std::remove_if(_dependencies.begin(), _dependencies.end(),
-        [](const std::shared_ptr<uint_standard>& dep) { return !dep; }),_dependencies.end());
+        [](const std::shared_ptr<uint_ordinary>& dep) { return !dep; }),_dependencies.end());
       }
       /**
        * @brief #### 构造依赖任务（单个依赖）
@@ -966,7 +966,7 @@ namespace internals
        * @param priority 任务优先级
        */
       template <typename func>
-      explicit task_depn(func &&function, std::shared_ptr<uint_standard> dependency, const std::string &name = "",
+      explicit task_depn(func &&function, std::shared_ptr<uint_ordinary> dependency, const std::string &name = "",
       urgency_level priority = urgency_level::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority)
       {
@@ -979,10 +979,10 @@ namespace internals
        * @brief #### 添加依赖任务
        * @param dependency 依赖的任务
        */
-      void add_dependency(std::shared_ptr<uint_standard> dependency)
+      void add_dependency(std::shared_ptr<uint_ordinary> dependency)
       {
         std::lock_guard<std::mutex> lock(_dependency_mutex);
-        if (dependency && this->uint_standard::get_state() == current_status::pending)
+        if (dependency && this->uint_ordinary::get_state() == current_status::pending)
         {
           _dependencies.push_back(std::move(dependency));
           // 重置缓存状态
@@ -1014,7 +1014,7 @@ namespace internals
         {
           return true;
         }
-        auto satisfied_func = [](const std::shared_ptr<uint_standard>& dep) 
+        auto satisfied_func = [](const std::shared_ptr<uint_ordinary>& dep) 
         {
           return dep && dep->get_state() == current_status::completed;
         };
@@ -1031,12 +1031,12 @@ namespace internals
        * @brief #### 获取未完成的依赖任务
        * @return 未完成的依赖任务列表
        */
-      std::vector<std::shared_ptr<uint_standard>> get_pending_dependencies() const
+      std::vector<std::shared_ptr<uint_ordinary>> get_pending_dependencies() const
       {
         std::lock_guard<std::mutex> lock(_dependency_mutex);
-        std::vector<std::shared_ptr<uint_standard>> pending;
+        std::vector<std::shared_ptr<uint_ordinary>> pending;
         pending.reserve(_dependencies.size()); // 预分配内存
-        auto get_pending_func = [](const std::shared_ptr<uint_standard>& dep) 
+        auto get_pending_func = [](const std::shared_ptr<uint_ordinary>& dep) 
         {
           if (!dep) return false;
           auto state = dep->get_state();
@@ -1170,7 +1170,7 @@ namespace internals
       {
         if (!_coroutine_handle)
         {
-          throw anomaly("协程句柄无效", this->uint_standard::get_identifier());
+          throw anomaly("协程句柄无效", this->uint_ordinary::get_identifier());
         }
 
         // 等待协程完成
@@ -1257,7 +1257,7 @@ namespace internals
      */
     template <typename func, uint64_t CACHE_VALIDITY = 100ULL>
     std::shared_ptr<task_depn<std::invoke_result_t<func>, CACHE_VALIDITY>> make_task_depn(func &&function,
-    const std::vector<std::shared_ptr<uint_standard>> &dependencies,const std::string &name = "",
+    const std::vector<std::shared_ptr<uint_ordinary>> &dependencies,const std::string &name = "",
     urgency_level priority = urgency_level::normal)
     {
       using return_type = std::invoke_result_t<func>;
@@ -1281,7 +1281,7 @@ namespace internals
 }
 namespace pool
 {
-  using internals::structure_t::uint_standard;
+  using internals::structure_t::uint_ordinary;
   using internals::structure_t::task_norm;
   using internals::structure_t::task_rslt;
   using internals::structure_t::task_prio;

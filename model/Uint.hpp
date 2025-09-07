@@ -45,7 +45,7 @@ namespace internals
      * @class derivation
      * @brief #### 任务返回类型封装类
      * @details 用于封装任务的返回值，支持任意类型的返回值，同时支持`void`类型的返回值
-     * @warning 不支持对`void`类型的返回值进行转换,不能用`auto`来接收
+     * @warning 不支持对`void`类型的返回值进行转换
      */
     class derivation
     { 
@@ -171,7 +171,7 @@ namespace internals
       }
     }
     /**
-     * @class uint_standard
+     * @class uint_ordinary
      * @brief #### 标准任务类 - 定义所有任务的通用接口
      * @tparam execute_function 任务执行函数类型,可以在上层自动推导来获取任务返回值类型
      * @warning #### 计算结果不可重复获取，创建任务对象通过工厂函数创建
@@ -183,8 +183,7 @@ namespace internals
      * 
      *  调用者：衍生任务类、`thread_pool`管理器
      */
-    template<typename execute_function, typename result = std::invoke_result_t<execute_function>>
-    class uint_standard
+    class uint_ordinary
     {
     public:
       /**
@@ -222,7 +221,7 @@ namespace internals
         _state_cv.notify_all();
       }
     protected:
-      std::string coverage_string(const std::string &str) const
+      constexpr std::string coverage_string(const std::string &str) const
       {
         if (str.empty())
         {
@@ -234,11 +233,7 @@ namespace internals
       std::uint64_t _identifier; // 任务唯一标识
       static std::atomic<std::uint64_t> current_unique_identifier; // 全局任务ID生成器
 
-      std::promise<result> _promise; // 结果承诺
-      std::future<result> _future; // 结果期望
-
-      std::function<result()> _task_func;  // 任务执行函数
-      std::atomic<bool> _result_ready{false};  // 结果是否就绪
+      std::function<void()> _ordinary_execution;  // 任务执行函数
 
       std::string _task_name; // 任务名称
       std::atomic<current_status> _state{current_status::pending}; // 任务状态（原子操作保证线程安全）
@@ -254,19 +249,20 @@ namespace internals
 
       std::atomic<std::int32_t> _priority; // 任务优先级
     public:
-      uint_standard(execute_function&& function,const std::string &name = "", 
+      template <typename execute_function>
+      uint_ordinary(execute_function&& function,const std::string &name = "", 
         urgency_level priority = urgency_level::normal)
       :_identifier(current_unique_identifier.fetch_add(1, std::memory_order_relaxed)),
-      _promise(), _future(_promise.get_future()), _task_func(std::forward<execute_function>(function)),
+      _ordinary_execution(std::forward<execute_function>(function)),
       _task_name(coverage_string(name)),_submit_time(std::chrono::steady_clock::now()),
       _priority(static_cast<std::int32_t>(priority)) {}
-      virtual ~uint_standard() = default;
+      virtual ~uint_ordinary() = default;
 
-      uint_standard(const uint_standard&) = delete;
-      uint_standard& operator=(const uint_standard&) = delete;
+      uint_ordinary(const uint_ordinary&) = delete;
+      uint_ordinary& operator=(const uint_ordinary&) = delete;
 
-      uint_standard(uint_standard&&) = delete;
-      uint_standard& operator=(uint_standard&&) = delete;
+      uint_ordinary(uint_ordinary&&) = delete;
+      uint_ordinary& operator=(uint_ordinary&&) = delete;
       /**
        * @brief #### 执行任务 - 虚函数，子类根据自身情况实现
        * @return 任务执行结果(`derivation`类型支持任意返回类型)
@@ -278,40 +274,21 @@ namespace internals
       {
         if(mark_running() == false)
         {
-          _promise.set_exception(std::make_exception_ptr(anomaly("任务无法启动",get_identifier())));
-          _result_ready.store(true, std::memory_order_release);
           throw anomaly("任务不在运行状态,检查任务",get_identifier());
         }
         try
         {
-          if constexpr (std::is_void_v<result>)
-          {
-            _task_func();
-            _promise.set_value();
-            _result_ready.store(true, std::memory_order_release);
-            mark_completed();
-            return derivation();
-          }
-          else
-          {
-            result res = _task_func();
-            _promise.set_value(res);
-            _result_ready.store(true, std::memory_order_release);
-            mark_completed();
-            return derivation(std::move(res));
-          }
+          _ordinary_execution();
+          mark_completed();
+          return derivation();
         }
         catch (const std::exception& error)
         {
-          _promise.set_exception(std::current_exception());
-          _result_ready.store(true, std::memory_order_release);
           mark_failed();
           throw anomaly(std::string(error.what()), get_identifier());
         }
         catch(...)
         {
-          _promise.set_exception(std::current_exception());
-          _result_ready.store(true, std::memory_order_release);
           this->mark_failed();
           throw anomaly("任务执行失败: 未知错误", get_identifier());
         }
@@ -320,12 +297,8 @@ namespace internals
        * @brief 检查任务是否有返回值
        * @return `true` 无返回值，`false` 有返回值
        */
-      bool is_void_task() const noexcept 
+      virtual bool is_void_task() const noexcept 
       {
-        if(std::is_void_v<result>)
-        {
-          return true;
-        }
         return false;
       }
       /**
@@ -526,88 +499,130 @@ namespace internals
        */
       virtual derivation get_result()
       {
-        if constexpr (std::is_void_v<result>)
-        {
-          _future.get();
-          return derivation();
-        }
-        else
-        {
-          return derivation(_future.get());
-        }
-      }
-      /**
-       * @brief #### 获取任务执行结果（带超时）
-       * @param timeout 等待超时时间
-       * @return 当返回值为非`void`类型时返回`bool`类型，反之如果没超时返回任务的结果，
-       * 超时返回空值(返回值成员函数has_value判断)
-       */
-      template<typename rep, typename period>
-      std::conditional_t<std::is_void_v<result>, bool ,std::optional<result>> 
-      get_result_for(const std::chrono::duration<rep, period>& timeout)
-      {
-        if (_future.wait_for(timeout) == std::future_status::ready)
-        {
-          if constexpr (std::is_void_v<result>)
-          {
-            _future.get();
-            return true;
-          }
-          else
-          {
-            return _future.get();
-          }
-        }
-        return std::conditional_t<std::is_void_v<result>, bool ,std::optional<result>>{};
+        return derivation{};
       }
       /**
        * @brief #### 检查结果是否就绪
        * @return `true` 结果就绪，`false` 结果未就绪
        */
-      bool is_result_ready() const noexcept
+      virtual bool is_result_ready() const noexcept
       {
-        return _result_ready.load(std::memory_order_acquire);
-      }
-      /**
-       * @brief #### 获取`future`对象
-       * @return 关联的`future`对象
-       */
-      std::future<result>& get_future()
-      {
-        return _future;
+        return false;
       }
 
-      /**
-       * @brief #### 获取`future`对象（`const`版本）
-       * @return 关联的`future`对象
-       */
-      const std::future<result>& get_future() const
-      {
-        return _future;
-      }
-      template<typename other_function>
-      constexpr bool operator<(const uint_standard<other_function>& other) const noexcept
+      constexpr bool operator<(const uint_ordinary& other) const noexcept
       {
         return this->get_priority() < other.get_priority();
       }
-      template<typename other_function>
-      constexpr bool operator>(const uint_standard<other_function>& other) const noexcept
+      constexpr bool operator>(const uint_ordinary& other) const noexcept
       {
         return this->get_priority() > other.get_priority();
       }
     };
-    template<typename execute_function, typename result>
-    std::atomic<std::uint64_t> uint_standard<execute_function, result>::current_unique_identifier{1};
+    std::atomic<std::uint64_t> uint_ordinary::current_unique_identifier{1};
+
+    /**
+     * @class uint_standard
+     * @brief #### 标准任务类 - 支持异步结果获取
+     * @tparam execute_function 任务类型模板
+     *
+     * 适用场景：需要获取执行结果的任务,计算密集型任务,数据处理和转换
+     * 
+     * 调用关系：继承自`uint_ordinary`,使用`std::promise`和`std::future`实现结果同步
+     * 由`thread_pool::submit()`创建,由`worker`线程执行
+     */
+    template<typename execute_function, typename result = std::invoke_result_t<execute_function>>
+    class uint_standard : public uint_ordinary
+    {
+      //对于和基类成员变量名相同的成员变量，在多态里默认隐藏，可以通过限定符来访问
+    protected:
+      std::promise<result> _promise; // 结果承诺
+      std::future<result> _future; // 结果期望
+
+      std::atomic<bool> _ready_state{false};  // 结果是否就绪
+      std::function<void()> _ordinary_execution;  // 任务执行函数
+    public:
+      uint_standard(execute_function&& function, const std::string &name = "", 
+        urgency_level priority = urgency_level::normal)
+      :uint_ordinary(std::forward<execute_function>(function),name,priority),
+      _promise(), _future(_promise.get_future()),
+       _ordinary_execution(std::forward<execute_function>(function)) {}
+      
+      derivation execute() override
+      {
+        if(!this->mark_running())
+        {
+          _promise.set_exception(std::make_exception_ptr(anomaly("任务无法启动",get_identifier())));
+          _ready_state.store(true, std::memory_order_release);
+          throw anomaly("任务无法启动", get_identifier());
+        }
+        try
+        {
+          if constexpr (std::is_void_v<result>)
+          {
+            _ordinary_execution();
+            _promise.set_value();
+            _ready_state.store(true, std::memory_order_release);
+            this->mark_completed();
+            return derivation();
+          }
+          else
+          {
+            auto result_value = _ordinary_execution();
+            _promise.set_value(result_value);
+            _ready_state.store(true, std::memory_order_release);
+            this->mark_completed();
+            return derivation(result_value);
+          }
+        }
+        catch (const std::exception& e)
+        {
+          this->mark_failed();
+          _promise.set_exception(std::current_exception());
+          _ready_state.store(true, std::memory_order_release);
+          throw anomaly("任务执行失败: " + std::string(e.what()), get_identifier());
+        }
+        catch (...)
+        {
+          _promise.set_exception(std::current_exception());
+          _ready_state.store(true, std::memory_order_release);
+          this->mark_failed();
+          throw anomaly("任务执行失败: 未知错误", get_identifier());
+        }
+      }
+      bool is_void_task() const noexcept override
+      {
+        return std::is_void_v<result>;
+      }
+      bool is_result_ready() const noexcept override
+      {
+        return _ready_state.load(std::memory_order_acquire);
+      }
+      /**
+       * @brief #### 获取`future`对象
+       * @return 关联的`future`对象
+       * @note 结果只能获取一次，重复获取会抛出异常,后续结果通过工厂函数直接获取
+       */
+      std::future<result> get_future()
+      {
+        return _future;
+      }
+      const std::future<result>& get_future() const
+      {
+        return _future;
+      }
+    };
+
     /**
      * @class uint_overtime
      * @brief #### 超时任务类 - 支持超时检查和处理
      *
      * 适用场景：有时间限制的任务, 网络请求和`IO`操作, 需要及时响应的任务
      *
-     * 调用关系： 继承自`uint_standard`, 由`scheduler`定期检查超时, 支持超时回调处理
+     * 调用关系： 继承自`uint_ordinary`, 由`scheduler`定期检查超时, 支持超时回调处理
      */
     template<typename execute_function, typename timeout_function>
-    class uint_overtime : public uint_standard<execute_function>
+    class uint_overtime : public uint_ordinary
     {
     protected:
       std::atomic<bool> _timeout_handled{false}; // 超时是否已处理
@@ -616,17 +631,17 @@ namespace internals
       template<typename func, typename rep, typename period>
       uint_overtime(func&& function, const std::chrono::duration<rep, period>& timeout,
        timeout_function&& timeout_callback, const std::string &name = "")
-      :uint_standard<execute_function>(std::forward<func>(function),name),
+      :uint_ordinary(std::forward<func>(function),name),
        _timeout_callback(std::forward<timeout_function>(timeout_callback))
       {  this->set_timeout(timeout);  }
       
       /**
-       * @brief #### 标记任务超时（重写`uint_standard`类方法）
+       * @brief #### 标记任务超时（重写`uint_ordinary`类方法）
        * @return `true` 标记成功，`false` 任务已开始执行
        */
       bool mark_timeout() override
       {
-        if(uint_standard<execute_function>::mark_timeout())
+        if(uint_ordinary::mark_timeout())
         {
           handle_timeout();
           return true;
@@ -668,11 +683,12 @@ namespace internals
         return _timeout_handled.load(std::memory_order_acquire);
       }
     };
-    template<typename execute_function>
-    class uint_reliance : public uint_standard<execute_function>
-    {
-    protected:
-      std::vector<std::shared_ptr<uint_standard<>>> _dependencies; // 依赖任务列表
-    };
+    // template<typename execute_function>
+    // class uint_reliance : public uint_ordinary
+    // {
+    // protected:
+    //   // std::vector<std::shared_ptr<uint_ordinary<>>> _dependencies; // 依赖任务列表
+    // };
+    // //分离基类和带返回值派生类实现，删除基类模板
   }
 }

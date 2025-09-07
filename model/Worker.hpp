@@ -13,7 +13,7 @@ namespace internals
 {
   namespace structure_w
   {
-    using _interior_task_ptr   = std::shared_ptr<internals::structure_t::uint_standard>;
+    using _interior_task_ptr   = std::shared_ptr<internals::structure_t::uint_ordinary>;
     using _interior_cohort_ptr = std::shared_ptr<internals::structure_c::cohort_base>;
     /**
      * @enum worker_state

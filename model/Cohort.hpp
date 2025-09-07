@@ -12,7 +12,7 @@ namespace internals
 {
   namespace structure_c
   {
-    using _interior_task_ptr = std::shared_ptr<internals::structure_t::uint_standard>;
+    using _interior_task_ptr = std::shared_ptr<internals::structure_t::uint_ordinary>;
     /**
      * @brief 任务队列类型的安全转换
      * @tparam originally_type 要转换的类型
@@ -62,7 +62,7 @@ namespace internals
      * 适用场景：作为所有任务队列的基类, 定义统一的队列操作接口,支持多态队列管理
      *
      * 调用关系：被具体队列类继承, 被`scheduler`和`worker`调用, 
-     * 管理`uint_standard`类型的任务
+     * 管理`uint_ordinary`类型的任务
      */
     class cohort_base
     {

@@ -225,7 +225,7 @@ namespace internals
 
     // 任务
     mutable std::shared_mutex _tasks_mutex; // 任务映射读写锁
-    std::unordered_map<std::string, std::shared_ptr<uint_standard>> _active_tasks; // 活跃任务映射
+    std::unordered_map<std::string, std::shared_ptr<uint_ordinary>> _active_tasks; // 活跃任务映射
 
     // 扩展和插件
     mutable std::mutex _plugins_mutex; // 插件互斥锁
