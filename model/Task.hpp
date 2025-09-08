@@ -16,7 +16,7 @@
 #include <type_traits> 
 namespace internals
 {
-  namespace structure_t
+  namespace structure_u
   {
     class anomaly;
     /**
@@ -1281,21 +1281,21 @@ namespace internals
 }
 namespace pool
 {
-  using internals::structure_t::uint_ordinary;
-  using internals::structure_t::task_norm;
-  using internals::structure_t::task_rslt;
-  using internals::structure_t::task_prio;
-  using internals::structure_t::task_time;
-  using internals::structure_t::task_depn;
-  using internals::structure_t::task_coro;
+  using internals::structure_u::uint_ordinary;
+  using internals::structure_u::task_norm;
+  using internals::structure_u::task_rslt;
+  using internals::structure_u::task_prio;
+  using internals::structure_u::task_time;
+  using internals::structure_u::task_depn;
+  using internals::structure_u::task_coro;
 
-  using internals::structure_t::make_task_norm;
-  using internals::structure_t::make_task_rslt;
-  using internals::structure_t::make_task_prio;
-  using internals::structure_t::make_task_time;
-  using internals::structure_t::make_task_depn;
-  using internals::structure_t::make_task_coro;
+  using internals::structure_u::make_task_norm;
+  using internals::structure_u::make_task_rslt;
+  using internals::structure_u::make_task_prio;
+  using internals::structure_u::make_task_time;
+  using internals::structure_u::make_task_depn;
+  using internals::structure_u::make_task_coro;
 
-  using internals::structure_t::urgency_level;
+  using internals::structure_u::urgency_level;
 
 }

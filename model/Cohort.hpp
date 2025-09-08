@@ -12,7 +12,7 @@ namespace internals
 {
   namespace structure_c
   {
-    using _interior_task_ptr = std::shared_ptr<internals::structure_t::uint_ordinary>;
+    using _interior_task_ptr = std::shared_ptr<internals::structure_u::uint_ordinary>;
     /**
      * @brief 任务队列类型的安全转换
      * @tparam originally_type 要转换的类型

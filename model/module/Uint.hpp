@@ -16,7 +16,7 @@
 
 namespace internals
 {
-  namespace structure_t
+  namespace structure_u
   {
     /**
      * @class anomaly
@@ -1011,21 +1011,22 @@ namespace internals
     }
   }
 }
+
 namespace pool 
 {
-  using internals::structure_t::to_string;
+  using internals::structure_u::to_string;
 
-  using internals::structure_t::urgency_level;
-  using internals::structure_t::current_status;
+  using internals::structure_u::urgency_level;
+  using internals::structure_u::current_status;
 
 
-  using internals::structure_t::uint_ordinary;
-  using internals::structure_t::uint_standard;
-  using internals::structure_t::uint_overtime;
-  using internals::structure_t::uint_reliance;
+  using internals::structure_u::uint_ordinary;
+  using internals::structure_u::uint_standard;
+  using internals::structure_u::uint_overtime;
+  using internals::structure_u::uint_reliance;
 
-  using internals::structure_t::make_uint_ordinary;
-  using internals::structure_t::make_uint_standard;
-  using internals::structure_t::make_uint_overtime;
-  using internals::structure_t::make_uint_reliance;
+  using internals::structure_u::make_uint_ordinary;
+  using internals::structure_u::make_uint_standard;
+  using internals::structure_u::make_uint_overtime;
+  using internals::structure_u::make_uint_reliance;
 }
