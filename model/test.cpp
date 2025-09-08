@@ -73,13 +73,6 @@ private:
 };
 int main()
 {
-  // {
-  //   internals::structure_t::uint_ordinary d([](){ return 42; });
-  //   d.execute();
-  //   // int a = d.get_result();
-  //   // std::cout << a << std::endl;
-  //   std::cout << d.get_future().get() << std::endl;
-  // }
   {
     internals::structure_t::uint_ordinary p([](){ std::cout << "hello,worrld!" << std::endl; },
      "High Priority Task", internals::structure_t::urgency_level::high);
@@ -107,6 +100,42 @@ int main()
     internal_future fut1(std::async(std::launch::async, []() { return 42; }));
     auto result = fut1.get<int>();
     std::cout << "Result: " << result << std::endl; // 输出: Result: 42
+  }
+  {
+    // 测试返回值类
+    internals::structure_t::uint_standard<std::function<int()>, int> task
+    ([]()-> int { std::cout << "当前是一个带返回值的标准任务"<< std::endl; return 100; }, "Return Value Task");
+    auto value = task.execute().get<int>();
+    std::cout << "Value from task: " << value << std::endl;
+    auto res = task.get_future();
+    std::cout << "Result: " << res.get() << std::endl;
+    std::cout << "Task Name: " << task.get_task_name() << std::endl;
+    std::cout << "Task ID: " << task.get_identifier() << std::endl;
+    // std::cout << "Is Void Task: " << std::boolalpha << task.is_void_task() << std::endl;
+  }
+  {
+    auto task = internals::structure_t::make_uint_standard
+    ([]()-> int { std::cout << "当前是一个带返回值的标准任务"<< std::endl; return 100; }, "Return Value Task");
+    auto value = task->execute().get<int>();
+    std::cout << "Value from task: " << value << std::endl;
+    auto res = task->get_future();
+    std::cout << "Result: " << res.get() << std::endl;
+    std::cout << "Task Name: " << task->get_task_name() << std::endl;
+    std::cout << "Task ID: " << task->get_identifier() << std::endl;
+    // std::cout << "Is Void Task: " << std::boolalpha << task.is_void_task() << std::endl;
+    std::cout << "-----------------" << std::endl;
+
+
+    auto ptrs = internals::structure_t::make_uint_reliance<300ULL>
+    ([]()-> int { std::cout << "当前是一个依赖任务"<< std::endl; return 200; },task,
+     "Reliance Task");
+    auto ptrs_value = ptrs->execute().get<int>();
+    std::cout << "Value from task: " << ptrs_value << std::endl;
+    auto ptrs_res = ptrs->get_future();
+    std::cout << "Result: " << ptrs_res.get() << std::endl;
+    std::cout << "Task Name: " << ptrs->get_task_name() << std::endl;
+    std::cout << "Task ID: " << ptrs->get_identifier() << std::endl;
+    // std::cout << "Is Void Task: " << std::boolalpha << ptr->is_void_task() << std::endl;
   }
   return 0;
 }

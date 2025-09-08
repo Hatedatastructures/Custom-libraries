@@ -911,7 +911,7 @@ namespace internals
     class task_depn : public task_rslt<result>
     {
     private:
-      std::vector<std::shared_ptr<uint_ordinary>> _dependencies;    // 依赖的任务列表
+      std::vector<std::shared_ptr<uint_ordinary>> _dependency_list;    // 依赖的任务列表
       mutable std::atomic<bool> _dependencies_satisfied{false}; // 依赖是否已满足（缓存）
       mutable std::atomic<std::uint64_t> _last_check_time{0};   // 上次检查时间戳
       mutable std::mutex _dependency_mutex;                     // 依赖检查互斥锁
@@ -939,7 +939,7 @@ namespace internals
         {
           return dep && dep->get_state() == current_status::completed;
         };
-        return std::all_of(_dependencies.begin(), _dependencies.end(),satisfied_func);
+        return std::all_of(_dependency_list.begin(), _dependency_list.end(),satisfied_func);
       }
     public:
       /**
@@ -952,11 +952,11 @@ namespace internals
       template<typename func>
       explicit task_depn(func&& function, const std::vector<std::shared_ptr<uint_ordinary>>& dependencies,
       const std::string& name = "", urgency_level priority = urgency_level::normal)
-      : task_rslt<result>(std::forward<func>(function), name, priority), _dependencies(dependencies)
+      : task_rslt<result>(std::forward<func>(function), name, priority), _dependency_list(dependencies)
       {
         // 过滤掉空指针依赖
-        _dependencies.erase(std::remove_if(_dependencies.begin(), _dependencies.end(),
-        [](const std::shared_ptr<uint_ordinary>& dep) { return !dep; }),_dependencies.end());
+        _dependency_list.erase(std::remove_if(_dependency_list.begin(), _dependency_list.end(),
+        [](const std::shared_ptr<uint_ordinary>& dep) { return !dep; }),_dependency_list.end());
       }
       /**
        * @brief #### 构造依赖任务（单个依赖）
@@ -972,7 +972,7 @@ namespace internals
       {
         if (dependency)
         {
-          _dependencies.push_back(std::move(dependency));
+          _dependency_list.push_back(std::move(dependency));
         }
       }
       /**
@@ -984,7 +984,7 @@ namespace internals
         std::lock_guard<std::mutex> lock(_dependency_mutex);
         if (dependency && this->uint_ordinary::get_state() == current_status::pending)
         {
-          _dependencies.push_back(std::move(dependency));
+          _dependency_list.push_back(std::move(dependency));
           // 重置缓存状态
           _dependencies_satisfied.store(false, std::memory_order_release);
           _last_check_time.store(0, std::memory_order_release);
@@ -1019,7 +1019,7 @@ namespace internals
           return dep && dep->get_state() == current_status::completed;
         };
         // 批量检查所有依赖
-        bool all_satisfied = std::all_of(_dependencies.begin(), _dependencies.end(),satisfied_func);
+        bool all_satisfied = std::all_of(_dependency_list.begin(), _dependency_list.end(),satisfied_func);
         
         // 更新缓存
         _dependencies_satisfied.store(all_satisfied, std::memory_order_release);
@@ -1035,7 +1035,7 @@ namespace internals
       {
         std::lock_guard<std::mutex> lock(_dependency_mutex);
         std::vector<std::shared_ptr<uint_ordinary>> pending;
-        pending.reserve(_dependencies.size()); // 预分配内存
+        pending.reserve(_dependency_list.size()); // 预分配内存
         auto get_pending_func = [](const std::shared_ptr<uint_ordinary>& dep) 
         {
           if (!dep) return false;
@@ -1043,7 +1043,7 @@ namespace internals
           return state != current_status::completed && state != current_status::cancelled && 
           state != current_status::timeout && state != current_status::failed;
         };
-        std::copy_if(_dependencies.begin(), _dependencies.end(), std::back_inserter(pending),get_pending_func);
+        std::copy_if(_dependency_list.begin(), _dependency_list.end(), std::back_inserter(pending),get_pending_func);
         
         return pending;
       }
@@ -1054,7 +1054,7 @@ namespace internals
       std::size_t get_dependency_count() const
       {
         std::lock_guard<std::mutex> lock(_dependency_mutex);
-        return _dependencies.size();
+        return _dependency_list.size();
       }
       /**
        * @brief #### 等待所有依赖完成

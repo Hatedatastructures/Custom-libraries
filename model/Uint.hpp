@@ -41,6 +41,7 @@ namespace internals
         return _identifier;
       }
     };
+
     /**
      * @class derivation
      * @brief #### 任务返回类型封装类
@@ -66,11 +67,9 @@ namespace internals
         }
         return *this;
       }
+      derivation(const derivation& ) = delete;
+      derivation& operator= (const derivation&) = delete;
       derivation() : _void(true) {}
-      /**
-       * @brief 隐式类型转换
-       * @tparam implicit_type 
-       */
       template<typename implicit_type>
       operator implicit_type() const
       {
@@ -81,6 +80,7 @@ namespace internals
         }
         return std::any_cast<implicit_type>(_data);
       }
+
       /**
        * @brief  #### 判断任务是否为void类型
        * @return `true` - `void`类型, `false` - 非`void`类型
@@ -89,6 +89,7 @@ namespace internals
       {
         return _void;
       }
+
       /**
        * @brief #### 判断任务是否有返回值
        * @return `true` - 有返回值, `false` - 无返回值
@@ -97,24 +98,31 @@ namespace internals
       {
         return !_void && _data.has_value();
       }
+
       /**
        * @brief #### 显式获取任务返回值
-       * @tparam convert_t 任务返回值类型
        */
       template<typename convert_t>
-      convert_t get() const
+      auto get() const
       {
-        if (_void) 
+        if constexpr (std::is_void_v<convert_t>)
         {
-          throw anomaly("任务无返回值，无法获取结果", 0);
-        }
-        try 
+          if(!_void)
+            throw anomaly("任务有返回值,不能按void获取", 0);
+          return;
+        } 
+        else
         {
-          return std::any_cast<convert_t>(_data);
-        }
-        catch (const std::bad_any_cast& e) 
-        {
-          throw anomaly("类型转换失败: " + std::string(e.what()), 0);
+          if(_void)
+            throw anomaly("任务无返回值,不能按非void获取", 0);
+          try
+          {
+            return std::any_cast<convert_t>(_data);
+          }
+          catch(const std::bad_any_cast& e)
+          {
+            throw anomaly("类型转换失败: " + std::string(e.what()), 0);
+          }    
         }
       }
     };
@@ -144,6 +152,7 @@ namespace internals
       highest = 100, // 最高优先级
       critical = 200 // 关键优先级
     };
+
     inline std::string to_string(current_status state) noexcept
     {
       switch (state)
@@ -157,6 +166,7 @@ namespace internals
         default:                         return "unknown";
       }
     }
+
     inline std::string to_string(urgency_level level) noexcept
     {
       switch (level)
@@ -170,9 +180,10 @@ namespace internals
         default:                         return std::to_string(static_cast<int>(level));
       }
     }
+
     /**
      * @class uint_ordinary
-     * @brief #### 标准任务类 - 定义所有任务的通用接口
+     * @brief #### 基本任务类 - 定义所有任务的通用接口
      * @tparam execute_function 任务执行函数类型,可以在上层自动推导来获取任务返回值类型
      * @warning #### 计算结果不可重复获取，创建任务对象通过工厂函数创建
      *
@@ -200,6 +211,7 @@ namespace internals
         }
         return false;
       }
+
       /**
        * @brief #### 标记任务完成（由`worker`线程调用）
        */
@@ -210,6 +222,7 @@ namespace internals
         std::lock_guard<std::mutex> lock(_state_mutex);
         _state_cv.notify_all();
       }
+
       /**
        * @brief #### 标记任务失败（由`worker`线程调用）
        */
@@ -220,7 +233,9 @@ namespace internals
         std::lock_guard<std::mutex> lock(_state_mutex);
         _state_cv.notify_all();
       }
+
     protected:
+
       constexpr std::string coverage_string(const std::string &str) const
       {
         if (str.empty())
@@ -229,7 +244,9 @@ namespace internals
         }
         return str;
       }
+
     protected:
+
       std::uint64_t _identifier; // 任务唯一标识
       static std::atomic<std::uint64_t> current_unique_identifier; // 全局任务ID生成器
 
@@ -248,7 +265,9 @@ namespace internals
       std::atomic<bool> _has_deadline{false}; // 是否设置了超时时间
 
       std::atomic<std::int32_t> _priority; // 任务优先级
+
     public:
+
       template <typename execute_function>
       uint_ordinary(execute_function&& function,const std::string &name = "", 
         urgency_level priority = urgency_level::normal)
@@ -256,13 +275,17 @@ namespace internals
       _ordinary_execution(std::forward<execute_function>(function)),
       _task_name(coverage_string(name)),_submit_time(std::chrono::steady_clock::now()),
       _priority(static_cast<std::int32_t>(priority)) {}
+
       virtual ~uint_ordinary() = default;
 
       uint_ordinary(const uint_ordinary&) = delete;
+
       uint_ordinary& operator=(const uint_ordinary&) = delete;
 
       uint_ordinary(uint_ordinary&&) = delete;
+
       uint_ordinary& operator=(uint_ordinary&&) = delete;
+
       /**
        * @brief #### 执行任务 - 虚函数，子类根据自身情况实现
        * @return 任务执行结果(`derivation`类型支持任意返回类型)
@@ -293,6 +316,7 @@ namespace internals
           throw anomaly("任务执行失败: 未知错误", get_identifier());
         }
       }
+
       /**
        * @brief 检查任务是否有返回值
        * @return `true` 无返回值，`false` 有返回值
@@ -301,6 +325,7 @@ namespace internals
       {
         return false;
       }
+
       /**
        * @brief #### 取消任务
        * @return `true` 取消成功，`false` 任务已开始执行无法取消
@@ -318,6 +343,7 @@ namespace internals
         }
         return false;
       }
+
       /**
        * @brief #### 检查任务是否超时
        * @return `true` 未超时，`false` 超时
@@ -328,6 +354,7 @@ namespace internals
       {
         return std::chrono::steady_clock::now() < _deadline;
       }
+
       /**
        * @brief #### 是否设置任务超时
        */
@@ -335,6 +362,7 @@ namespace internals
       {
         return _has_deadline.load(std::memory_order_acquire);
       }
+
       /**
        * @brief #### 标记任务超时
        * @return `true` 标记成功，`false` 任务已开始执行
@@ -352,6 +380,7 @@ namespace internals
         }
         return false;
       }
+
       /**
        * @brief #### 获取任务状态
        * @return 当前任务状态
@@ -360,6 +389,7 @@ namespace internals
       {
         return _state.load(std::memory_order_acquire);
       }
+
       /**
        * @brief #### 获取任务优先级
        * @return 任务优先级值
@@ -404,6 +434,7 @@ namespace internals
       {
         return _task_name;
       }
+
       /**
        * @brief #### 获取任务超时时间点
        */
@@ -411,6 +442,7 @@ namespace internals
       {
         return _deadline;
       }
+
       /**
        * @brief #### 设置超时时间
        * @param timeout 超时时长
@@ -447,10 +479,12 @@ namespace internals
        */
       std::chrono::milliseconds get_execution_duration() const
       {
-        if (_start_time == std::chrono::steady_clock::time_point{} ||_end_time == std::chrono::steady_clock::time_point{})
+        if (_start_time == std::chrono::steady_clock::time_point{} ||
+          _end_time == std::chrono::steady_clock::time_point{})
           return std::chrono::milliseconds{0};
         return std::chrono::duration_cast<std::chrono::milliseconds>(_end_time - _start_time);
       }
+
       /**
        * @brief #### 获取任务等待时长
        * @return 等待时长（毫秒），从提交到开始执行
@@ -461,6 +495,7 @@ namespace internals
           return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - _submit_time);
         return std::chrono::duration_cast<std::chrono::milliseconds>(_start_time - _submit_time);
       }
+
       /**
        * @brief #### 等待任务完成(超时)
        * @param timeout 等待超时时间
@@ -473,11 +508,12 @@ namespace internals
         auto await_func = [this]()
         {
           auto state = _state.load(std::memory_order_acquire);
-          return state == current_status::completed || state == current_status::cancelled || state == current_status::timeout ||
-          state == current_status::failed;
+          return state == current_status::completed || state == current_status::cancelled 
+          || state == current_status::timeout || state == current_status::failed;
         };
         return _state_cv.wait_for(lock, timeout, await_func);
       }
+
       /**
        * @brief #### 等待任务完成（无超时）
        */
@@ -487,11 +523,12 @@ namespace internals
         auto await_func = [this]()
         {
           auto state = _state.load(std::memory_order_acquire);
-          return state == current_status::completed || state == current_status::cancelled || state == current_status::timeout ||
-          state == current_status::failed;
+          return state == current_status::completed || state == current_status::cancelled 
+          || state == current_status::timeout || state == current_status::failed;
         };
         _state_cv.wait(lock, await_func);
       }
+
       /**
        * @brief #### 获取任务执行结果（阻塞等待）
        * @return 任务执行结果
@@ -501,6 +538,7 @@ namespace internals
       {
         return derivation{};
       }
+
       /**
        * @brief #### 检查结果是否就绪
        * @return `true` 结果就绪，`false` 结果未就绪
@@ -514,11 +552,13 @@ namespace internals
       {
         return this->get_priority() < other.get_priority();
       }
+
       constexpr bool operator>(const uint_ordinary& other) const noexcept
       {
         return this->get_priority() > other.get_priority();
       }
     };
+
     std::atomic<std::uint64_t> uint_ordinary::current_unique_identifier{1};
 
     /**
@@ -536,17 +576,20 @@ namespace internals
     {
       //对于和基类成员变量名相同的成员变量，在多态里默认隐藏，可以通过限定符来访问
     protected:
+
       std::promise<result> _promise; // 结果承诺
       std::future<result> _future; // 结果期望
 
       std::atomic<bool> _ready_state{false};  // 结果是否就绪
-      std::function<void()> _ordinary_execution;  // 任务执行函数
+      std::function<result()> _standard_execution;  // 任务执行函数
+
     public:
+
       uint_standard(execute_function&& function, const std::string &name = "", 
         urgency_level priority = urgency_level::normal)
-      :uint_ordinary(std::forward<execute_function>(function),name,priority),
-      _promise(), _future(_promise.get_future()),
-       _ordinary_execution(std::forward<execute_function>(function)) {}
+      :uint_ordinary([](){},name,priority),_promise(), _future(_promise.get_future()),
+       _standard_execution(std::forward<execute_function>(function)) {}
+
       
       derivation execute() override
       {
@@ -560,7 +603,7 @@ namespace internals
         {
           if constexpr (std::is_void_v<result>)
           {
-            _ordinary_execution();
+            this->_standard_execution();
             _promise.set_value();
             _ready_state.store(true, std::memory_order_release);
             this->mark_completed();
@@ -568,7 +611,7 @@ namespace internals
           }
           else
           {
-            auto result_value = _ordinary_execution();
+            auto result_value = this->_standard_execution();
             _promise.set_value(result_value);
             _ready_state.store(true, std::memory_order_release);
             this->mark_completed();
@@ -590,14 +633,17 @@ namespace internals
           throw anomaly("任务执行失败: 未知错误", get_identifier());
         }
       }
+
       bool is_void_task() const noexcept override
       {
         return std::is_void_v<result>;
       }
+
       bool is_result_ready() const noexcept override
       {
         return _ready_state.load(std::memory_order_acquire);
       }
+
       /**
        * @brief #### 获取`future`对象
        * @return 关联的`future`对象
@@ -605,11 +651,37 @@ namespace internals
        */
       std::future<result> get_future()
       {
-        return _future;
+        return std::move(_future);
       }
+
       const std::future<result>& get_future() const
       {
         return _future;
+      }
+
+      derivation get_result() override
+      {
+        try
+        {
+          if constexpr (std::is_void_v<result>)
+          {
+            _future.get();
+            return derivation();
+          }
+          else
+          {
+            result value = _future.get(); 
+            return derivation(std::move(value));
+          }
+        }
+        catch (const std::exception& e)
+        {
+          throw anomaly("获取任务结果失败: " + std::string(e.what()), get_identifier());
+        }
+        catch (...)
+        {
+          throw anomaly("获取任务结果失败: 未知错误", get_identifier());
+        }
       }
     };
 
@@ -619,19 +691,22 @@ namespace internals
      *
      * 适用场景：有时间限制的任务, 网络请求和`IO`操作, 需要及时响应的任务
      *
-     * 调用关系： 继承自`uint_ordinary`, 由`scheduler`定期检查超时, 支持超时回调处理
+     * 调用关系： 继承自`uint_standard`, 由`scheduler`定期检查超时, 支持超时回调处理
      */
     template<typename execute_function, typename timeout_function>
-    class uint_overtime : public uint_ordinary
+    class uint_overtime : public uint_standard<execute_function>
     {
     protected:
+
       std::atomic<bool> _timeout_handled{false}; // 超时是否已处理
       std::function<std::invoke_result_t<timeout_function>> _timeout_callback; // 超时回调函数
+
     public:
+
       template<typename func, typename rep, typename period>
       uint_overtime(func&& function, const std::chrono::duration<rep, period>& timeout,
        timeout_function&& timeout_callback, const std::string &name = "")
-      :uint_ordinary(std::forward<func>(function),name),
+      :uint_standard<execute_function>(std::forward<func>(function),name),
        _timeout_callback(std::forward<timeout_function>(timeout_callback))
       {  this->set_timeout(timeout);  }
       
@@ -648,6 +723,7 @@ namespace internals
         }
         return false;
       }
+
       /**
        * @brief #### 处理超时事件
        */
@@ -666,6 +742,7 @@ namespace internals
           }
         }
       }
+
       /**
        * @brief #### 设置超时回调函数
        * @param callback 超时回调函数
@@ -674,6 +751,7 @@ namespace internals
       {
         _timeout_callback = std::forward<timeout_function>(callback);
       }
+
       /**
        * @brief #### 检查超时是否已处理
        * @return `true` 已处理，`false` 未处理
@@ -683,12 +761,271 @@ namespace internals
         return _timeout_handled.load(std::memory_order_acquire);
       }
     };
-    // template<typename execute_function>
-    // class uint_reliance : public uint_ordinary
-    // {
-    // protected:
-    //   // std::vector<std::shared_ptr<uint_ordinary<>>> _dependencies; // 依赖任务列表
-    // };
-    // //分离基类和带返回值派生类实现，删除基类模板
+
+    /**
+     * @class task_depn
+     * @brief #### 依赖任务类 - 支持任务间依赖关系
+     *
+     * 适用场景：需要按顺序执行的任务链, 数据流水线处理,复杂业务逻辑分解
+     *
+     * 调用关系：继承自`task_rslt`, 依赖其他任务的完成状态, 由`scheduler`检查依赖关系
+     */
+    template<typename execute_function, uint64_t MAX_CACHE_VALIDITY = 100ULL>
+    class uint_reliance : public uint_standard<execute_function>
+    {
+    protected:
+
+      mutable std::atomic<std::uint64_t> _last_check_time{0}; // 上次检查时间戳
+      mutable std::atomic<bool> _dependencies_satisfied{false}; // 依赖是否已满足（缓存）
+
+      mutable std::mutex _dependency_mutex; // 依赖检查互斥锁
+      mutable std::condition_variable _dependency_cv; // 依赖状态变更条件变量
+      std::vector<std::shared_ptr<uint_ordinary>> _dependency_list; // 依赖任务列表
+
+      static constexpr std::uint64_t CACHE_VALIDITY = MAX_CACHE_VALIDITY; // 缓存有效期（毫秒）
+
+    protected:
+
+      /**
+        * @brief #### 获取当前时间戳（毫秒）
+        * @return 当前时间戳
+        */
+      static std::uint64_t get_current_time_ms()
+      {
+        return std::chrono::duration_cast<std::chrono::milliseconds>
+        (std::chrono::steady_clock::now().time_since_epoch()).count();
+      }
+
+      /**
+        * @brief #### 不安全的依赖检查（假设已持有锁）
+        * @return 如果所有依赖都已完成则返回`true`
+        */
+      bool are_dependencies_satisfied_unsafe() const
+      {
+        auto satisfied_func = [](const std::shared_ptr<uint_ordinary>& dep) 
+        {
+          return dep && dep->get_state() == current_status::completed;
+        };
+        return std::all_of(_dependency_list.begin(), _dependency_list.end(),satisfied_func);
+      }
+    public:
+      uint_reliance(execute_function&& function, const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
+       const std::string &name = "", urgency_level priority = urgency_level::normal)
+      :uint_standard<execute_function>(std::forward<execute_function>(function),name,priority),
+       _dependency_list(dependencies)
+      {
+        auto null_pointer_check = [](const std::shared_ptr<uint_ordinary>& ptr)
+        {
+          return ptr != nullptr;
+        };
+        if(!_dependency_list.empty())
+        {
+          _dependency_list.erase(std::remove_if(_dependency_list.begin(),_dependency_list.end(),
+          null_pointer_check),_dependency_list.end());
+        }
+      }
+
+      uint_reliance(execute_function&& function, std::shared_ptr<uint_ordinary> dependency,
+       const std::string &name = "", urgency_level priority = urgency_level::normal)
+      :uint_standard<execute_function>(std::forward<execute_function>(function),name,priority)
+      {
+        _dependency_list.push_back(std::move(dependency));
+      }
+
+      /**
+       * @brief #### 添加依赖任务
+       * @param dependency 依赖的任务
+       */
+      void add_dependency(std::shared_ptr<uint_ordinary> dependency)
+      {
+        std::lock_guard<std::mutex> lock(_dependency_mutex);
+        if (dependency && this->uint_ordinary::get_state() == current_status::pending)
+        {
+          _dependency_list.push_back(std::move(dependency));
+          // 重置缓存状态
+          _dependencies_satisfied.store(false, std::memory_order_release);
+          _last_check_time.store(0, std::memory_order_release);
+        }
+      }
+
+      /**
+       * @brief #### 检查所有依赖是否完成
+       * @return `true` 所有依赖已完成，`false` 存在未完成的依赖
+       */
+      bool are_dependencies_satisfied() const
+      {
+        // 检查缓存
+        auto current_time = get_current_time_ms();
+        auto last_check = _last_check_time.load(std::memory_order_acquire);
+        
+        if (_dependencies_satisfied.load(std::memory_order_acquire) && 
+        (current_time - last_check) < CACHE_VALIDITY)
+        {
+          return true;
+        }
+        
+        std::lock_guard<std::mutex> lock(_dependency_mutex);
+        
+        // 双重检查
+        if (_dependencies_satisfied.load(std::memory_order_acquire) && 
+        (get_current_time_ms() - _last_check_time.load(std::memory_order_acquire)) < CACHE_VALIDITY)
+        {
+          return true;
+        }
+
+        auto satisfied_func = [](const std::shared_ptr<uint_ordinary>& dep) 
+        {
+          return dep && dep->get_state() == current_status::completed;
+        };
+        // 批量检查依赖
+        bool all_satisfied = std::all_of(_dependency_list.begin(), _dependency_list.end(),satisfied_func);
+        
+        // 更新
+        _dependencies_satisfied.store(all_satisfied, std::memory_order_release);
+        _last_check_time.store(get_current_time_ms(), std::memory_order_release);
+        
+        return all_satisfied;
+      }
+
+      /**
+       * @brief #### 获取未完成的依赖任务
+       * @return 未完成的依赖任务列表
+       */
+      std::vector<std::shared_ptr<uint_ordinary>> get_pending_dependencies() const
+      {
+        std::lock_guard<std::mutex> lock(_dependency_mutex);
+        std::vector<std::shared_ptr<uint_ordinary>> pending;
+        pending.reserve(_dependency_list.size()); // 预分配内存
+        auto get_pending_func = [](const std::shared_ptr<uint_ordinary>& dep) 
+        {
+          if (!dep) return false;
+          auto state = dep->get_state();
+          return state != current_status::completed && state != current_status::cancelled && 
+          state != current_status::timeout && state != current_status::failed;
+        };
+        std::copy_if(_dependency_list.begin(), _dependency_list.end(), 
+        std::back_inserter(pending),get_pending_func);
+        
+        return pending;
+      }
+
+      /**
+       * @brief #### 获取依赖任务数量
+       * @return 依赖任务数量
+       */
+      std::size_t get_dependency_count() const
+      {
+        std::lock_guard<std::mutex> lock(_dependency_mutex);
+        return _dependency_list.size();
+      }
+
+      /**
+       * @brief #### 等待所有依赖完成
+       * @param timeout 等待超时时间
+       * @return true 所有依赖完成，false 等待超时
+       */
+      template <typename rep, typename period>
+      bool wait_for_dependencies(const std::chrono::duration<rep, period> &timeout) const
+      {
+        std::unique_lock<std::mutex> lock(_dependency_mutex);
+        auto wait_function = [this]()
+        {
+          return are_dependencies_satisfied_unsafe();
+        };
+        return _dependency_cv.wait_for(lock, timeout, wait_function);
+      }
+    };
+    /**
+     * @brief #### 任务工厂函数 - 创建基本任务
+     * @param func 任务执行函数
+     * @param name 任务名称
+     * @param priority 任务优先级
+     * @return 智能指针
+     */
+    template<typename funcion_t>
+    std::shared_ptr<uint_ordinary> make_uint_ordinary(funcion_t&& func,const std::string &name = "",
+      urgency_level priority = urgency_level::normal)
+    {
+      return std::make_shared<uint_ordinary>(std::forward<funcion_t>(func),name,priority);
+    }
+
+    /**
+     * @brief #### 任务工厂函数 - 创建标准任务
+     * @tparam function_t 任务执行函数类型
+     * @param func 任务执行函数
+     * @param name 任务名称
+     * @param priority 任务优先级
+     * @return 智能指针
+     */
+    template<typename function_t, typename result_t = std::invoke_result_t<function_t>>
+    std::shared_ptr<uint_standard<function_t, result_t>> make_uint_standard(function_t&& func,
+      const std::string &name = "", urgency_level priority = urgency_level::normal)
+    {
+      return std::make_shared<uint_standard<function_t, result_t>>
+      (std::forward<function_t>(func),name,priority);
+    }
+
+    /**
+     * @brief #### 任务工厂函数 - 创建超时任务
+     * @tparam function_t 任务执行函数类型
+     * @tparam timeout_function 超时回调函数类型
+     * @param func 任务执行函数
+     * @param timeout 超时时间
+     * @param timeout_callback 超时回调函数
+     * @param name 任务名称
+     * @return 智能指针
+     */
+    template<typename function_t, typename timeout_function, typename rep, typename period>
+    std::shared_ptr<uint_overtime<function_t, timeout_function>> make_uint_overtime(function_t&& func,
+      const std::chrono::duration<rep, period>& timeout, timeout_function&& timeout_callback,
+      const std::string &name = "")
+    {
+      return std::make_shared<uint_overtime<function_t, timeout_function>>
+      (std::forward<function_t>(func),timeout,std::forward<timeout_function>(timeout_callback),name);
+    }
+    /**
+     * @brief #### 任务工厂函数 - 创建依赖任务
+     * @tparam execute_function 任务执行函数类型
+     * @tparam MAX_CACHE_VALIDITY 任务缓存有效期（毫秒）
+     * @param func 任务执行函数
+     * @param dependencies 依赖任务列表
+     * @param name 任务名称
+     * @param priority 任务优先级
+     * @return 智能指针
+     */
+    template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
+    std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(function_t&& func,
+      const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
+      const std::string &name = "", urgency_level priority = urgency_level::normal)
+    {
+      return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>
+      (std::forward<function_t>(func),dependencies,name,priority);
+    }
+    template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
+    std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance
+    (function_t&& func, std::shared_ptr<uint_ordinary> dependency,
+      const std::string &name = "", urgency_level priority = urgency_level::normal)
+    {
+      return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>
+      (std::forward<function_t>(func),std::move(dependency),name,priority);
+    }
   }
+}
+namespace pool 
+{
+  using internals::structure_t::to_string;
+
+  using internals::structure_t::urgency_level;
+  using internals::structure_t::current_status;
+
+
+  using internals::structure_t::uint_ordinary;
+  using internals::structure_t::uint_standard;
+  using internals::structure_t::uint_overtime;
+  using internals::structure_t::uint_reliance;
+
+  using internals::structure_t::make_uint_ordinary;
+  using internals::structure_t::make_uint_standard;
+  using internals::structure_t::make_uint_overtime;
+  using internals::structure_t::make_uint_reliance;
 }
