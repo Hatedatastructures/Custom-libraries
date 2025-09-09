@@ -540,7 +540,7 @@ namespace internals
     {
     private:
       std::atomic<bool> _preemptive_mode{false}; // 是否处于抢占模式
-      std::atomic<structure_u::urgency_level> _min_priority; // 当前最低处理优先级
+      std::atomic<structure_u::weight> _min_priority; // 当前最低处理优先级
     public:
       /**
        * @brief 构造优先级工作线程
@@ -549,7 +549,7 @@ namespace internals
        * @param min_priority 最低处理优先级
        */
       worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
-      structure_u::urgency_level min_priority = structure_u::urgency_level::low)
+      structure_u::weight min_priority = structure_u::weight::low)
         : worker_base(worker_name, std::move(cohort_struct)), _min_priority(min_priority) {}
       /**
        * @brief 析构函数
@@ -559,7 +559,7 @@ namespace internals
        * @brief 设置最低处理优先级
        * @param priority 最低优先级
        */
-      void set_min_priority(structure_u::urgency_level priority)
+      void set_min_priority(structure_u::weight priority)
       {
         _min_priority.store(priority, std::memory_order_release);
       }
@@ -567,7 +567,7 @@ namespace internals
        * @brief 获取最低处理优先级
        * @return 最低优先级
        */
-      structure_u::urgency_level get_min_priority() const
+      structure_u::weight get_min_priority() const
       {
         return _min_priority.load(std::memory_order_acquire);
       }
@@ -922,7 +922,7 @@ namespace internals
      * @return 工作线程智能指针
      */
     inline std::unique_ptr<worker_base> make_worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
-      structure_u::urgency_level min_priority =  structure_u::urgency_level::low)
+      structure_u::weight min_priority =  structure_u::weight::low)
     {
       return std::make_unique<worker_priority>(worker_name, std::move(cohort_struct), min_priority);
     }

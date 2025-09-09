@@ -502,7 +502,7 @@ namespace internals
      * @return 任务future
      */
     template <typename function, typename... Args>
-    auto submit_priority(urgency_level priority, function &&func, Args &&...args)
+    auto submit_priority(weight priority, function &&func, Args &&...args)
       -> std::future<std::invoke_result_t<function, Args...>>
     {
 

@@ -13,174 +13,12 @@
 #include <utility>
 #include <type_traits> 
 #include <optional>
+#include "Integration.hpp"
 
 namespace internals
 {
   namespace structure_u
   {
-    /**
-     * @class anomaly
-     * @brief #### 任务执行异常类
-     */
-    class anomaly : public std::exception
-    {
-    private:
-      std::string _message; // 异常消息
-      std::uint64_t _identifier; // 任务ID
-
-    public:
-      explicit anomaly(const std::string &message, std::uint64_t task_id = 0)
-        : _message(message), _identifier(task_id) {}
-
-      const char *what() const noexcept override
-      {
-        return _message.c_str();
-      }
-      std::uint64_t get_identifier() const noexcept
-      {
-        return _identifier;
-      }
-    };
-
-    /**
-     * @class derivation
-     * @brief #### 任务返回类型封装类
-     * @details 用于封装任务的返回值，支持任意类型的返回值，同时支持`void`类型的返回值
-     * @warning 不支持对`void`类型的返回值进行转换
-     */
-    class derivation
-    { 
-    private:
-      std::any _data;
-      bool _void;
-    public:
-      template<typename convert_t>
-      derivation(convert_t&& value) : _data(std::forward<convert_t>(value)), _void(false) {}
-      derivation(derivation&& other) noexcept 
-      : _data(std::move(other._data)), _void(std::move(other._void)) {}
-      derivation& operator= (derivation&& other) noexcept
-      {
-        if(this != &other)
-        {
-          _data = std::move(other._data);
-          _void = other._void;
-        }
-        return *this;
-      }
-      derivation(const derivation& ) = delete;
-      derivation& operator= (const derivation&) = delete;
-      derivation() : _void(true) {}
-      template<typename implicit_type>
-      operator implicit_type() const
-      {
-        static_assert(!std::is_void_v<implicit_type>, "不能对void类型转换");
-        if(_void)
-        {
-          throw anomaly("void类型不能转换",0);
-        }
-        return std::any_cast<implicit_type>(_data);
-      }
-
-      /**
-       * @brief  #### 判断任务是否为void类型
-       * @return `true` - `void`类型, `false` - 非`void`类型
-       */
-      bool is_void() const noexcept
-      {
-        return _void;
-      }
-
-      /**
-       * @brief #### 判断任务是否有返回值
-       * @return `true` - 有返回值, `false` - 无返回值
-       */
-      bool has_value()const noexcept
-      {
-        return !_void && _data.has_value();
-      }
-
-      /**
-       * @brief #### 显式获取任务返回值
-       */
-      template<typename convert_t>
-      auto get() const
-      {
-        if constexpr (std::is_void_v<convert_t>)
-        {
-          if(!_void)
-            throw anomaly("任务有返回值,不能按void获取", 0);
-          return;
-        } 
-        else
-        {
-          if(_void)
-            throw anomaly("任务无返回值,不能按非void获取", 0);
-          try
-          {
-            return std::any_cast<convert_t>(_data);
-          }
-          catch(const std::bad_any_cast& e)
-          {
-            throw anomaly("类型转换失败: " + std::string(e.what()), 0);
-          }    
-        }
-      }
-    };
-    /**
-     * @enum current_status
-     * @brief #### 任务当前状态枚举
-     */
-    enum class current_status : std::uint8_t
-    {
-      pending = 0,   // 等待执行
-      running = 1,   // 正在执行
-      completed = 2, // 执行完成
-      cancelled = 3, // 已取消
-      timeout = 4,   // 执行超时
-      failed = 5     // 执行失败
-    };
-    /**
-     * @enum urgency_level
-     * @brief #### 任务优先级枚举
-     */
-    enum class urgency_level : std::int32_t
-    {
-      lowest = -100, // 最低优先级
-      low = -50,     // 低优先级
-      normal = 0,    // 普通优先级
-      high = 50,     // 高优先级
-      highest = 100, // 最高优先级
-      critical = 200 // 关键优先级
-    };
-
-    inline std::string to_string(current_status state) noexcept
-    {
-      switch (state)
-      {
-        case current_status::pending:    return "pending";
-        case current_status::running:    return "running";
-        case current_status::completed:  return "completed";
-        case current_status::cancelled:  return "cancelled";
-        case current_status::timeout:    return "timeout";
-        case current_status::failed:     return "failed";
-        default:                         return "unknown";
-      }
-    }
-
-    inline std::string to_string(urgency_level level) noexcept
-    {
-      switch (level)
-      {
-        case urgency_level::lowest:      return "lowest";
-        case urgency_level::low:         return "low";
-        case urgency_level::normal:      return "normal";
-        case urgency_level::high:        return "high";
-        case urgency_level::highest:     return "highest";
-        case urgency_level::critical:    return "critical";
-        default:                         return std::to_string(static_cast<int>(level));
-      }
-    }
-
     /**
      * @class uint_ordinary
      * @brief #### 基本任务类 - 定义所有任务的通用接口
@@ -270,7 +108,7 @@ namespace internals
 
       template <typename execute_function>
       uint_ordinary(execute_function&& function,const std::string &name = "", 
-        urgency_level priority = urgency_level::normal)
+        weight priority = weight::normal)
       :_identifier(current_unique_identifier.fetch_add(1, std::memory_order_relaxed)),
       _ordinary_execution(std::forward<execute_function>(function)),
       _task_name(coverage_string(name)),_submit_time(std::chrono::steady_clock::now()),
@@ -289,7 +127,7 @@ namespace internals
       /**
        * @brief #### 执行任务 - 虚函数，子类根据自身情况实现
        * @return 任务执行结果(`derivation`类型支持任意返回类型)
-       * @throws `anomaly` 任务执行异常
+       * @throws `execution_exception` 任务执行异常
        *
        * 调用者：`worker`线程, 被调用者：衍生任务类
        */
@@ -297,7 +135,7 @@ namespace internals
       {
         if(mark_running() == false)
         {
-          throw anomaly("任务不在运行状态,检查任务",get_identifier());
+          throw execution_exception("任务不在运行状态,检查任务",get_identifier());
         }
         try
         {
@@ -308,12 +146,12 @@ namespace internals
         catch (const std::exception& error)
         {
           mark_failed();
-          throw anomaly(std::string(error.what()), get_identifier());
+          throw execution_exception(std::string(error.what()), get_identifier());
         }
         catch(...)
         {
           this->mark_failed();
-          throw anomaly("任务执行失败: 未知错误", get_identifier());
+          throw execution_exception("任务执行失败: 未知错误", get_identifier());
         }
       }
 
@@ -403,7 +241,7 @@ namespace internals
        * @brief #### 设置任务优先级
        * @param priority 新的优先级
        */
-      void set_priority(urgency_level priority) noexcept
+      void set_priority(weight priority) noexcept
       {
         _priority.store(static_cast<std::int32_t>(priority), std::memory_order_release);
       }
@@ -586,7 +424,7 @@ namespace internals
     public:
 
       uint_standard(execute_function&& function, const std::string &name = "", 
-        urgency_level priority = urgency_level::normal)
+        weight priority = weight::normal)
       :uint_ordinary([](){},name,priority),_promise(), _future(_promise.get_future()),
        _standard_execution(std::forward<execute_function>(function)) {}
 
@@ -595,9 +433,9 @@ namespace internals
       {
         if(!this->mark_running())
         {
-          _promise.set_exception(std::make_exception_ptr(anomaly("任务无法启动",get_identifier())));
+          _promise.set_exception(std::make_exception_ptr(execution_exception("任务无法启动",get_identifier())));
           _ready_state.store(true, std::memory_order_release);
-          throw anomaly("任务无法启动", get_identifier());
+          throw execution_exception("任务无法启动", get_identifier());
         }
         try
         {
@@ -623,14 +461,14 @@ namespace internals
           this->mark_failed();
           _promise.set_exception(std::current_exception());
           _ready_state.store(true, std::memory_order_release);
-          throw anomaly("任务执行失败: " + std::string(e.what()), get_identifier());
+          throw execution_exception("任务执行失败: " + std::string(e.what()), get_identifier());
         }
         catch (...)
         {
           _promise.set_exception(std::current_exception());
           _ready_state.store(true, std::memory_order_release);
           this->mark_failed();
-          throw anomaly("任务执行失败: 未知错误", get_identifier());
+          throw execution_exception("任务执行失败: 未知错误", get_identifier());
         }
       }
 
@@ -676,11 +514,11 @@ namespace internals
         }
         catch (const std::exception& e)
         {
-          throw anomaly("获取任务结果失败: " + std::string(e.what()), get_identifier());
+          throw execution_exception("获取任务结果失败: " + std::string(e.what()), get_identifier());
         }
         catch (...)
         {
-          throw anomaly("获取任务结果失败: 未知错误", get_identifier());
+          throw execution_exception("获取任务结果失败: 未知错误", get_identifier());
         }
       }
     };
@@ -810,7 +648,7 @@ namespace internals
       }
     public:
       uint_reliance(execute_function&& function, const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
-       const std::string &name = "", urgency_level priority = urgency_level::normal)
+       const std::string &name = "", weight priority = weight::normal)
       :uint_standard<execute_function>(std::forward<execute_function>(function),name,priority),
        _dependency_list(dependencies)
       {
@@ -826,7 +664,7 @@ namespace internals
       }
 
       uint_reliance(execute_function&& function, std::shared_ptr<uint_ordinary> dependency,
-       const std::string &name = "", urgency_level priority = urgency_level::normal)
+       const std::string &name = "", weight priority = weight::normal)
       :uint_standard<execute_function>(std::forward<execute_function>(function),name,priority)
       {
         _dependency_list.push_back(std::move(dependency));
@@ -944,7 +782,7 @@ namespace internals
      */
     template<typename funcion_t>
     std::shared_ptr<uint_ordinary> make_uint_ordinary(funcion_t&& func,const std::string &name = "",
-      urgency_level priority = urgency_level::normal)
+      weight priority = weight::normal)
     {
       return std::make_shared<uint_ordinary>(std::forward<funcion_t>(func),name,priority);
     }
@@ -959,7 +797,7 @@ namespace internals
      */
     template<typename function_t, typename result_t = std::invoke_result_t<function_t>>
     std::shared_ptr<uint_standard<function_t, result_t>> make_uint_standard(function_t&& func,
-      const std::string &name = "", urgency_level priority = urgency_level::normal)
+      const std::string &name = "", weight priority = weight::normal)
     {
       return std::make_shared<uint_standard<function_t, result_t>>
       (std::forward<function_t>(func),name,priority);
@@ -996,7 +834,7 @@ namespace internals
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
     std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(function_t&& func,
       const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
-      const std::string &name = "", urgency_level priority = urgency_level::normal)
+      const std::string &name = "", weight priority = weight::normal)
     {
       return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>
       (std::forward<function_t>(func),dependencies,name,priority);
@@ -1004,7 +842,7 @@ namespace internals
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
     std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance
     (function_t&& func, std::shared_ptr<uint_ordinary> dependency,
-      const std::string &name = "", urgency_level priority = urgency_level::normal)
+      const std::string &name = "", weight priority = weight::normal)
     {
       return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>
       (std::forward<function_t>(func),std::move(dependency),name,priority);
@@ -1014,12 +852,6 @@ namespace internals
 
 namespace pool 
 {
-  using internals::structure_u::to_string;
-
-  using internals::structure_u::urgency_level;
-  using internals::structure_u::current_status;
-
-
   using internals::structure_u::uint_ordinary;
   using internals::structure_u::uint_standard;
   using internals::structure_u::uint_overtime;

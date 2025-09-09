@@ -62,5 +62,6 @@ namespace internals::structure_c
   protected:
     std::atomic<bool> _closed{false}; //关闭标识
     std::atomic<std::size_t> _max_size{0}; //最大队列大小
+    std::atomic<backpressure> _backpressure{backpressure::block}; //背压策略
   };
 }

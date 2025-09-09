@@ -778,7 +778,7 @@ namespace internals
     {
     private:
       mutable std::mutex _stats_mutex; // 统计锁
-      std::unordered_map<internals::structure_u::urgency_level,std::size_t> _priority_stats; //优先级统计
+      std::unordered_map<internals::structure_u::weight,std::size_t> _priority_stats; //优先级统计
     public:
       /**
        * @brief 构造优先级调度器
@@ -792,14 +792,14 @@ namespace internals
         _worker_factory = [this](const std::string &worker_id)
         {
           return internals::structure_w::make_worker_priority(worker_id, _task_queue, 
-            internals::structure_u::urgency_level::lowest);
+            internals::structure_u::weight::lowest);
         };
       }
       /**
        * @brief 获取优先级统计
        * @return 优先级统计映射
        */
-      std::unordered_map<internals::structure_u::urgency_level,std::size_t> get_priority_statistics() const
+      std::unordered_map<internals::structure_u::weight,std::size_t> get_priority_statistics() const
       {
         std::lock_guard<std::mutex> lock(_stats_mutex);
         return _priority_stats;
@@ -814,12 +814,12 @@ namespace internals
       {
         {
           std::lock_guard<std::mutex> lock(_stats_mutex);
-          _priority_stats[static_cast<internals::structure_u::urgency_level>(task->get_priority())]++;
+          _priority_stats[static_cast<internals::structure_u::weight>(task->get_priority())]++;
         }
 
         // 检查是否需要优先级抢占
         if (task->get_priority() == static_cast<std::int32_t>
-        (internals::structure_u::urgency_level::critical))
+        (internals::structure_u::weight::critical))
         {
           handle_critical_task(task);
         }
@@ -845,7 +845,7 @@ namespace internals
         if (total_tasks > 0)
         {
           auto critical_ratio = static_cast<double>
-          (_priority_stats[internals::structure_u::urgency_level::critical]) / total_tasks;
+          (_priority_stats[internals::structure_u::weight::critical]) / total_tasks;
           // 可以基于关键任务比例调整调度策略
           if (critical_ratio > 0.1)
           {
@@ -1073,9 +1073,9 @@ namespace internals
         if (predicted_duration > std::chrono::milliseconds(1000) && current_load > 0.8)
         {
           // 长任务在高负载时降低优先级
-          if (task->get_priority() > static_cast<std::int32_t>(internals::structure_u::urgency_level::low))
+          if (task->get_priority() > static_cast<std::int32_t>(internals::structure_u::weight::low))
           {
-            task->set_priority(static_cast<internals::structure_u::urgency_level>
+            task->set_priority(static_cast<internals::structure_u::weight>
               (static_cast<int>(task->get_priority()) - 1));
           }
         }

@@ -18,7 +18,7 @@ namespace internals
 {
   namespace structure_u
   {
-    class anomaly;
+    class execution_exception;
     /**
      * @class derivation
      * @brief #### 任务返回值封装类
@@ -44,7 +44,7 @@ namespace internals
         static_assert(!std::is_void_v<implicit_type>, "不能对void类型转换");
         if(_void)
         {
-          throw anomaly("void类型不能转换",0);
+          throw execution_exception("void类型不能转换",0);
         }
         return std::any_cast<implicit_type>(_data);
       }
@@ -73,7 +73,7 @@ namespace internals
       {
         if (_void) 
         {
-          throw anomaly("任务无返回值，无法获取结果", 0);
+          throw execution_exception("任务无返回值，无法获取结果", 0);
         }
         try 
         {
@@ -81,7 +81,7 @@ namespace internals
         }
         catch (const std::bad_any_cast& e) 
         {
-          throw anomaly("类型转换失败: " + std::string(e.what()), 0);
+          throw execution_exception("类型转换失败: " + std::string(e.what()), 0);
         }
       }
     };
@@ -99,10 +99,10 @@ namespace internals
       failed = 5     // 执行失败
     };
     /**
-     * @enum urgency_level
+     * @enum weight
      * @brief #### 任务优先级枚举
      */
-    enum class urgency_level : std::int32_t
+    enum class weight : std::int32_t
     {
       lowest = -100, // 最低优先级
       low = -50,     // 低优先级
@@ -126,24 +126,24 @@ namespace internals
     }
 
     // 同理，为优先级枚举添加转换函数
-    inline std::string to_string(urgency_level level) noexcept
+    inline std::string to_string(weight level) noexcept
     {
       switch (level)
       {
-        case urgency_level::lowest:  return "lowest";
-        case urgency_level::low:     return "low";
-        case urgency_level::normal:  return "normal";
-        case urgency_level::high:    return "high";
-        case urgency_level::highest: return "highest";
-        case urgency_level::critical:return "critical";
+        case weight::lowest:  return "lowest";
+        case weight::low:     return "low";
+        case weight::normal:  return "normal";
+        case weight::high:    return "high";
+        case weight::highest: return "highest";
+        case weight::critical:return "critical";
         default:                     return std::to_string(static_cast<int>(level));
       }
     }
     /**
-     * @class anomaly
+     * @class execution_exception
      * @brief #### 任务执行异常类
      */
-    class anomaly : public std::exception
+    class execution_exception : public std::exception
     {
     private:
       std::string _message;
@@ -155,7 +155,7 @@ namespace internals
        * @param message 异常消息
        * @param task_id 任务ID
        */
-      explicit anomaly(const std::string &message, std::uint64_t task_id = 0)
+      explicit execution_exception(const std::string &message, std::uint64_t task_id = 0)
           : _message(message), _identifier(task_id) {}
 
       /**
@@ -257,7 +257,7 @@ namespace internals
        * @param name 任务名称
        * @param priority 任务优先级
        */
-      explicit uint_ordinary(const std::string &name = "", urgency_level priority = urgency_level::normal)
+      explicit uint_ordinary(const std::string &name = "", weight priority = weight::normal)
       : _identifier(_next_task_id.fetch_add(1, std::memory_order_relaxed)),
       _task_name(coverage_string(name)), _submit_time(std::chrono::steady_clock::now()),
       _priority(static_cast<std::int32_t>(priority))  {}
@@ -269,7 +269,7 @@ namespace internals
       /**
        * @brief #### 执行任务 - 纯虚函数，子类必须实现
        * @return 任务执行结果(`derivation`类型支持任意返回值)
-       * @throws `anomaly` 任务执行异常
+       * @throws `execution_exception` 任务执行异常
        *
        * 调用者：`worker`线程,被调用者：衍生任务类的具体实现
        */
@@ -356,7 +356,7 @@ namespace internals
        * @brief #### 设置任务优先级
        * @param priority 新的优先级
        */
-      void set_priority(urgency_level priority) noexcept
+      void set_priority(weight priority) noexcept
       {
         _priority.store(static_cast<std::int32_t>(priority), std::memory_order_release);
       }
@@ -498,19 +498,19 @@ namespace internals
        * @param priority 任务优先级
        */
       template<typename func>
-      explicit task_norm(func&& function, const std::string& name = "",urgency_level priority = urgency_level::normal)
+      explicit task_norm(func&& function, const std::string& name = "",weight priority = weight::normal)
       : uint_ordinary(name, priority),_ordinary_execution(std::forward<func>(function)) {}
 
       /**
        * @brief #### 执行任务
        * @return 空的 `derivation`（普通任务无返回值）
-       * @throws `anomaly` 任务执行异常
+       * @throws `execution_exception` 任务执行异常
        */
       derivation execute() override
       {
         if(!this->mark_running())
         {
-          throw anomaly("任务无法启动", get_identifier());
+          throw execution_exception("任务无法启动", get_identifier());
         }
         try
         {
@@ -521,12 +521,12 @@ namespace internals
         catch (const std::exception& task_error)
         {
           this->mark_failed();
-          throw anomaly("正常任务执行失败: " + std::string(task_error.what()), get_identifier());
+          throw execution_exception("正常任务执行失败: " + std::string(task_error.what()), get_identifier());
         }
         catch (...)
         {
           this->mark_failed();
-          throw anomaly("正常任务执行失败：未知异常: ", get_identifier());
+          throw execution_exception("正常任务执行失败：未知异常: ", get_identifier());
         }
       }
       /**
@@ -574,21 +574,21 @@ namespace internals
        * @param priority 任务优先级
        */
       template<typename func>
-      explicit task_rslt(func&& function,const std::string& name = "",urgency_level priority = urgency_level::normal)
+      explicit task_rslt(func&& function,const std::string& name = "",weight priority = weight::normal)
       : uint_ordinary(name, priority),_promise(), _future(_promise.get_future()), _ordinary_execution(std::forward<func>(function)) {}
 
       /**
        * @brief #### 执行任务
        * @return 任务执行结果（包装在 `std::any` 中）
-       * @throws `anomaly` 任务执行异常
+       * @throws `execution_exception` 任务执行异常
        */
       derivation execute() override
       {
         if(!this->mark_running())
         {
-          _promise.set_exception(std::make_exception_ptr(anomaly("任务无法启动",get_identifier())));
+          _promise.set_exception(std::make_exception_ptr(execution_exception("任务无法启动",get_identifier())));
           _ready_state.store(true, std::memory_order_release);
-          throw anomaly("任务无法启动", get_identifier());
+          throw execution_exception("任务无法启动", get_identifier());
         }
         try
         {
@@ -614,14 +614,14 @@ namespace internals
           this->mark_failed();
           _promise.set_exception(std::current_exception());
           _ready_state.store(true, std::memory_order_release);
-          throw anomaly("任务执行失败: " + std::string(e.what()), get_identifier());
+          throw execution_exception("任务执行失败: " + std::string(e.what()), get_identifier());
         }
         catch (...)
         {
           _promise.set_exception(std::current_exception());
           _ready_state.store(true, std::memory_order_release);
           this->mark_failed();
-          throw anomaly("任务执行失败: 未知错误", get_identifier());
+          throw execution_exception("任务执行失败: 未知错误", get_identifier());
         }
       }
       /**
@@ -753,7 +753,7 @@ namespace internals
        * @param name 任务名称
        */
       template<typename func>
-      explicit task_prio(func&& function,urgency_level priority,const std::string& name = "")
+      explicit task_prio(func&& function,weight priority,const std::string& name = "")
       : task_rslt<result>(std::forward<func>(function), name, priority) {}
       /**
        * @brief #### 构造优先级任务（自定义优先级值）
@@ -763,7 +763,7 @@ namespace internals
        */
       template<typename func>
       explicit task_prio(func&& function,std::int32_t priority_value,const std::string& name = "")
-      : task_rslt<result>(std::forward<func>(function), name, urgency_level::normal)
+      : task_rslt<result>(std::forward<func>(function), name, weight::normal)
       {
         this->set_priority(priority_value);
       }
@@ -791,9 +791,9 @@ namespace internals
       {
         return this->task_rslt<result>::get_result();
       }
-      urgency_level get_priority() const noexcept
+      weight get_priority() const noexcept
       {
-        return static_cast<urgency_level>(this->uint_ordinary::get_priority());
+        return static_cast<weight>(this->uint_ordinary::get_priority());
       }
       result get()
       {
@@ -825,7 +825,7 @@ namespace internals
        */
       template<typename func, typename rep, typename period>
       explicit task_time(func&& function, const std::chrono::duration<rep, period>& timeout,const std::string& name = "",
-      urgency_level priority = urgency_level::normal)
+      weight priority = weight::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority)
       {
         this->uint_ordinary::set_timeout(timeout);
@@ -840,7 +840,7 @@ namespace internals
        */
       template<typename func, typename timeout_func, typename rep, typename period>
       explicit task_time(func&& function,const std::chrono::duration<rep, period>& timeout,
-      timeout_func&& timeout_callback,const std::string& name = "",urgency_level priority = urgency_level::normal)
+      timeout_func&& timeout_callback,const std::string& name = "",weight priority = weight::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority),
       _timeout_callback(std::forward<timeout_func>(timeout_callback))
       {
@@ -951,7 +951,7 @@ namespace internals
        */
       template<typename func>
       explicit task_depn(func&& function, const std::vector<std::shared_ptr<uint_ordinary>>& dependencies,
-      const std::string& name = "", urgency_level priority = urgency_level::normal)
+      const std::string& name = "", weight priority = weight::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority), _dependency_list(dependencies)
       {
         // 过滤掉空指针依赖
@@ -967,7 +967,7 @@ namespace internals
        */
       template <typename func>
       explicit task_depn(func &&function, std::shared_ptr<uint_ordinary> dependency, const std::string &name = "",
-      urgency_level priority = urgency_level::normal)
+      weight priority = weight::normal)
       : task_rslt<result>(std::forward<func>(function), name, priority)
       {
         if (dependency)
@@ -1125,7 +1125,7 @@ namespace internals
        * @param name 任务名称
        * @param priority 任务优先级
        */
-      explicit task_coro(handle_type handle,const std::string &name = "",urgency_level priority = urgency_level::normal)
+      explicit task_coro(handle_type handle,const std::string &name = "",weight priority = weight::normal)
       : task_rslt<result>([this]() -> result { return execute_coroutine(); }, name, priority),_coroutine_handle(handle) {}
       /**
        * @brief #### 移动构造函数
@@ -1170,7 +1170,7 @@ namespace internals
       {
         if (!_coroutine_handle)
         {
-          throw anomaly("协程句柄无效", this->uint_ordinary::get_identifier());
+          throw execution_exception("协程句柄无效", this->uint_ordinary::get_identifier());
         }
 
         // 等待协程完成
@@ -1200,7 +1200,7 @@ namespace internals
      */
     template <typename func>
     std::shared_ptr<task_norm> make_task_norm(func &&function, const std::string &name = "",
-    urgency_level priority = urgency_level::normal)
+    weight priority = weight::normal)
     {
       return std::make_shared<task_norm>(std::forward<func>(function), name, priority);
     }
@@ -1212,7 +1212,7 @@ namespace internals
      * @return 任务智能指针
      */
     template <typename func>
-    auto make_task_rslt(func &&function, const std::string &name = "",urgency_level priority = urgency_level::normal)
+    auto make_task_rslt(func &&function, const std::string &name = "",weight priority = weight::normal)
     {
       using return_type = std::invoke_result_t<func>;
       return std::make_shared<task_rslt<return_type>>(std::forward<func>(function), name, priority);
@@ -1225,7 +1225,7 @@ namespace internals
      * @return 任务智能指针
      */
     template <typename func>
-    std::shared_ptr<task_prio<std::invoke_result_t<func>>> make_task_prio(func &&function, urgency_level priority,
+    std::shared_ptr<task_prio<std::invoke_result_t<func>>> make_task_prio(func &&function, weight priority,
     const std::string &name = "")
     {
       using return_type = std::invoke_result_t<func>;
@@ -1242,7 +1242,7 @@ namespace internals
     template <typename func, typename rep, typename period>
     std::shared_ptr<task_time<std::invoke_result_t<func>>> make_task_time(func &&function, 
     const std::chrono::duration<rep, period> &timeout,const std::string &name = "",
-    urgency_level priority = urgency_level::normal)
+    weight priority = weight::normal)
     {
       using return_type = std::invoke_result_t<func>;
       return std::make_shared<task_time<return_type>>(std::forward<func>(function), timeout, name, priority);
@@ -1258,7 +1258,7 @@ namespace internals
     template <typename func, uint64_t CACHE_VALIDITY = 100ULL>
     std::shared_ptr<task_depn<std::invoke_result_t<func>, CACHE_VALIDITY>> make_task_depn(func &&function,
     const std::vector<std::shared_ptr<uint_ordinary>> &dependencies,const std::string &name = "",
-    urgency_level priority = urgency_level::normal)
+    weight priority = weight::normal)
     {
       using return_type = std::invoke_result_t<func>;
       return std::make_shared<task_depn<return_type, CACHE_VALIDITY>>(std::forward<func>(function), dependencies, name, priority);
@@ -1272,7 +1272,7 @@ namespace internals
      */
     template <typename coroutine_t>
     std::shared_ptr<task_coro<std::invoke_result_t<coroutine_t>>> make_task_coro(coroutine_t &&coro,
-    const std::string &name = "",urgency_level priority = urgency_level::normal)
+    const std::string &name = "",weight priority = weight::normal)
     {
       using return_type = std::invoke_result_t<coroutine_t>;
       return std::make_shared<task_coro<return_type>>(std::forward<coroutine_t>(coro), name, priority);
@@ -1296,6 +1296,6 @@ namespace pool
   using internals::structure_u::make_task_depn;
   using internals::structure_u::make_task_coro;
 
-  using internals::structure_u::urgency_level;
+  using internals::structure_u::weight;
 
 }

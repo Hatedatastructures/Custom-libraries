@@ -49,7 +49,7 @@ public:
     auto derived_ptr = std::dynamic_pointer_cast<deduction_model<convert_t>>(_ptr);
     if (!derived_ptr) 
     {
-      throw anomaly("类型转换失败: 内部类型不匹配", 0);
+      throw execution_exception("类型转换失败: 内部类型不匹配", 0);
     }
     return derived_ptr->get();
   }
@@ -76,7 +76,7 @@ int main()
 {
   {
     internals::structure_u::uint_ordinary p([](){ std::cout << "hello,worrld!" << std::endl; },
-     "High Priority Task", internals::structure_u::urgency_level::high);
+     "High Priority Task", weight::high);
     std::cout << p.get_priority() << std::endl;
     p.execute();
     // std::cout << p.get_future().get() << std::endl;
@@ -86,7 +86,7 @@ int main()
     std::cout << "-----------------" << std::endl;
 
     internals::structure_u::uint_ordinary p2([](){ std::cout << "stream!" << std::endl; }, 
-    "Higher Priority Task", internals::structure_u::urgency_level::highest);
+    "Higher Priority Task", weight::highest);
 
     std::cout << (p2 < p) << std::endl; // false
     std::cout << (p2 > p) << std::endl; // true
