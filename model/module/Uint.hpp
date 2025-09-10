@@ -832,8 +832,8 @@ namespace internals
      * @return 智能指针
      */
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
-    std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(function_t&& func,
-      const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
+    std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(
+      function_t&& func,const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
       const std::string &name = "", weight priority = weight::normal)
     {
       return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>

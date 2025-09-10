@@ -51,7 +51,7 @@ namespace internals
 
     // 队列配置
     std::size_t max_queue_size = 10000; // 最大队列大小
-    cohort_strategy queue_policy = cohort_strategy::fifo; // 队列策略
+    rank_strategy queue_policy = rank_strategy::fifo; // 队列策略
 
     // 调度配置
     expansion_strategy expansion_strategy = expansion_strategy::hybrid; // 扩缩容策略
@@ -1767,7 +1767,7 @@ namespace internals
     config.min_threads        = 1;
     config.max_threads        = thread_count;
     config.core_threads       = thread_count;
-    config.queue_policy       = cohort_strategy::fifo;
+    config.queue_policy       = rank_strategy::fifo;
     config.scheduling_tactics = scheduling_tactics::round_robin;
     config.expansion_strategy = expansion_strategy::aggressive;
     config.enable_work_stealing = false;
@@ -1804,7 +1804,7 @@ namespace internals
     config.min_threads          = thread_count;
     config.max_threads          = thread_count * 2;
     config.core_threads         = thread_count;
-    config.queue_policy         = cohort_strategy::priority;
+    config.queue_policy         = rank_strategy::priority;
     config.scheduling_tactics   = scheduling_tactics::adaptive;
     config.expansion_strategy   = expansion_strategy::aggressive;
     config.enable_work_stealing = true;
@@ -1830,7 +1830,7 @@ namespace internals
     config.min_threads        = 1;
     config.max_threads        = thread_count;
     config.core_threads       = thread_count;
-    config.queue_policy       = cohort_strategy::fifo;
+    config.queue_policy       = rank_strategy::fifo;
     config.scheduling_tactics = scheduling_tactics::round_robin;
     config.expansion_strategy = expansion_strategy::conservative;
     config.enable_work_stealing = false;

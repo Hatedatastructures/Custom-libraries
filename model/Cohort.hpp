@@ -42,13 +42,13 @@ namespace internals
       return false;
     }
     /**
-     * @enum cohort_strategy
+     * @enum rank_strategy
      * @brief 队列调度策略枚举
      *
      * 定义了不同的任务队列调度策略：`fifo`: 先进先出策略,`priority`: 优先级调度策略,`delay`: 延迟调度策略
      * `round_robin`: 轮询调度策略
      */
-    enum class cohort_strategy
+    enum class rank_strategy
     {
       fifo,       // 先进先出
       priority,   // 优先级
@@ -120,7 +120,7 @@ namespace internals
        * @brief 获取队列策略
        * @return 队列调度策略
        */
-      virtual cohort_strategy get_strategy() const = 0;
+      virtual rank_strategy get_strategy() const = 0;
     };
     /**
      * @class cohort_order
@@ -290,9 +290,9 @@ namespace internals
        * @brief 获取队列策略
        * @return 队列调度策略
        */
-      cohort_strategy get_strategy() const override
+      rank_strategy get_strategy() const override
       {
-        return cohort_strategy::fifo;
+        return rank_strategy::fifo;
       }
       /**
        * @brief 设置最大队列大小
@@ -502,9 +502,9 @@ namespace internals
        * @brief 获取队列策略
        * @return 队列调度策略
        */
-      cohort_strategy get_strategy() const override
+      rank_strategy get_strategy() const override
       {
-        return cohort_strategy::priority;
+        return rank_strategy::priority;
       }
 
       /**
@@ -725,9 +725,9 @@ namespace internals
        * @brief 获取队列策略
        * @return 队列调度策略
        */
-      cohort_strategy get_strategy() const override
+      rank_strategy get_strategy() const override
       {
-        return cohort_strategy::delay;
+        return rank_strategy::delay;
       }
 
       /**
@@ -833,13 +833,13 @@ namespace internals
       
       mutable std::shared_mutex _multi_cohort_mutex;
 
-      cohort_strategy _strategy;
+      rank_strategy _strategy;
     public:
       /**
        * @brief 构造多级任务队列
        * @param policy 调度策略
        */
-      explicit cohort_multi(cohort_strategy policy = cohort_strategy::round_robin)
+      explicit cohort_multi(rank_strategy policy = rank_strategy::round_robin)
         : _strategy(policy) {}
       /**
        * @brief 析构函数
@@ -1045,7 +1045,7 @@ namespace internals
        * @brief 获取队列策略
        * @return 队列调度策略
        */
-      cohort_strategy get_strategy() const override
+      rank_strategy get_strategy() const override
       {
         return _strategy;
       }
@@ -1084,13 +1084,13 @@ namespace internals
       {
         switch (_strategy)
         {
-        case cohort_strategy::priority:
+        case rank_strategy::priority:
         {
           // 根据任务优先级选择队列
           auto priority = static_cast<int>(task->get_priority());
           return std::min(static_cast<std::size_t>(priority), _cohort_list.size() - 1);
         }
-        case cohort_strategy::round_robin:
+        case rank_strategy::round_robin:
         default:
         {
           // 轮询选择队列
@@ -1107,7 +1107,7 @@ namespace internals
       {
         switch (_strategy)
         {
-        case cohort_strategy::priority:
+        case rank_strategy::priority:
         {
           // 优先级策略：从高优先级队列开始查找
           for (std::size_t i = _cohort_list.size(); i > 0; --i)
@@ -1120,7 +1120,7 @@ namespace internals
           }
           return 0;
         }
-        case cohort_strategy::round_robin:
+        case rank_strategy::round_robin:
         default:
         {
           // 轮询策略
@@ -1162,7 +1162,7 @@ namespace internals
      * @param policy 调度策略
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_multi> make_cohort_multi(cohort_strategy policy = cohort_strategy::round_robin)
+    inline std::unique_ptr<cohort_multi> make_cohort_multi(rank_strategy policy = rank_strategy::round_robin)
     {
       return std::make_unique<cohort_multi>(policy);
     }
@@ -1172,17 +1172,17 @@ namespace internals
      * @param max_size 最大队列大小
      * @return 队列智能指针
      */
-    inline std::unique_ptr<cohort_base> make_cohort(cohort_strategy policy, std::size_t max_size = 0)
+    inline std::unique_ptr<cohort_base> make_cohort(rank_strategy policy, std::size_t max_size = 0)
     {
       switch (policy)
       {
-      case cohort_strategy::fifo:
+      case rank_strategy::fifo:
         return make_cohort_order(max_size);
-      case cohort_strategy::priority:
+      case rank_strategy::priority:
         return make_cohort_prior(max_size);
-      case cohort_strategy::delay:
+      case rank_strategy::delay:
         return make_cohort_delay(max_size); 
-      case cohort_strategy::round_robin:
+      case rank_strategy::round_robin:
         return make_cohort_multi(policy);
       default:
         return make_cohort_order(max_size);
@@ -1204,6 +1204,6 @@ namespace pool
   using internals::structure_c::make_cohort_order;
   using internals::structure_c::make_cohort_prior;
 
-  using internals::structure_c::cohort_strategy;
+  using internals::structure_c::rank_strategy;
   using internals::structure_c::make_cohort;
 }

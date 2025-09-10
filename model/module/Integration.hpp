@@ -137,6 +137,14 @@ enum class backpressure : std::uint8_t
   overwrite, // 覆盖
   exception  // 抛出
 }; 
+// #### 任务调度策略枚举
+enum class rank_strategy
+{
+  fifo, // 先进先出
+  priority, // 优先级
+  delay, // 延迟
+  round_robin, // 轮询
+};
 
 inline std::string to_string(current_status state) noexcept
 {
@@ -233,6 +241,65 @@ public:
     using std::swap;
     swap(_message, other._message);
     swap(_identifier, other._identifier);
+  }
+};
+
+class operation_exception : public std::exception
+{
+private:
+  std::string _message; // 异常消息
+  std::chrono::system_clock::time_point _time; // 异常时间点
+
+public:
+  operation_exception(std::string message) noexcept
+    : _message(std::move(message)), _time(std::chrono::system_clock::now()) {}
+
+  operation_exception(const operation_exception& other) noexcept
+    : _message(other._message), _time(other._time) {}
+
+  operation_exception(operation_exception&& other) noexcept
+    : _message(std::move(other._message)), _time(other._time) {}
+
+  operation_exception& operator=(const operation_exception& other) noexcept
+  {
+    if (this != &other)
+    {
+      _message = other._message;
+      _time = other._time;
+    }
+    return *this;
+  }
+
+  operation_exception& operator=(operation_exception&& other) noexcept
+  {
+    if (this != &other)
+    {
+      _message = std::move(other._message);
+      _time = other._time;
+    }
+    return *this;
+  }
+
+  ~operation_exception() override = default;
+
+  const char* what() const noexcept override
+  {
+    return _message.c_str();
+  }
+
+  std::chrono::system_clock::time_point get_time() const noexcept
+  {
+    return _time;
+  }
+
+  void set_time(std::chrono::system_clock::time_point time) noexcept
+  {
+    _time = time;
+  }
+
+  std::string get_time_string(std::string_view fmt = "%Y-%m-%d %H:%M:%S") const noexcept
+  {
+    return convert_time::to_local_string(_time, fmt);
   }
 };
 
