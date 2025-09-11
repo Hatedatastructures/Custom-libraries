@@ -1,7 +1,8 @@
 #pragma once
 #include "Uint.hpp"
 #include "Integration.hpp"
-#include <queue>
+#include <set>
+#include <deque>
 #include <vector>
 #include <shared_mutex>
 #include <atomic>
@@ -24,24 +25,38 @@ namespace internals::structure_c
 
   class rank_ordinary
   {
+    using internals_time_t = std::chrono::system_clock::time_point;
+    using internals_time = std::shared_ptr<internals_time_t>;
   protected:
 
   // 计算执行单元默认超时时间点
-  std::chrono::system_clock::time_point internal_calculation_deadline()
+  internals_time internal_calculation_deadline()
   {
-    return std::chrono::system_clock::now() + _default_function_timeout;
+    if(!_unit_time_limit)
+    {
+      return nullptr;
+    }
+    internals_time_t now_time = std::chrono::system_clock::now() + _default_function_timeout;
+    return std::shared_ptr<internals_time_t>(new internals_time_t(now_time));
   }
 
   protected:
 
     std::atomic<bool> _closed{false}; //关闭标识
+    std::atomic<bool> _unit_time_limit{false}; //执行单元时间限制
     std::atomic<std::size_t> _max_storage_capacity{0}; //最大队列大小
     std::chrono::milliseconds _default_function_timeout{1000}; //默认等待时间 
     std::atomic<backpressure> _backpressure{backpressure::block}; //背压策略
+
   protected:
     // 内部推送任务接口
     virtual bool internal_push(safety_unit_pointer pointer, backpressure mode, 
-    std::chrono::system_clock::time_point deadline  = internal_calculation_deadline())
+    internals_time deadline  = nullptr)
+    {
+      macro_statement;
+      return false;
+    }
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode)
     {
       macro_statement;
       return false;
@@ -113,13 +128,13 @@ namespace internals::structure_c
       return 0;
     }
     // 内部添加子队列接口
-    virtual std::size_t internal_add_sub_cohort()
+    virtual std::size_t internal_add_sub_cohort(std::unique_ptr<rank_ordinary>&& rank)
     {
       macro_statement;
       return 0;
     }
     // 内部移除子队列接口
-    virtual std::size_t internal_remove_sub_cohort()
+    virtual std::size_t internal_remove_sub_cohort(std::unique_ptr<rank_ordinary> rank)
     {
       macro_statement;
       return 0;
@@ -131,6 +146,8 @@ namespace internals::structure_c
       return rank_strategy::fifo;
     }
   public:
+    rank_ordinary(const std::size_t size) :_max_storage_capacity(size) {} 
+
     virtual ~rank_ordinary() = default;
 
     bool push(safety_unit_pointer pointer, backpressure mode = backpressure::block) 
@@ -141,7 +158,8 @@ namespace internals::structure_c
     bool push(safety_unit_pointer pointer, std::chrono::system_clock::time_point deadline,
     backpressure mode = backpressure::block)
     {
-      return internal_push(std::move(pointer), mode, deadline);
+      internals_time time_point = std::make_shared<std::chrono::system_clock::time_point>(deadline);
+      return internal_push(std::move(pointer), mode, time_point);
     }
 
     bool push_batch(std::vector<safety_unit_pointer> pointers, backpressure mode = backpressure::block)
@@ -193,9 +211,17 @@ namespace internals::structure_c
     { 
       return _closed.load(std::memory_order_acquire); 
     }
-    std::size_t set_max_size(const std::size_t max_size)
+    bool set_max_size(const std::size_t max_size)
     {
-      return _max_storage_capacity.store(max_size, std::memory_order_relaxed);
+      _max_storage_capacity.store(max_size, std::memory_order_relaxed);
+      if( _max_storage_capacity.load() ==  max_size)
+      {
+        return true;
+      }
+      else
+      {
+        return false
+      }
     }
     std::size_t get_max_size()const  
     {
@@ -231,11 +257,78 @@ namespace internals::structure_c
     { 
       return internal_strategy(); 
     }
+
+    void set_backpressure_mode(backpressure mode)
+    {
+      _backpressure.store(mode, std::memory_order_relaxed);
+    }
+
+    backpressure get_backpressure_mode() const
+    {
+      return _backpressure.load(std::memory_order_relaxed);
+    }
   };
 
   class rank_standard : public rank_ordinary
   {
   protected:
-    std::queue<safety_unit_pointer> _rank_uint; // 任务队列
+
+    std::condition_variable _judge_empty_cv; // 队列空条件变量
+    std::deque<safety_unit_pointer> _rank_uint; // 任务队列
+    mutable std::shared_mutex _rank_standard_mutex; // 任务队列锁
+  public:
+    explicit rank_standard(std::size_t max_size = 0) : rank_ordinary(max_size) {}
+
+    virtual ~rank_standard() = default;
+
+  private:
+    bool enqueue_with_backpressure(safety_unit_pointer pointer, backpressure mode)
+    {
+      if(_max_storage_capacity != 0 && _rank_uint.size() >= _max_storage_capacity)
+      {
+        switch(mode)
+          case backpressure::block:
+          {
+            std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
+            auto block_func = [this]()
+            {
+              return this->_rank_uint.size() < this->_max_storage_capacity
+              || this->_closed.load(std::memory_order_acquire);
+            };
+            _judge_empty_cv.wait(lock, block_func);
+            if(_closed.load(std::memory_order_acquire)) return false;
+            _rank_uint.push_back(std::move(pointer));
+            return true;
+          }
+          case backpressure::overwrite:
+          {
+            std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+            _rank_uint.pop_back();
+            _rank_uint.push_back(std::move(pointer));
+            return true;
+          }
+          case backpressure::exception:
+            throw operation_exception("The queue is full, please check the overflow policy.");
+          case backpressure::drop:
+            return false;
+          default:
+            throw operation_exception("Unknown backpressure mode.");
+      }
+      else
+      {
+        std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+        _rank_uint.push_back(std::move(pointer));
+        _judge_empty_cv.notify_one();
+        return true;
+      }
+    }
+  protected:
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode =
+    _backpressure.load(std::memory_order_relaxed))
+    {
+      if(_closed.load(std::memory_order_acquire)) return false;
+      if(pointer == nullptr) return false;
+      return enqueue_with_backpressure(std::move(pointer), mode);
+    }
   };
 }

@@ -176,7 +176,7 @@ inline std::string to_string(weight level) noexcept
 
 /**
  * @class execution_exception
- * @brief #### 执行异常类
+ * @brief #### 执行期间异常类
  */
 class execution_exception : public std::exception
 {
@@ -244,6 +244,9 @@ public:
   }
 };
 
+/**
+ * @brief #### 操作期间异常类
+ */
 class operation_exception : public std::exception
 {
 private:
