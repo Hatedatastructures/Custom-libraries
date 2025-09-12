@@ -75,7 +75,7 @@ private:
 int main()
 {
   {
-    internals::structure_u::uint_ordinary p([](){ std::cout << "hello,worrld!" << std::endl; },
+    internals::structure_u::unit_ordinary p([](){ std::cout << "hello,worrld!" << std::endl; },
      "High Priority Task", weight::high);
     std::cout << p.get_priority() << std::endl;
     p.execute();
@@ -85,7 +85,7 @@ int main()
 
     std::cout << "-----------------" << std::endl;
 
-    internals::structure_u::uint_ordinary p2([](){ std::cout << "stream!" << std::endl; }, 
+    internals::structure_u::unit_ordinary p2([](){ std::cout << "stream!" << std::endl; }, 
     "Higher Priority Task", weight::highest);
 
     std::cout << (p2 < p) << std::endl; // false
@@ -104,7 +104,7 @@ int main()
   }
   {
     // 测试返回值类
-    internals::structure_u::uint_standard<std::function<int()>, int> task
+    internals::structure_u::unit_standard<std::function<int()>, int> task
     ([]()-> int { std::cout << "当前是一个带返回值的标准任务"<< std::endl; return 100; }, "Return Value Task");
     auto value = task.execute().get<int>();
     std::cout << "Value from task: " << value << std::endl;

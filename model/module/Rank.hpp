@@ -1,5 +1,5 @@
 #pragma once
-#include "Uint.hpp"
+#include "Unit.hpp"
 #include "Integration.hpp"
 #include <set>
 #include <deque>
@@ -21,7 +21,7 @@ namespace internals
 namespace internals::structure_c
 {
   using namespace internals::structure_u;
-  using safety_unit_pointer = std::shared_ptr<uint_ordinary>;
+  using safety_unit_pointer = std::shared_ptr<unit_ordinary>;
 
   using internals_time_t = std::chrono::system_clock::time_point;
   using internals_time = std::shared_ptr<internals_time_t>;
@@ -338,6 +338,12 @@ namespace internals::structure_c
         return internal_push(std::move(pointer), mode);
       }
       return false;
+    }
+    virtual bool internal_push_batch(std::vector<safety_unit_pointer>&& pointers, backpressure mode) override
+    {
+      if(_closed.load(std::memory_order_acquire)) return false;
+      if(pointers.empty()) throw operation_exception("The vector pointers is empty.");
+      for(auto& uint_)
     }
   };
 }

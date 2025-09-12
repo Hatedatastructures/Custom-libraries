@@ -20,7 +20,7 @@ namespace internals
   namespace structure_u
   {
     /**
-     * @class uint_ordinary
+     * @class unit_ordinary
      * @brief #### 基本任务类 - 定义所有任务的通用接口
      * @tparam execute_function 任务执行函数类型,可以在上层自动推导来获取任务返回值类型
      * @warning #### 计算结果不可重复获取，创建任务对象通过工厂函数创建
@@ -32,7 +32,7 @@ namespace internals
      * 
      *  调用者：衍生任务类、`thread_pool`管理器
      */
-    class uint_ordinary
+    class unit_ordinary
     {
     public:
       /**
@@ -107,22 +107,22 @@ namespace internals
     public:
 
       template <typename execute_function>
-      uint_ordinary(execute_function&& function,const std::string &name = "", 
+      unit_ordinary(execute_function&& function,const std::string &name = "", 
         weight priority = weight::normal)
       :_identifier(current_unique_identifier.fetch_add(1, std::memory_order_relaxed)),
       _ordinary_execution(std::forward<execute_function>(function)),
       _task_name(coverage_string(name)),_submit_time(std::chrono::steady_clock::now()),
       _priority(static_cast<std::int32_t>(priority)) {}
 
-      virtual ~uint_ordinary() = default;
+      virtual ~unit_ordinary() = default;
 
-      uint_ordinary(const uint_ordinary&) = delete;
+      unit_ordinary(const unit_ordinary&) = delete;
 
-      uint_ordinary& operator=(const uint_ordinary&) = delete;
+      unit_ordinary& operator=(const unit_ordinary&) = delete;
 
-      uint_ordinary(uint_ordinary&&) = delete;
+      unit_ordinary(unit_ordinary&&) = delete;
 
-      uint_ordinary& operator=(uint_ordinary&&) = delete;
+      unit_ordinary& operator=(unit_ordinary&&) = delete;
 
       /**
        * @brief #### 执行任务 - 虚函数，子类根据自身情况实现
@@ -386,31 +386,31 @@ namespace internals
         return false;
       }
 
-      constexpr bool operator<(const uint_ordinary& other) const noexcept
+      constexpr bool operator<(const unit_ordinary& other) const noexcept
       {
         return this->get_priority() < other.get_priority();
       }
 
-      constexpr bool operator>(const uint_ordinary& other) const noexcept
+      constexpr bool operator>(const unit_ordinary& other) const noexcept
       {
         return this->get_priority() > other.get_priority();
       }
     };
 
-    std::atomic<std::uint64_t> uint_ordinary::current_unique_identifier{1};
+    std::atomic<std::uint64_t> unit_ordinary::current_unique_identifier{1};
 
     /**
-     * @class uint_standard
+     * @class unit_standard
      * @brief #### 标准任务类 - 支持异步结果获取
      * @tparam execute_function 任务类型模板
      *
      * 适用场景：需要获取执行结果的任务,计算密集型任务,数据处理和转换
      * 
-     * 调用关系：继承自`uint_ordinary`,使用`std::promise`和`std::future`实现结果同步
+     * 调用关系：继承自`unit_ordinary`,使用`std::promise`和`std::future`实现结果同步
      * 由`thread_pool::submit()`创建,由`worker`线程执行
      */
     template<typename execute_function, typename result = std::invoke_result_t<execute_function>>
-    class uint_standard : public uint_ordinary
+    class unit_standard : public unit_ordinary
     {
       //对于和基类成员变量名相同的成员变量，在多态里默认隐藏，可以通过限定符来访问
     protected:
@@ -423,9 +423,9 @@ namespace internals
 
     public:
 
-      uint_standard(execute_function&& function, const std::string &name = "", 
+      unit_standard(execute_function&& function, const std::string &name = "", 
         weight priority = weight::normal)
-      :uint_ordinary([](){},name,priority),_promise(), _future(_promise.get_future()),
+      :unit_ordinary([](){},name,priority),_promise(), _future(_promise.get_future()),
        _standard_execution(std::forward<execute_function>(function)) {}
 
       
@@ -524,15 +524,15 @@ namespace internals
     };
 
     /**
-     * @class uint_overtime
+     * @class unit_overtime
      * @brief #### 超时任务类 - 支持超时检查和处理
      *
      * 适用场景：有时间限制的任务, 网络请求和`IO`操作, 需要及时响应的任务
      *
-     * 调用关系： 继承自`uint_standard`, 由`scheduler`定期检查超时, 支持超时回调处理
+     * 调用关系： 继承自`unit_standard`, 由`scheduler`定期检查超时, 支持超时回调处理
      */
     template<typename execute_function, typename timeout_function>
-    class uint_overtime : public uint_standard<execute_function>
+    class unit_overtime : public unit_standard<execute_function>
     {
     protected:
 
@@ -542,19 +542,19 @@ namespace internals
     public:
 
       template<typename func, typename rep, typename period>
-      uint_overtime(func&& function, const std::chrono::duration<rep, period>& timeout,
+      unit_overtime(func&& function, const std::chrono::duration<rep, period>& timeout,
        timeout_function&& timeout_callback, const std::string &name = "")
-      :uint_standard<execute_function>(std::forward<func>(function),name),
+      :unit_standard<execute_function>(std::forward<func>(function),name),
        _timeout_callback(std::forward<timeout_function>(timeout_callback))
       {  this->set_timeout(timeout);  }
       
       /**
-       * @brief #### 标记任务超时（重写`uint_ordinary`类方法）
+       * @brief #### 标记任务超时（重写`unit_ordinary`类方法）
        * @return `true` 标记成功，`false` 任务已开始执行
        */
       bool mark_timeout() override
       {
-        if(uint_ordinary::mark_timeout())
+        if(unit_ordinary::mark_timeout())
         {
           handle_timeout();
           return true;
@@ -609,7 +609,7 @@ namespace internals
      * 调用关系：继承自`task_rslt`, 依赖其他任务的完成状态, 由`scheduler`检查依赖关系
      */
     template<typename execute_function, uint64_t MAX_CACHE_VALIDITY = 100ULL>
-    class uint_reliance : public uint_standard<execute_function>
+    class unit_reliance : public unit_standard<execute_function>
     {
     protected:
 
@@ -618,7 +618,7 @@ namespace internals
 
       mutable std::mutex _dependency_mutex; // 依赖检查互斥锁
       mutable std::condition_variable _dependency_cv; // 依赖状态变更条件变量
-      std::vector<std::shared_ptr<uint_ordinary>> _dependency_list; // 依赖任务列表
+      std::vector<std::shared_ptr<unit_ordinary>> _dependency_list; // 依赖任务列表
 
       static constexpr std::uint64_t CACHE_VALIDITY = MAX_CACHE_VALIDITY; // 缓存有效期（毫秒）
 
@@ -640,19 +640,19 @@ namespace internals
         */
       bool are_dependencies_satisfied_unsafe() const
       {
-        auto satisfied_func = [](const std::shared_ptr<uint_ordinary>& dep) 
+        auto satisfied_func = [](const std::shared_ptr<unit_ordinary>& dep) 
         {
           return dep && dep->get_state() == current_status::completed;
         };
         return std::all_of(_dependency_list.begin(), _dependency_list.end(),satisfied_func);
       }
     public:
-      uint_reliance(execute_function&& function, const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
+      unit_reliance(execute_function&& function, const std::vector<std::shared_ptr<unit_ordinary>>& dependencies = {},
        const std::string &name = "", weight priority = weight::normal)
-      :uint_standard<execute_function>(std::forward<execute_function>(function),name,priority),
+      :unit_standard<execute_function>(std::forward<execute_function>(function),name,priority),
        _dependency_list(dependencies)
       {
-        auto null_pointer_check = [](const std::shared_ptr<uint_ordinary>& ptr)
+        auto null_pointer_check = [](const std::shared_ptr<unit_ordinary>& ptr)
         {
           return ptr != nullptr;
         };
@@ -663,9 +663,9 @@ namespace internals
         }
       }
 
-      uint_reliance(execute_function&& function, std::shared_ptr<uint_ordinary> dependency,
+      unit_reliance(execute_function&& function, std::shared_ptr<unit_ordinary> dependency,
        const std::string &name = "", weight priority = weight::normal)
-      :uint_standard<execute_function>(std::forward<execute_function>(function),name,priority)
+      :unit_standard<execute_function>(std::forward<execute_function>(function),name,priority)
       {
         _dependency_list.push_back(std::move(dependency));
       }
@@ -674,10 +674,10 @@ namespace internals
        * @brief #### 添加依赖任务
        * @param dependency 依赖的任务
        */
-      void add_dependency(std::shared_ptr<uint_ordinary> dependency)
+      void add_dependency(std::shared_ptr<unit_ordinary> dependency)
       {
         std::lock_guard<std::mutex> lock(_dependency_mutex);
-        if (dependency && this->uint_ordinary::get_state() == current_status::pending)
+        if (dependency && this->unit_ordinary::get_state() == current_status::pending)
         {
           _dependency_list.push_back(std::move(dependency));
           // 重置缓存状态
@@ -711,7 +711,7 @@ namespace internals
           return true;
         }
 
-        auto satisfied_func = [](const std::shared_ptr<uint_ordinary>& dep) 
+        auto satisfied_func = [](const std::shared_ptr<unit_ordinary>& dep) 
         {
           return dep && dep->get_state() == current_status::completed;
         };
@@ -729,12 +729,12 @@ namespace internals
        * @brief #### 获取未完成的依赖任务
        * @return 未完成的依赖任务列表
        */
-      std::vector<std::shared_ptr<uint_ordinary>> get_pending_dependencies() const
+      std::vector<std::shared_ptr<unit_ordinary>> get_pending_dependencies() const
       {
         std::lock_guard<std::mutex> lock(_dependency_mutex);
-        std::vector<std::shared_ptr<uint_ordinary>> pending;
+        std::vector<std::shared_ptr<unit_ordinary>> pending;
         pending.reserve(_dependency_list.size()); // 预分配内存
-        auto get_pending_func = [](const std::shared_ptr<uint_ordinary>& dep) 
+        auto get_pending_func = [](const std::shared_ptr<unit_ordinary>& dep) 
         {
           if (!dep) return false;
           auto state = dep->get_state();
@@ -781,10 +781,10 @@ namespace internals
      * @return 智能指针
      */
     template<typename funcion_t>
-    std::shared_ptr<uint_ordinary> make_uint_ordinary(funcion_t&& func,const std::string &name = "",
+    std::shared_ptr<unit_ordinary> make_uint_ordinary(funcion_t&& func,const std::string &name = "",
       weight priority = weight::normal)
     {
-      return std::make_shared<uint_ordinary>(std::forward<funcion_t>(func),name,priority);
+      return std::make_shared<unit_ordinary>(std::forward<funcion_t>(func),name,priority);
     }
 
     /**
@@ -796,10 +796,10 @@ namespace internals
      * @return 智能指针
      */
     template<typename function_t, typename result_t = std::invoke_result_t<function_t>>
-    std::shared_ptr<uint_standard<function_t, result_t>> make_uint_standard(function_t&& func,
+    std::shared_ptr<unit_standard<function_t, result_t>> make_uint_standard(function_t&& func,
       const std::string &name = "", weight priority = weight::normal)
     {
-      return std::make_shared<uint_standard<function_t, result_t>>
+      return std::make_shared<unit_standard<function_t, result_t>>
       (std::forward<function_t>(func),name,priority);
     }
 
@@ -814,11 +814,11 @@ namespace internals
      * @return 智能指针
      */
     template<typename function_t, typename timeout_function, typename rep, typename period>
-    std::shared_ptr<uint_overtime<function_t, timeout_function>> make_uint_overtime(function_t&& func,
+    std::shared_ptr<unit_overtime<function_t, timeout_function>> make_uint_overtime(function_t&& func,
       const std::chrono::duration<rep, period>& timeout, timeout_function&& timeout_callback,
       const std::string &name = "")
     {
-      return std::make_shared<uint_overtime<function_t, timeout_function>>
+      return std::make_shared<unit_overtime<function_t, timeout_function>>
       (std::forward<function_t>(func),timeout,std::forward<timeout_function>(timeout_callback),name);
     }
     /**
@@ -832,19 +832,19 @@ namespace internals
      * @return 智能指针
      */
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
-    std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(
-      function_t&& func,const std::vector<std::shared_ptr<uint_ordinary>>& dependencies = {},
+    std::shared_ptr<unit_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(
+      function_t&& func,const std::vector<std::shared_ptr<unit_ordinary>>& dependencies = {},
       const std::string &name = "", weight priority = weight::normal)
     {
-      return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>
+      return std::make_shared<unit_reliance<function_t,MAX_CACHE_VALIDITY>>
       (std::forward<function_t>(func),dependencies,name,priority);
     }
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
-    std::shared_ptr<uint_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance
-    (function_t&& func, std::shared_ptr<uint_ordinary> dependency,
+    std::shared_ptr<unit_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance
+    (function_t&& func, std::shared_ptr<unit_ordinary> dependency,
       const std::string &name = "", weight priority = weight::normal)
     {
-      return std::make_shared<uint_reliance<function_t,MAX_CACHE_VALIDITY>>
+      return std::make_shared<unit_reliance<function_t,MAX_CACHE_VALIDITY>>
       (std::forward<function_t>(func),std::move(dependency),name,priority);
     }
   }
@@ -852,10 +852,10 @@ namespace internals
 
 namespace pool 
 {
-  using internals::structure_u::uint_ordinary;
-  using internals::structure_u::uint_standard;
-  using internals::structure_u::uint_overtime;
-  using internals::structure_u::uint_reliance;
+  using internals::structure_u::unit_ordinary;
+  using internals::structure_u::unit_standard;
+  using internals::structure_u::unit_overtime;
+  using internals::structure_u::unit_reliance;
 
   using internals::structure_u::make_uint_ordinary;
   using internals::structure_u::make_uint_standard;
