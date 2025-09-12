@@ -23,10 +23,11 @@ namespace internals::structure_c
   using namespace internals::structure_u;
   using safety_unit_pointer = std::shared_ptr<uint_ordinary>;
 
+  using internals_time_t = std::chrono::system_clock::time_point;
+  using internals_time = std::shared_ptr<internals_time_t>;
+
   class rank_ordinary
   {
-    using internals_time_t = std::chrono::system_clock::time_point;
-    using internals_time = std::shared_ptr<internals_time_t>;
   protected:
 
   // 计算执行单元默认超时时间点
@@ -46,7 +47,6 @@ namespace internals::structure_c
     std::atomic<bool> _unit_time_limit{false}; //执行单元时间限制
     std::atomic<std::size_t> _max_storage_capacity{0}; //最大队列大小
     std::chrono::milliseconds _default_function_timeout{1000}; //默认等待时间 
-    std::atomic<backpressure> _backpressure{backpressure::block}; //背压策略
 
   protected:
     // 内部推送任务接口
@@ -220,7 +220,7 @@ namespace internals::structure_c
       }
       else
       {
-        return false
+        return false;
       }
     }
     std::size_t get_max_size()const  
@@ -243,14 +243,14 @@ namespace internals::structure_c
       return internal_get_delay_uint_count(); 
     }
 
-    void add_sub_cohort(std::unique_ptr<rank_ordinary> cohort) 
+    std::size_t add_sub_cohort(std::unique_ptr<rank_ordinary>&& cohort) 
     {
-      internal_add_sub_cohort(cohort);
+      internal_add_sub_cohort(std::move(cohort));
     }
 
-    void remove_sub_cohort(std::unique_ptr<rank_ordinary> cohort)
+    std::size_t remove_sub_cohort(std::unique_ptr<rank_ordinary> cohort)
     {
-      internal_remove_sub_cohort(cohort);
+      return internal_remove_sub_cohort(std::move(cohort));
     }
 
     rank_strategy strategy() const 
@@ -258,24 +258,19 @@ namespace internals::structure_c
       return internal_strategy(); 
     }
 
-    void set_backpressure_mode(backpressure mode)
-    {
-      _backpressure.store(mode, std::memory_order_relaxed);
-    }
-
-    backpressure get_backpressure_mode() const
-    {
-      return _backpressure.load(std::memory_order_relaxed);
-    }
   };
 
   class rank_standard : public rank_ordinary
   {
   protected:
 
-    std::condition_variable _judge_empty_cv; // 队列空条件变量
-    std::deque<safety_unit_pointer> _rank_uint; // 任务队列
-    mutable std::shared_mutex _rank_standard_mutex; // 任务队列锁
+    std::deque<safety_unit_pointer> _rank_uint;
+
+    std::condition_variable_any _judge_full_cv;
+    std::condition_variable_any _judge_empty_cv;
+
+    mutable std::shared_mutex _rank_standard_mutex;
+
   public:
     explicit rank_standard(std::size_t max_size = 0) : rank_ordinary(max_size) {}
 
@@ -287,6 +282,7 @@ namespace internals::structure_c
       if(_max_storage_capacity != 0 && _rank_uint.size() >= _max_storage_capacity)
       {
         switch(mode)
+        {
           case backpressure::block:
           {
             std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
@@ -298,6 +294,8 @@ namespace internals::structure_c
             _judge_empty_cv.wait(lock, block_func);
             if(_closed.load(std::memory_order_acquire)) return false;
             _rank_uint.push_back(std::move(pointer));
+            lock.unlock();
+            _judge_empty_cv.notify_one();
             return true;
           }
           case backpressure::overwrite:
@@ -305,6 +303,7 @@ namespace internals::structure_c
             std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
             _rank_uint.pop_back();
             _rank_uint.push_back(std::move(pointer));
+            
             return true;
           }
           case backpressure::exception:
@@ -313,6 +312,7 @@ namespace internals::structure_c
             return false;
           default:
             throw operation_exception("Unknown backpressure mode.");
+        }
       }
       else
       {
@@ -323,12 +323,21 @@ namespace internals::structure_c
       }
     }
   protected:
-    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode =
-    _backpressure.load(std::memory_order_relaxed))
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode) override
     {
       if(_closed.load(std::memory_order_acquire)) return false;
       if(pointer == nullptr) return false;
       return enqueue_with_backpressure(std::move(pointer), mode);
+    }
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode, 
+    internals_time timeout_pointer) override
+    {
+      internals_time_t timeout = std::chrono::system_clock::now();
+      if(timeout_pointer == nullptr || timeout < timeout_pointer.get())
+      {
+        return internal_push(std::move(pointer), mode);
+      }
+      return false;
     }
   };
 }
