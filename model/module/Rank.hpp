@@ -12,6 +12,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#define parameter_discard(parameter) (void)(parameter)
 #define macro_statement throw operation_exception("The current derived class has not overridden the function.")
 
 namespace internals
@@ -53,19 +54,21 @@ namespace internals::structure_c
     virtual bool internal_push(safety_unit_pointer pointer, backpressure mode, 
     internals_time deadline  = nullptr)
     {
-      macro_statement;
+      parameter_discard(pointer);  parameter_discard(mode);
+      parameter_discard(deadline); macro_statement;
       return false;
     }
     virtual bool internal_push(safety_unit_pointer pointer, backpressure mode)
     {
-      macro_statement;
+      parameter_discard(pointer); parameter_discard(mode); macro_statement;
       return false;
     }
     // 内部批量推送任务接口
-    virtual bool internal_push_batch(std::vector<safety_unit_pointer> pointers, backpressure mode)
+    virtual std::size_t internal_push_batch(std::vector<safety_unit_pointer>&& pointers,
+       backpressure mode)
     {
-      macro_statement;
-      return false;
+      parameter_discard(pointers); parameter_discard(mode); macro_statement;
+      return std::size_t(0);
     }
     // 内部弹出任务接口
     virtual safety_unit_pointer internal_pop()
@@ -76,7 +79,7 @@ namespace internals::structure_c
     // 内部批量弹出任务接口
     virtual std::vector<safety_unit_pointer> internal_pop_batch(std::size_t count)
     {
-      macro_statement;
+      parameter_discard(count); macro_statement;
       return {};
     }
     // 内部尝试弹出任务接口
@@ -88,7 +91,7 @@ namespace internals::structure_c
     // 内部尝试弹出任务接口（带超时）
     virtual safety_unit_pointer internal_try_pop_for(const std::chrono::milliseconds& timeout)
     {
-      macro_statement;
+      parameter_discard(timeout); macro_statement;
       return nullptr;
     }
     // 内部获取队列大小接口
@@ -130,7 +133,7 @@ namespace internals::structure_c
     // 内部添加子队列接口
     virtual std::size_t internal_add_sub_cohort(std::unique_ptr<rank_ordinary>&& rank)
     {
-      macro_statement;
+      parameter_discard(rank); macro_statement;
       return 0;
     }
     // 内部移除子队列接口
@@ -162,7 +165,7 @@ namespace internals::structure_c
       return internal_push(std::move(pointer), mode, time_point);
     }
 
-    bool push_batch(std::vector<safety_unit_pointer> pointers, backpressure mode = backpressure::block)
+    std::size_t push_batch(std::vector<safety_unit_pointer> pointers, backpressure mode = backpressure::block)
     {
       return internal_push_batch(std::move(pointers), mode);
     }
@@ -245,7 +248,7 @@ namespace internals::structure_c
 
     std::size_t add_sub_cohort(std::unique_ptr<rank_ordinary>&& cohort) 
     {
-      internal_add_sub_cohort(std::move(cohort));
+      return internal_add_sub_cohort(std::move(cohort));
     }
 
     std::size_t remove_sub_cohort(std::unique_ptr<rank_ordinary> cohort)
@@ -279,47 +282,46 @@ namespace internals::structure_c
   private:
     bool enqueue_with_backpressure(safety_unit_pointer pointer, backpressure mode)
     {
-      if(_max_storage_capacity != 0 && _rank_uint.size() >= _max_storage_capacity)
-      {
-        switch(mode)
-        {
-          case backpressure::block:
-          {
-            std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
-            auto block_func = [this]()
-            {
-              return this->_rank_uint.size() < this->_max_storage_capacity
-              || this->_closed.load(std::memory_order_acquire);
-            };
-            _judge_empty_cv.wait(lock, block_func);
-            if(_closed.load(std::memory_order_acquire)) return false;
-            _rank_uint.push_back(std::move(pointer));
-            lock.unlock();
-            _judge_empty_cv.notify_one();
-            return true;
-          }
-          case backpressure::overwrite:
-          {
-            std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
-            _rank_uint.pop_back();
-            _rank_uint.push_back(std::move(pointer));
-            
-            return true;
-          }
-          case backpressure::exception:
-            throw operation_exception("The queue is full, please check the overflow policy.");
-          case backpressure::drop:
-            return false;
-          default:
-            throw operation_exception("Unknown backpressure mode.");
-        }
-      }
-      else
+      if((_max_storage_capacity != 0 && _rank_uint.size() >= _max_storage_capacity) == false)
       {
         std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
         _rank_uint.push_back(std::move(pointer));
         _judge_empty_cv.notify_one();
         return true;
+      }
+      else
+      switch(mode)
+      {
+        case backpressure::block:
+        {
+          std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
+          auto block_func = [this]()
+          {
+            return this->_rank_uint.size() < this->_max_storage_capacity
+            || this->_closed.load(std::memory_order_release);
+          };
+          _judge_empty_cv.wait(lock, block_func);
+          if(_closed.load(std::memory_order_release)) return false;
+          _rank_uint.push_back(std::move(pointer));
+          lock.unlock();
+          _judge_empty_cv.notify_one();
+          return true;
+        }
+        case backpressure::overwrite:
+        {
+          std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
+          _rank_uint.pop_back();
+          _rank_uint.push_back(std::move(pointer));
+          lock.unlock();
+          _judge_empty_cv.notify_one();
+          return true;
+        }
+        case backpressure::exception:
+          throw operation_exception("The queue is full, please check the overflow policy.");
+        case backpressure::drop:
+          return false;
+        default:
+          throw operation_exception("Unknown backpressure mode.");
       }
     }
   protected:
@@ -333,17 +335,72 @@ namespace internals::structure_c
     internals_time timeout_pointer) override
     {
       internals_time_t timeout = std::chrono::system_clock::now();
-      if(timeout_pointer == nullptr || timeout < timeout_pointer.get())
+      if(timeout_pointer == nullptr || timeout < *timeout_pointer)
       {
         return internal_push(std::move(pointer), mode);
       }
       return false;
     }
-    virtual bool internal_push_batch(std::vector<safety_unit_pointer>&& pointers, backpressure mode) override
+    virtual std::size_t internal_push_batch(std::vector<safety_unit_pointer>&& pointers, 
+      backpressure mode) override
     {
       if(_closed.load(std::memory_order_acquire)) return false;
       if(pointers.empty()) throw operation_exception("The vector pointers is empty.");
-      for(auto& uint_)
+      std::size_t complete_push_unit_counter = 0;
+      for(auto& unit_pointers : pointers)
+      {
+        if (internal_push(std::move(unit_pointers), mode))
+        {
+          complete_push_unit_counter++;
+        }
+      }
+      return complete_push_unit_counter;
+    }
+    virtual safety_unit_pointer internal_pop() override
+    {
+      {
+        std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+        if(_rank_uint.empty()) return nullptr;
+      }
+      std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+      auto  check_units_func = [this]()
+      {
+        return this->_rank_uint.empty() == false;
+      };
+      _judge_full_cv.wait(lock, check_units_func);
+      auto pointer = std::move(_rank_uint.front());
+      _rank_uint.pop_front();
+      _judge_full_cv.notify_one();
+      return pointer;
+    }
+    virtual std::vector<safety_unit_pointer> internal_pop_batch(std::size_t count) override
+    {
+      {
+        std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+        if(_rank_uint.empty()) return {};
+      }
+      std::vector<safety_unit_pointer> pointers;
+
+      std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
+      pointers.reserve(count);
+      auto  popup_func = [this]()
+      {
+        return !this->_rank_uint.empty();
+      };
+      _judge_empty_cv.wait(lock, popup_func);
+      count = std::min(count, _rank_uint.size());
+      pointers.assign(std::make_move_iterator(_rank_uint.begin()),
+      std::make_move_iterator(_rank_uint.begin() + count));
+      _rank_uint.erase(_rank_uint.begin(), _rank_uint.begin() + count);
+
+      lock.unlock();
+      if(pointers.size() != count)
+      {
+        // throw operation_exception("The current number of popups does not match the verification logic.");
+        // 可写日志记录信息
+      }
+      _judge_full_cv.notify_one();
+      return {};
     }
   };
 }
