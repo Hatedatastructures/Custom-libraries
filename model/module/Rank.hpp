@@ -234,10 +234,10 @@ namespace internals::structure_r
       return internal_get_delay_uint_count(); 
     }
 
-    std::size_t get_ready_uint_count() const 
-    { 
-      return internal_get_delay_uint_count(); 
-    }
+    // std::size_t get_ready_uint_count() const 
+    // { 
+    //   return internal_get_delay_uint_count(); 
+    // }
 
     // std::size_t add_sub_cohort(std::unique_ptr<rank_ordinary>&& cohort) 
     // {
@@ -357,6 +357,7 @@ namespace internals::structure_r
         return !this->_rank_uint.empty() || this->_closed.load(std::memory_order_acquire);
       };
       _judge_empty_cv.wait(lock, check_units_func);
+      if(_closed.load(std::memory_order_acquire) && this->_rank_uint.empty()) return nullptr;
       auto pointer = std::move(_rank_uint.front());
       _rank_uint.pop_front();
       lock.unlock();
@@ -374,6 +375,7 @@ namespace internals::structure_r
         return !this->_rank_uint.empty();
       };
       _judge_empty_cv.wait(lock, popup_func);
+      if(_closed.load(std::memory_order_acquire) && this->_rank_uint.empty()) return pointers;
       count = std::min(count, _rank_uint.size());
       auto first_iterator = std::make_move_iterator(_rank_uint.begin());
       auto last_iterator  = std::make_move_iterator(_rank_uint.begin() + count);
@@ -389,7 +391,7 @@ namespace internals::structure_r
       _judge_full_cv.notify_one();
       return pointers;
     }
-    virtual safety_unit_pointer internal_try_pop()
+    virtual safety_unit_pointer internal_try_pop() override
     {
       std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
 
@@ -441,6 +443,10 @@ namespace internals::structure_r
     virtual rank_strategy internal_strategy()const override
     {
       return rank_strategy::fifo;
+    }
+    virtual std::size_t internal_get_sub_queue_count()const override
+    {
+      return 0;
     }
     virtual std::size_t internal_get_delay_uint_count()const override
     {

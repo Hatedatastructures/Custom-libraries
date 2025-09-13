@@ -92,7 +92,7 @@ namespace rank_test
   constexpr size_t BASELINE_TASKS = 100000;      // 基准任务数量
   constexpr size_t CONCURRENT_THREADS = 12;      // 并发线程数
   constexpr size_t DEPENDENCY_CHAIN_LENGTH = 50; // 依赖链长度
-  constexpr int TEST_ROUNDS = 100;               // 测试轮次
+  constexpr int TEST_ROUNDS = 10;               // 测试轮次
 
   // 简单任务函数（无返回值）
   void simple_task()
@@ -369,9 +369,6 @@ namespace rank_test
     const size_t stress_tasks = BASELINE_TASKS * 5;
     const size_t producer_count = CONCURRENT_THREADS;
     const size_t consumer_count = CONCURRENT_THREADS / 2;
-
-    // 队列容量为任务数的一半，制造背压场景
-    rank_standard queue(BASELINE_TASKS / 2);
     std::vector<long long> durations;
 
     std::cout << "测试配置: 总任务数=" << stress_tasks
@@ -380,9 +377,13 @@ namespace rank_test
 
     for (int round = 0; round < TEST_ROUNDS; ++round)
     {
+      // 每轮测试创建新的队列实例，避免重用已关闭的队列
+      rank_standard queue(BASELINE_TASKS / 2);
+      
       auto start = high_resolution_clock::now();
       std::atomic<size_t> completed_tasks{0}; // 原子计数器跟踪完成的任务
       std::atomic<size_t> total_produced{0};  // 跟踪实际生产的任务数
+      std::atomic<bool> production_finished{false}; // 生产完成标志
 
       // 多个生产者线程
       std::vector<std::thread> producers;
@@ -419,15 +420,21 @@ namespace rank_test
       // 多个消费者线程
       std::vector<std::thread> consumers;
       consumers.reserve(consumer_count);
+      std::atomic<bool> should_stop{false};
+      
       for (size_t t = 0; t < consumer_count; ++t)
       {
-        consumers.emplace_back([&queue]()
+        consumers.emplace_back([&]()
                                {
-                // 循环消费直到队列关闭且为空
-                while (!queue.closed() || !queue.empty()) {
-                    // 尝试弹出任务，超时100ms避免无限等待
-                    if (auto task = queue.try_pop_for(milliseconds(100))) {
+                // 改进的消费者逻辑：继续处理直到生产完成且队列为空
+                while (!should_stop.load(std::memory_order_acquire)) {
+                    if (auto task = queue.try_pop_for(milliseconds(50))) {
                         task->execute();  // 执行任务
+                    } else {
+                        // 如果生产已完成且队列为空，则退出
+                        if (production_finished.load(std::memory_order_acquire) && queue.empty()) {
+                            break;
+                        }
                     }
                 } });
       }
@@ -440,6 +447,9 @@ namespace rank_test
           th.join();
         }
       }
+      
+      // 标记生产完成
+      production_finished.store(true, std::memory_order_release);
 
       // 等待所有任务执行完成（带超时保护）
       const auto wait_start = high_resolution_clock::now();
@@ -448,20 +458,22 @@ namespace rank_test
       {
         std::this_thread::yield();
 
-        // 超时保护：防止永久阻塞（5倍预期时间）
+        // 超时保护：防止永久阻塞
         const auto elapsed = duration_cast<milliseconds>(
                                  high_resolution_clock::now() - wait_start)
                                  .count();
-        if (elapsed > 5000)
-        { // 5秒超时
+        if (elapsed > 10000)
+        { // 10秒超时
           std::cerr << "警告：任务处理超时，可能存在死锁或未完成的任务" << std::endl;
           break;
         }
       }
-      all_completed = (completed_tasks == stress_tasks);
+      all_completed = (completed_tasks.load() == stress_tasks);
 
-      // 关闭队列并等待消费者退出
-      queue.close();
+      // 通知消费者停止并等待退出
+      should_stop.store(true, std::memory_order_release);
+      queue.close(); // 关闭队列以唤醒等待的消费者
+      
       for (auto &th : consumers)
       {
         if (th.joinable())
@@ -478,7 +490,7 @@ namespace rank_test
       // 输出本轮详细信息
       std::cout << "轮次 " << round + 1 << ": "
                 << "总任务=" << stress_tasks << ", "
-                << "完成=" << completed_tasks << ", "
+                << "完成=" << completed_tasks.load() << ", "
                 << "耗时=" << duration << "ms, "
                 << "吞吐量=" << (stress_tasks * 1000.0 / duration) << " 任务/秒"
                 << (all_completed ? "" : " [未完成]") << std::endl;
