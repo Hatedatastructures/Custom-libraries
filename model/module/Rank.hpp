@@ -17,9 +17,9 @@
 
 namespace internals
 {
-  namespace structure_c {}
+  namespace structure_r {}
 }
-namespace internals::structure_c
+namespace internals::structure_r
 {
   using namespace internals::structure_u;
   using safety_unit_pointer = std::shared_ptr<unit_ordinary>;
@@ -131,17 +131,17 @@ namespace internals::structure_c
       return 0;
     }
     // 内部添加子队列接口
-    virtual std::size_t internal_add_sub_cohort(std::unique_ptr<rank_ordinary>&& rank)
-    {
-      parameter_discard(rank); macro_statement;
-      return 0;
-    }
-    // 内部移除子队列接口
-    virtual std::size_t internal_remove_sub_cohort(std::unique_ptr<rank_ordinary> rank)
-    {
-      macro_statement;
-      return 0;
-    }
+    // virtual std::size_t internal_add_sub_cohort(std::unique_ptr<rank_ordinary>&& rank)
+    // {
+    //   parameter_discard(rank); macro_statement;
+    //   return 0;
+    // }
+    // // 内部移除子队列接口
+    // virtual std::size_t internal_remove_sub_cohort(std::unique_ptr<rank_ordinary> rank)
+    // {
+    //   macro_statement;
+    //   return 0;
+    // }
     // 内部获取调度策略接口
     virtual rank_strategy internal_strategy() const
     {
@@ -217,14 +217,7 @@ namespace internals::structure_c
     bool set_max_size(const std::size_t max_size)
     {
       _max_storage_capacity.store(max_size, std::memory_order_relaxed);
-      if( _max_storage_capacity.load() ==  max_size)
-      {
-        return true;
-      }
-      else
-      {
-        return false;
-      }
+      return true;
     }
     std::size_t get_max_size()const  
     {
@@ -246,15 +239,15 @@ namespace internals::structure_c
       return internal_get_delay_uint_count(); 
     }
 
-    std::size_t add_sub_cohort(std::unique_ptr<rank_ordinary>&& cohort) 
-    {
-      return internal_add_sub_cohort(std::move(cohort));
-    }
+    // std::size_t add_sub_cohort(std::unique_ptr<rank_ordinary>&& cohort) 
+    // {
+    //   return internal_add_sub_cohort(std::move(cohort));
+    // }
 
-    std::size_t remove_sub_cohort(std::unique_ptr<rank_ordinary> cohort)
-    {
-      return internal_remove_sub_cohort(std::move(cohort));
-    }
+    // std::size_t remove_sub_cohort(std::unique_ptr<rank_ordinary> cohort)
+    // {
+    //   return internal_remove_sub_cohort(std::move(cohort));
+    // }
 
     rank_strategy strategy() const 
     { 
@@ -298,10 +291,10 @@ namespace internals::structure_c
           auto block_func = [this]()
           {
             return this->_rank_uint.size() < this->_max_storage_capacity
-            || this->_closed.load(std::memory_order_release);
+            || this->_closed.load(std::memory_order_acquire);
           };
-          _judge_empty_cv.wait(lock, block_func);
-          if(_closed.load(std::memory_order_release)) return false;
+          _judge_full_cv.wait(lock, block_func);
+          if(_closed.load(std::memory_order_acquire)) return false;
           _rank_uint.push_back(std::move(pointer));
           lock.unlock();
           _judge_empty_cv.notify_one();
@@ -334,8 +327,8 @@ namespace internals::structure_c
     virtual bool internal_push(safety_unit_pointer pointer, backpressure mode, 
     internals_time timeout_pointer) override
     {
-      internals_time_t timeout = std::chrono::system_clock::now();
-      if(timeout_pointer == nullptr || timeout < *timeout_pointer)
+      internals_time_t now_time = std::chrono::system_clock::now();
+      if(!timeout_pointer || now_time < *timeout_pointer)
       {
         return internal_push(std::move(pointer), mode);
       }
@@ -358,27 +351,20 @@ namespace internals::structure_c
     }
     virtual safety_unit_pointer internal_pop() override
     {
-      {
-        std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
-        if(_rank_uint.empty()) return nullptr;
-      }
-      std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+      std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
       auto  check_units_func = [this]()
       {
-        return this->_rank_uint.empty() == false;
+        return !this->_rank_uint.empty() || this->_closed.load(std::memory_order_acquire);
       };
-      _judge_full_cv.wait(lock, check_units_func);
+      _judge_empty_cv.wait(lock, check_units_func);
       auto pointer = std::move(_rank_uint.front());
       _rank_uint.pop_front();
+      lock.unlock();
       _judge_full_cv.notify_one();
       return pointer;
     }
     virtual std::vector<safety_unit_pointer> internal_pop_batch(std::size_t count) override
     {
-      {
-        std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
-        if(_rank_uint.empty()) return {};
-      }
       std::vector<safety_unit_pointer> pointers;
 
       std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
@@ -389,8 +375,9 @@ namespace internals::structure_c
       };
       _judge_empty_cv.wait(lock, popup_func);
       count = std::min(count, _rank_uint.size());
-      pointers.assign(std::make_move_iterator(_rank_uint.begin()),
-      std::make_move_iterator(_rank_uint.begin() + count));
+      auto first_iterator = std::make_move_iterator(_rank_uint.begin());
+      auto last_iterator  = std::make_move_iterator(_rank_uint.begin() + count);
+      pointers.assign(first_iterator,last_iterator);
       _rank_uint.erase(_rank_uint.begin(), _rank_uint.begin() + count);
 
       lock.unlock();
@@ -400,7 +387,64 @@ namespace internals::structure_c
         // 可写日志记录信息
       }
       _judge_full_cv.notify_one();
-      return {};
+      return pointers;
+    }
+    virtual safety_unit_pointer internal_try_pop()
+    {
+      std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+
+      if(_rank_uint.empty()) return nullptr;
+      auto pointer = std::move(_rank_uint.front());
+      _rank_uint.pop_front();
+
+      _judge_full_cv.notify_one();
+      return pointer;
+    }
+    virtual safety_unit_pointer internal_try_pop_for(const std::chrono::milliseconds& timeout) override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
+      auto  popup_func = [this]()
+      {
+        return !this->_rank_uint.empty();
+      };
+      if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
+      {
+        auto pointer = std::move(_rank_uint.front());
+        _rank_uint.pop_front();
+        lock.unlock();
+        _judge_full_cv.notify_one();
+        return pointer;
+      }
+      return nullptr;
+    }
+    virtual std::size_t internal_size()const override
+    {
+      std::shared_lock<std::shared_mutex> lock(_rank_standard_mutex);
+      return _rank_uint.size();
+    }
+    virtual bool internal_empty()const override
+    {
+      std::shared_lock<std::shared_mutex> lock(_rank_standard_mutex);
+      return _rank_uint.empty();
+    }
+    virtual void internal_clear() override
+    {
+      std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+      _rank_uint.clear();
+    }
+    virtual void internal_close() override
+    {
+      _closed.store(true, std::memory_order_release);
+      _judge_empty_cv.notify_all();
+      _judge_full_cv.notify_all();
+    }
+    virtual rank_strategy internal_strategy()const override
+    {
+      return rank_strategy::fifo;
+    }
+    virtual std::size_t internal_get_delay_uint_count()const override
+    {
+      return 0;
     }
   };
 }

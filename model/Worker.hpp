@@ -14,7 +14,7 @@ namespace internals
   namespace structure_w
   {
     using _interior_task_ptr   = std::shared_ptr<internals::structure_u::unit_ordinary>;
-    using _interior_cohort_ptr = std::shared_ptr<internals::structure_c::cohort_base>;
+    using _interior_cohort_ptr = std::shared_ptr<internals::structure_r::cohort_base>;
     /**
      * @enum worker_state
      * @brief 工作线程状态枚举

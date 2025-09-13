@@ -115,7 +115,7 @@ namespace internals
       std::chrono::milliseconds scale_down_delay{5000}; // 缩容延迟
     };
     using _interior_task_ptr   = std::shared_ptr<internals::structure_u::unit_ordinary>;
-    using _interior_cohort_ptr = std::shared_ptr<internals::structure_c::cohort_base>;
+    using _interior_cohort_ptr = std::shared_ptr<internals::structure_r::cohort_base>;
     using _interior_thread_ptr = std::unique_ptr<internals::structure_w::worker_base>;
     /**
      * @class scheduler_base

@@ -14,7 +14,7 @@ namespace internals
 {
   using namespace internals;
   using namespace internals::structure_u;
-  using namespace internals::structure_c;
+  using namespace internals::structure_r;
   using namespace internals::structure_w;
   using namespace internals::structure_s;
   /**

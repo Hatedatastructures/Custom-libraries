@@ -10,7 +10,7 @@
 #include <unordered_map>
 namespace internals
 {
-  namespace structure_c
+  namespace structure_r
   {
     using _interior_task_ptr = std::shared_ptr<internals::structure_u::unit_ordinary>;
     /**
@@ -1192,18 +1192,18 @@ namespace internals
 }
 namespace pool
 {
-  using internals::structure_c::automatic_derivation;
+  using internals::structure_r::automatic_derivation;
 
-  using internals::structure_c::cohort_delay;
-  using internals::structure_c::cohort_multi;
-  using internals::structure_c::cohort_order;
-  using internals::structure_c::cohort_prior;
+  using internals::structure_r::cohort_delay;
+  using internals::structure_r::cohort_multi;
+  using internals::structure_r::cohort_order;
+  using internals::structure_r::cohort_prior;
 
-  using internals::structure_c::make_cohort_delay;
-  using internals::structure_c::make_cohort_multi;
-  using internals::structure_c::make_cohort_order;
-  using internals::structure_c::make_cohort_prior;
+  using internals::structure_r::make_cohort_delay;
+  using internals::structure_r::make_cohort_multi;
+  using internals::structure_r::make_cohort_order;
+  using internals::structure_r::make_cohort_prior;
 
-  using internals::structure_c::rank_strategy;
-  using internals::structure_c::make_cohort;
+  using internals::structure_r::rank_strategy;
+  using internals::structure_r::make_cohort;
 }
