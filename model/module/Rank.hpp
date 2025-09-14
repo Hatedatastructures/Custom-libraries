@@ -2,10 +2,12 @@
 #include "Unit.hpp"
 #include "Integration.hpp"
 #include <set>
+#include <queue>
 #include <deque>
 #include <vector>
 #include <shared_mutex>
 #include <atomic>
+#include <thread>
 #include <mutex>
 #include <memory>
 #include <typeinfo>
@@ -24,6 +26,7 @@ namespace internals::structure_r
   using namespace internals::structure_u;
   using safety_unit_pointer = std::shared_ptr<unit_ordinary>;
 
+  using internals_clk = std::chrono::system_clock;
   using internals_time_t = std::chrono::system_clock::time_point;
   using internals_time = std::shared_ptr<internals_time_t>;
 
@@ -52,7 +55,7 @@ namespace internals::structure_r
     std::atomic<bool> _closed{false}; //关闭标识
     std::atomic<bool> _unit_time_limit{false}; //执行单元时间限制
     std::atomic<std::size_t> _max_storage_capacity{0}; //最大队列大小
-    std::chrono::milliseconds _default_function_timeout{1000}; //默认等待时间 
+    std::chrono::milliseconds _default_function_timeout{1000}; //默认延时时间 
 
   protected:
     // 内部推送任务接口
@@ -158,9 +161,18 @@ namespace internals::structure_r
 
     virtual ~rank_ordinary() = default;
 
+    rank_strategy strategy() const 
+    { 
+      return internal_strategy(); 
+    }
+
     bool push(safety_unit_pointer pointer, backpressure mode = backpressure::block) 
     {
-      return internal_push(std::move(pointer), mode, internal_calculation_deadline());
+      if(strategy() == rank_strategy::delay) 
+      {
+        return internal_push(std::move(pointer), mode, internal_calculation_deadline());
+      }
+      return internal_push(std::move(pointer), mode);
     }
 
     bool push(safety_unit_pointer pointer, std::chrono::system_clock::time_point deadline,
@@ -253,11 +265,6 @@ namespace internals::structure_r
     // {
     //   return internal_remove_sub_cohort(std::move(cohort));
     // }
-
-    rank_strategy strategy() const 
-    { 
-      return internal_strategy(); 
-    }
 
   };
   /**
@@ -682,5 +689,41 @@ namespace internals::structure_r
     {
       return 0;
     }
+    class rank_deferred : public rank_ordinary
+    {
+    protected:
+      class delay_unit
+      {
+      public:
+        safety_unit_pointer _safety_unit_pointer;
+        internals_time_t _delay_time;
+        delay_unit(safety_unit_pointer safety_unit_pointer,internals_time_t delay_time = internals_clk::now())
+        :_safety_unit_pointer(std::move(safety_unit_pointer)),_delay_time(delay_time) {}
+        bool operator<(const delay_unit& other) const {return _delay_time > other._delay_time;}
+        bool operator>(const delay_unit& other) const {return _delay_time < other._delay_time;}
+      };
+    protected:
+      std::jthread _background_detection;
+
+      std::condition_variable_any _judge_empty_cv;
+      std::condition_variable_any _judge_full_cv;
+
+      mutable std::shared_mutex _rank_priority_mutex; 
+      std::priority_queue<delay_unit,std::vector<delay_unit>,std::greater<delay_unit>> _rank_unit_deferred;
+    private:
+      bool enqueue_with_backpressure(std::shared_ptr<delay_unit> struct_pointer, backpressure mode)
+      {
+        
+      }
+    protected:
+      virtual bool internal_push(safety_unit_pointer pointer, backpressure mode) override
+      {
+        if(_closed.load(std::memory_order_acquire)) return false;
+        if(pointer == nullptr) return false;
+        // delay_unit small_unit(std::move(pointer));
+        std::shared_ptr<delay_unit> small_unit = std::make_shared<delay_unit>(std::move(pointer));
+        return enqueue_with_backpressure(small_unit, mode);
+      }
+    };
   };
 }
