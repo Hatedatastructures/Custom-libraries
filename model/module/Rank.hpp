@@ -44,7 +44,7 @@ namespace internals::structure_r
       return nullptr;
     }
     internals_time_t now_time = std::chrono::system_clock::now() + _default_function_timeout;
-    return std::shared_ptr<internals_time_t>(new internals_time_t(now_time));
+    return std::make_shared<internals_time_t>(now_time);
   }
 
   protected:
@@ -263,6 +263,7 @@ namespace internals::structure_r
   /**
    * @brief 标准任务队列
    * @details 线程安全的标准任务队列，支持阻塞、覆盖、异常三种背压策略
+   * @note 底层容器为`std::deque`
    */
   class rank_standard : public rank_ordinary
   {
@@ -284,14 +285,14 @@ namespace internals::structure_r
     bool enqueue_with_backpressure(safety_unit_pointer pointer, backpressure mode)
     {
       std::size_t current_size = 0;
-      {
-        std::shared_lock<std::shared_mutex> lock(_rank_standard_mutex);
-        current_size = _rank_unit_standard.size();
-      }
+      
+      std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
+      current_size = _rank_unit_standard.size();
+      
       if((_max_storage_capacity != 0 && current_size >= _max_storage_capacity) == false)
       {
-        std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
         _rank_unit_standard.push_back(std::move(pointer));
+        lock.unlock();
         _judge_empty_cv.notify_one();
         return true;
       }
@@ -300,7 +301,6 @@ namespace internals::structure_r
       {
         case backpressure::block:
         {
-          std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
           auto block_func = [this]()
           {
             return this->_rank_unit_standard.size() < this->_max_storage_capacity
@@ -315,9 +315,7 @@ namespace internals::structure_r
         }
         case backpressure::overwrite:
         {
-          std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
-          if(_rank_unit_standard.empty()) return false;
-          _rank_unit_standard.pop_back();
+          if(!_rank_unit_standard.empty())  _rank_unit_standard.pop_back();
           _rank_unit_standard.push_back(std::move(pointer));
           lock.unlock();
           _judge_empty_cv.notify_one();
@@ -374,7 +372,6 @@ namespace internals::structure_r
       if(_closed.load(std::memory_order_acquire) && _rank_unit_standard.empty()) return nullptr;
       safety_unit_pointer pointer = std::move(_rank_unit_standard.front());
       _rank_unit_standard.pop_front();
-      lock.unlock();
       _judge_full_cv.notify_one();
       return pointer;
     }
@@ -386,26 +383,27 @@ namespace internals::structure_r
       pointers.reserve(count);
       auto  popup_func = [this]()
       {
-        return !this->_rank_unit_standard.empty();
+        return !this->_rank_unit_standard.empty() || this->_closed.load(std::memory_order_acquire);
       };
       _judge_empty_cv.wait(lock, popup_func);
       if(_closed.load(std::memory_order_acquire) && this->_rank_unit_standard.empty()) return pointers;
-      std::size_t safety_count = std::min(count, _rank_unit_standard.size());
+      const std::size_t safety_count = std::min(count, _rank_unit_standard.size());
+      auto last_iterator = std::next(_rank_unit_standard.begin(), safety_count);
       auto first = std::make_move_iterator(_rank_unit_standard.begin());
-      auto last  = std::make_move_iterator(std::next(_rank_unit_standard.begin(), safety_count));
+      auto last  = std::make_move_iterator(last_iterator);
       pointers.assign(first, last);
-      _rank_unit_standard.erase(_rank_unit_standard.begin(),std::next(_rank_unit_standard.begin(), safety_count));
+      _rank_unit_standard.erase(_rank_unit_standard.begin(), last_iterator);
       lock.unlock();
-      if(count < safety_count)
+      if(count > safety_count)
       {
         //log funtion
       }
-      if (safety_count > 0) _judge_full_cv.notify_all();
+      if (safety_count > 0) _judge_full_cv.notify_one();
       return pointers;
     }
     virtual safety_unit_pointer internal_try_pop() override
     {
-      std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+      std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
 
       if(_rank_unit_standard.empty()) return nullptr;
       auto pointer = std::move(_rank_unit_standard.front());
@@ -443,7 +441,7 @@ namespace internals::structure_r
     }
     virtual void internal_clear() override
     {
-      std::lock_guard<std::shared_mutex> lock(_rank_standard_mutex);
+      std::unique_lock<std::shared_mutex> lock(_rank_standard_mutex);
       _closed.store(false, std::memory_order_release);
       _max_storage_capacity.store(0, std::memory_order_release);
       _rank_unit_standard.clear();
@@ -467,13 +465,23 @@ namespace internals::structure_r
       return 0;
     }
   };
+  /**
+   * @brief 优先级队列
+   * @details 优先级队列，根据优先级排序，优先级高的先出队
+   * @note 底层容器为`std::multiset`
+   */
   class rank_priority : public rank_ordinary
   {
+  public:
+    explicit rank_priority(std::size_t max_size = 0) : rank_ordinary(max_size) {}
+    
+    virtual ~rank_priority() = default;
+    
   protected:
     class comparator
     {
     public:
-      bool operator()(const safety_unit_pointer& first, const safety_unit_pointer& second)
+      bool operator()(const safety_unit_pointer& first, const safety_unit_pointer& second) const
       {
         return first->get_priority() < second->get_priority();
       }
@@ -485,19 +493,18 @@ namespace internals::structure_r
     std::condition_variable_any _judge_full_cv;
 
     mutable std::shared_mutex _rank_priority_mutex;
-
   private:
     bool enqueue_with_backpressure(safety_unit_pointer pointer, backpressure mode)
     {
       std::size_t current_size = 0;
-      {
-        std::shared_lock<std::shared_mutex> lock(_rank_priority_mutex);
-        current_size = _rank_unit_priority.size();
-      }
+      
+      std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
+      current_size = _rank_unit_priority.size();
+      
       if((_max_storage_capacity != 0 && current_size >= _max_storage_capacity) == false)
       {
-        std::lock_guard<std::shared_mutex> lock(_rank_priority_mutex);
         _rank_unit_priority.insert(std::move(pointer));
+        lock.unlock();
         _judge_empty_cv.notify_one();
         return true;
       }
@@ -506,7 +513,6 @@ namespace internals::structure_r
       {
         case backpressure::block:
         {
-          std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
           auto block_func = [this]()
           {
             return this->_rank_unit_priority.size() < this->_max_storage_capacity
@@ -521,10 +527,11 @@ namespace internals::structure_r
         }
         case backpressure::overwrite:
         { 
-          std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
-          if(_rank_unit_priority.empty()) return false; //安全覆盖
-          auto replace_iterator = std::prev(_rank_unit_priority.end());
-          _rank_unit_priority.erase(replace_iterator);
+          if(!_rank_unit_priority.empty())
+          {
+            auto replace_iterator = std::prev(_rank_unit_priority.end());
+            _rank_unit_priority.erase(replace_iterator);
+          }
           _rank_unit_priority.insert(std::move(pointer));
           lock.unlock();
           _judge_empty_cv.notify_one();
@@ -539,7 +546,7 @@ namespace internals::structure_r
       }
     }
   protected:
-    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode)
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode) override
     {
       if(_closed.load(std::memory_order_acquire)) return false;
       if(pointer == nullptr) return false;
@@ -580,7 +587,7 @@ namespace internals::structure_r
       _judge_empty_cv.wait(lock, check_units_func);
       if(_closed.load(std::memory_order_acquire) && _rank_unit_priority.empty()) return nullptr;
       safety_unit_pointer high_level_value = *_rank_unit_priority.begin();
-      safety_unit_pointer pointer = std::move(const_cast<safety_unit_pointer&>(high_level_value));
+      safety_unit_pointer pointer = std::move(high_level_value);
       _rank_unit_priority.erase(_rank_unit_priority.begin());
       lock.unlock();
       _judge_full_cv.notify_one();
@@ -596,18 +603,84 @@ namespace internals::structure_r
       };
       _judge_empty_cv.wait(lock, popup_func);
       if(_closed.load(std::memory_order_acquire) && _rank_unit_priority.empty()) return pointers;
-      std::size_t safety_count = std::min(count, _rank_unit_priority.size());
+      const std::size_t safety_count = std::min(count, _rank_unit_priority.size());
+      auto last_iterator = std::next(_rank_unit_priority.begin(), safety_count);
       auto first = std::make_move_iterator(_rank_unit_priority.begin());
-      auto last  = std::make_move_iterator(std::next(_rank_unit_priority.begin(), safety_count));
+      auto last  = std::make_move_iterator(last_iterator);
       pointers.assign(first, last);
-      _rank_unit_priority.erase(_rank_unit_priority.begin(),std::next(_rank_unit_priority.begin(), safety_count));
+      _rank_unit_priority.erase(_rank_unit_priority.begin(), last_iterator);
       lock.unlock();
-      if(count < safety_count)
+      if(count > safety_count)
       {
         //log funtion
       }
-      if (safety_count > 0) _judge_full_cv.notify_all();
+      if (safety_count > 0) _judge_full_cv.notify_one();
       return pointers;
+    }
+    virtual safety_unit_pointer internal_try_pop() override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
+      if(_rank_unit_priority.empty()) return nullptr;
+      safety_unit_pointer high_level_value = *_rank_unit_priority.begin();
+      safety_unit_pointer pointer = std::move(high_level_value);
+      _rank_unit_priority.erase(_rank_unit_priority.begin());
+      _judge_full_cv.notify_one();
+      return pointer;
+    }
+    virtual safety_unit_pointer internal_try_pop_for(const std::chrono::milliseconds& timeout) override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
+      auto  popup_func = [this]()
+      {
+        return !this->_rank_unit_priority.empty() || this->_closed.load(std::memory_order_acquire);
+      };
+      if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
+      {
+        safety_unit_pointer high_level_value = *_rank_unit_priority.begin();
+        safety_unit_pointer pointer = std::move(high_level_value);
+        _rank_unit_priority.erase(_rank_unit_priority.begin());
+
+        lock.unlock();
+        _judge_full_cv.notify_one();
+        return pointer;
+      }
+      return nullptr;
+    }
+    virtual std::size_t internal_size()const override
+    {
+      std::shared_lock<std::shared_mutex> lock(_rank_priority_mutex);
+      return _rank_unit_priority.size();
+    }
+    virtual bool internal_empty()const override
+    {
+      std::shared_lock<std::shared_mutex> lock(_rank_priority_mutex);
+      return _rank_unit_priority.empty();
+    }
+    virtual void internal_clear() override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
+      _closed.store(false, std::memory_order_release);
+      _max_storage_capacity.store(0, std::memory_order_release);
+      _rank_unit_priority.clear();
+    }
+    virtual void internal_close() override
+    {
+      _closed.store(true, std::memory_order_release);
+      _max_storage_capacity.store(0, std::memory_order_release);
+      _judge_empty_cv.notify_all();
+      _judge_full_cv.notify_all();
+    }
+    virtual rank_strategy internal_strategy()const override
+    {
+      return rank_strategy::priority;
+    }
+    virtual std::size_t internal_get_sub_queue_count()const override
+    {
+      return 0;
+    }
+    virtual std::size_t internal_get_delay_uint_count()const override
+    {
+      return 0;
     }
   };
 }
