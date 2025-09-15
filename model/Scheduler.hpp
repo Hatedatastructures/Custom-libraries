@@ -114,9 +114,9 @@ namespace internals
       std::chrono::milliseconds scale_up_delay{1000};   // 扩容延迟
       std::chrono::milliseconds scale_down_delay{5000}; // 缩容延迟
     };
-    using _interior_task_ptr   = std::shared_ptr<internals::structure_u::unit_ordinary>;
-    using _interior_cohort_ptr = std::shared_ptr<internals::structure_r::cohort_base>;
-    using _interior_thread_ptr = std::unique_ptr<internals::structure_w::worker_base>;
+    using safety_unit_pointer   = std::shared_ptr<internals::structure_u::unit_ordinary>;
+    using safety_rank_pointer = std::shared_ptr<internals::structure_r::cohort_base>;
+    using _interior_thread_ptr = std::unique_ptr<internals::structure_w::worker_ordinary>;
     /**
      * @class scheduler_base
      * @brief 调度器基类
@@ -132,7 +132,7 @@ namespace internals
     class scheduler_base
     {
     protected:
-    _interior_cohort_ptr _task_queue; // 任务队列
+    safety_rank_pointer _unit_rank; // 任务队列
       std::vector<_interior_thread_ptr> _workers; // 工作线程列表
 
       std::atomic<bool> _running{false}; // 调度器运行状态
@@ -158,14 +158,14 @@ namespace internals
       std::atomic<std::uint64_t> _total_tasks_scheduled{0};    // 总调度任务数
       std::atomic<std::uint64_t> _total_scaling_operations{0}; // 总扩缩容操作数
     public:
-      scheduler_base(_interior_cohort_ptr task_queue, scheduling_tactics policy = scheduling_tactics::adaptive,
+      scheduler_base(safety_rank_pointer task_queue, scheduling_tactics policy = scheduling_tactics::adaptive,
       expansion_strategy scaling_policy = expansion_strategy::hybrid)
-      : _task_queue(std::move(task_queue)),_policy(policy), _scaling_policy(scaling_policy)
+      : _unit_rank(std::move(task_queue)),_policy(policy), _scaling_policy(scaling_policy)
       {
         _start_time = std::chrono::steady_clock::now();
         _worker_factory = [this] (const std::string &name) -> _interior_thread_ptr 
         {
-          return internals::structure_w::make_worker_standard(name, _task_queue); 
+          return internals::structure_w::make_worker_standard(name, _unit_rank); 
         };
       }
       /**
@@ -269,7 +269,7 @@ namespace internals
        * @param task 要提交的任务
        * @return `true` 提交成功，`false` 提交失败
        */
-      virtual bool submit_task(_interior_task_ptr task)
+      virtual bool submit_task(safety_unit_pointer task)
       {
         if (!task || !_running.load(std::memory_order_acquire))
         {
@@ -490,7 +490,7 @@ namespace internals
        * @param task 要调度的任务
        * @return true 调度成功，false 调度失败
        */
-      virtual bool schedule_task(_interior_task_ptr task) = 0;
+      virtual bool schedule_task(safety_unit_pointer task) = 0;
       /**
        * @brief 创建工作线程
        * @param count 线程数量
@@ -564,7 +564,7 @@ namespace internals
       virtual void update_metrics()
       {
         // 更新队列长度
-        _metrics.queue_length.store(_task_queue->size(), std::memory_order_relaxed);
+        _metrics.queue_length.store(_unit_rank->size(), std::memory_order_relaxed);
 
         // 更新活跃线程数
         _metrics.active_threads.store(get_active_thread_count(), std::memory_order_relaxed);
@@ -672,7 +672,7 @@ namespace internals
        * @param policy 调度策略
        * @param expansion_strategy 扩缩容策略
        */
-      scheduler_standard(_interior_cohort_ptr task_queue,scheduling_tactics policy = scheduling_tactics::round_robin,
+      scheduler_standard(safety_rank_pointer task_queue,scheduling_tactics policy = scheduling_tactics::round_robin,
       expansion_strategy expansion_strategy = expansion_strategy::reactive)
         :scheduler_base(std::move(task_queue), policy, expansion_strategy) {}
     protected:
@@ -681,7 +681,7 @@ namespace internals
        * @param task 要调度的任务
        * @return true 调度成功，false 调度失败
        */
-      bool schedule_task(_interior_task_ptr task) override
+      bool schedule_task(safety_unit_pointer task) override
       {
         switch (_policy)
         {
@@ -694,7 +694,7 @@ namespace internals
         case scheduling_tactics::adaptive:
           return schedule_adaptive(task);
         default:
-          return _task_queue->push(task);
+          return _unit_rank->push(task);
         }
       }
     private:
@@ -703,10 +703,10 @@ namespace internals
        * @param task 任务
        * @return 调度结果
        */
-      bool schedule_round_robin(_interior_task_ptr task)
+      bool schedule_round_robin(safety_unit_pointer task)
       {
         // 简单的轮询策略，直接放入队列
-        return _task_queue->push(task);
+        return _unit_rank->push(task);
       }
 
       /**
@@ -714,17 +714,17 @@ namespace internals
        * @param task 任务
        * @return 调度结果
        */
-      bool schedule_least_loaded(_interior_task_ptr task)
+      bool schedule_least_loaded(safety_unit_pointer task)
       {
         // 基于队列长度的简单负载均衡
-        if (_task_queue->size() < get_thread_count() * 2)
+        if (_unit_rank->size() < get_thread_count() * 2)
         {
-          return _task_queue->push(task);
+          return _unit_rank->push(task);
         }
 
         // 队列过长时延迟提交
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        return _task_queue->push(task);
+        return _unit_rank->push(task);
       }
 
       /**
@@ -732,10 +732,10 @@ namespace internals
        * @param task 任务
        * @return 调度结果
        */
-      bool schedule_priority_based(_interior_task_ptr task)
+      bool schedule_priority_based(safety_unit_pointer task)
       {
         // 直接使用优先级队列的特性
-        return _task_queue->push(task);
+        return _unit_rank->push(task);
       }
 
       /**
@@ -743,7 +743,7 @@ namespace internals
        * @param task 任务
        * @return 调度结果
        */
-      bool schedule_adaptive(_interior_task_ptr task)
+      bool schedule_adaptive(safety_unit_pointer task)
       {
         auto load_score = _metrics.calculate_load_score();
 
@@ -785,13 +785,13 @@ namespace internals
        * @param task_queue 任务队列(应为`cohort_prior`)
        * @param expansion_strategy 扩缩容策略
        */
-      scheduler_priority(_interior_cohort_ptr task_queue,expansion_strategy expansion_strategy = expansion_strategy::conservative)
+      scheduler_priority(safety_rank_pointer task_queue,expansion_strategy expansion_strategy = expansion_strategy::conservative)
         : scheduler_base(std::move(task_queue), scheduling_tactics::priority_based, expansion_strategy)
       {
         // 设置优先级工作线程工厂
         _worker_factory = [this](const std::string &worker_id)
         {
-          return internals::structure_w::make_worker_priority(worker_id, _task_queue, 
+          return internals::structure_w::make_worker_priority(worker_id, _unit_rank, 
             internals::structure_u::weight::lowest);
         };
       }
@@ -810,7 +810,7 @@ namespace internals
        * @param task 要调度的任务
        * @return true 调度成功，false 调度失败
        */
-      bool schedule_task(_interior_task_ptr task) override
+      bool schedule_task(safety_unit_pointer task) override
       {
         {
           std::lock_guard<std::mutex> lock(_stats_mutex);
@@ -824,7 +824,7 @@ namespace internals
           handle_critical_task(task);
         }
 
-        return _task_queue->push(task);
+        return _unit_rank->push(task);
       }
 
       /**
@@ -868,7 +868,7 @@ namespace internals
        * @brief 处理关键任务
        * @param task 关键任务
        */
-      void handle_critical_task(_interior_task_ptr task)
+      void handle_critical_task(safety_unit_pointer task)
       {
         if (_event_callback)
         {
@@ -924,12 +924,12 @@ namespace internals
        * @param task_queue 任务队列
        * @param expansion_strategy 扩缩容策略
        */
-      scheduler_adaptive(_interior_cohort_ptr task_queue,expansion_strategy expansion_strategy = expansion_strategy::predictive)
+      scheduler_adaptive(safety_rank_pointer task_queue,expansion_strategy expansion_strategy = expansion_strategy::predictive)
         : scheduler_base(std::move(task_queue),scheduling_tactics::adaptive, expansion_strategy)
       {
         _worker_factory = [this](const std::string &worker_id) 
         {
-          return internals::structure_w::make_worker_adaptive(worker_id, _task_queue);
+          return internals::structure_w::make_worker_adaptive(worker_id, _unit_rank);
         };
       }
       /**
@@ -972,7 +972,7 @@ namespace internals
        * @param task 要调度的任务
        * @return true 调度成功，false 调度失败
        */
-      bool schedule_task(_interior_task_ptr task) override
+      bool schedule_task(safety_unit_pointer task) override
       {
         learn_task_pattern(task);
 
@@ -1035,7 +1035,7 @@ namespace internals
        * @brief 学习任务模式
        * @param task 任务
        */
-      void learn_task_pattern(_interior_task_ptr task)
+      void learn_task_pattern(safety_unit_pointer task)
       {
         auto task_name = task->get_task_name();
         auto now = std::chrono::steady_clock::now();
@@ -1064,7 +1064,7 @@ namespace internals
        * @brief 预测并调整
        * @param task 任务
        */
-      void predict_and_adjust(_interior_task_ptr task)
+      void predict_and_adjust(safety_unit_pointer task)
       {
         auto predicted_duration = predict_task_duration(task);
         auto current_load = _metrics.calculate_load_score();
@@ -1110,7 +1110,7 @@ namespace internals
        * @param strategy 策略
        * @return 调度结果
        */
-      bool execute_strategy(_interior_task_ptr task, scheduling_tactics strategy)
+      bool execute_strategy(safety_unit_pointer task, scheduling_tactics strategy)
       {
         // 根据策略执行不同的调度逻辑
         switch (strategy)
@@ -1119,7 +1119,7 @@ namespace internals
         case scheduling_tactics::least_loaded:
         case scheduling_tactics::priority_based:
         default:
-          return _task_queue->push(task);
+          return _unit_rank->push(task);
         }
       }
 
@@ -1128,7 +1128,7 @@ namespace internals
        * @param task 任务
        * @return 预测时间
        */
-      std::chrono::milliseconds predict_task_duration(_interior_task_ptr task)
+      std::chrono::milliseconds predict_task_duration(safety_unit_pointer task)
       {
         std::shared_lock<std::shared_mutex> lock(_patterns_mutex);
         auto it = _task_patterns.find(task->get_task_name());
@@ -1176,7 +1176,7 @@ namespace internals
      * @param expansion_strategy 扩缩容策略
      * @return 调度器智能指针
      */
-    inline std::unique_ptr<scheduler_base> make_scheduler_standard(_interior_cohort_ptr task_queue,
+    inline std::unique_ptr<scheduler_base> make_scheduler_standard(safety_rank_pointer task_queue,
     scheduling_tactics policy = scheduling_tactics::round_robin,expansion_strategy expansion_strategy = expansion_strategy::reactive)
     {
       return std::make_unique<scheduler_standard>(std::move(task_queue), policy, expansion_strategy);
@@ -1187,7 +1187,7 @@ namespace internals
      * @param expansion_strategy 扩缩容策略
      * @return 调度器智能指针
      */
-    inline std::unique_ptr<scheduler_base> make_scheduler_priority(_interior_cohort_ptr task_queue,
+    inline std::unique_ptr<scheduler_base> make_scheduler_priority(safety_rank_pointer task_queue,
     expansion_strategy expansion_strategy = expansion_strategy::conservative)
     {
       return std::make_unique<scheduler_priority>(std::move(task_queue), expansion_strategy);
@@ -1198,7 +1198,7 @@ namespace internals
      * @param expansion_strategy 扩缩容策略
      * @return 调度器智能指针
      */
-    inline std::unique_ptr<scheduler_base> make_scheduler_adaptive( _interior_cohort_ptr task_queue,
+    inline std::unique_ptr<scheduler_base> make_scheduler_adaptive( safety_rank_pointer task_queue,
     expansion_strategy expansion_strategy = expansion_strategy::predictive)
     {
       return std::make_unique<scheduler_adaptive>(std::move(task_queue), expansion_strategy);
@@ -1211,7 +1211,7 @@ namespace internals
      * @param expansion_strategy 扩缩容策略
      * @return 调度器智能指针
      */
-    inline std::unique_ptr<scheduler_base> make_scheduler(const std::string &scheduler_type,_interior_cohort_ptr task_queue,
+    inline std::unique_ptr<scheduler_base> make_scheduler(const std::string &scheduler_type,safety_rank_pointer task_queue,
     scheduling_tactics scheduling_tactics = scheduling_tactics::adaptive,expansion_strategy expansion_strategy = expansion_strategy::hybrid)
     {
       if (scheduler_type == "standard")

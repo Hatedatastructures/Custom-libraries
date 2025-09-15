@@ -196,14 +196,14 @@ namespace internals
    * 高性能和高可靠性,
    * 
    * 调用关系：
-   *  管理`scheduler_base`、`cohort_base`、`worker_base`等组件,被用户代码直接调用,
+   *  管理`scheduler_base`、`cohort_base`、`worker_ordinary`等组件,被用户代码直接调用,
    *  提供各种任务提交和管理接口
    */
   class thread_pool
   {
   private:
     //封装的容器
-    std::shared_ptr<cohort_base> _task_queue; // 任务队列
+    std::shared_ptr<cohort_base> _unit_rank; // 任务队列
     std::unique_ptr<scheduler_base> _scheduler; // 任务调度器
 
     // 配置
@@ -327,7 +327,7 @@ namespace internals
       try
       {
         // 停止接受新任务
-        _task_queue->close();
+        _unit_rank->close();
 
         // 等待任务完成或超时
         if (wait_for_completion)
@@ -372,7 +372,7 @@ namespace internals
       _state.store(pool_state::pausing);
 
       // 暂停任务队列
-      _task_queue->close();
+      _unit_rank->close();
 
       _state.store(pool_state::paused);
       _state_cv.notify_all();
@@ -396,7 +396,7 @@ namespace internals
 
       // 重新打开任务队列
       // 注意：这里需要重新创建队列，因为close()可能是不可逆的
-      _task_queue.reset(new cohort_order(_config.max_queue_size));
+      _unit_rank.reset(new cohort_order(_config.max_queue_size));
       ////////////////////////////////////////////
 
       _state.store(pool_state::running);
@@ -573,9 +573,9 @@ namespace internals
       auto future = std::move(task->get_future());
 
       // 使用延迟队列
-      if (_task_queue)
+      if (_unit_rank)
       {
-        _task_queue->push(task);
+        _unit_rank->push(task);
       }
       else
       {
@@ -595,10 +595,10 @@ namespace internals
     void initialize()
     {
       // 创建任务队列
-      _task_queue = make_cohort(_config.queue_policy, _config.max_queue_size);
+      _unit_rank = make_cohort(_config.queue_policy, _config.max_queue_size);
       
       // 创建调度器
-      _scheduler = make_scheduler("adaptive", _task_queue, 
+      _scheduler = make_scheduler("adaptive", _unit_rank, 
       _config.scheduling_tactics, _config.expansion_strategy);
       
       // 设置调度器配置
@@ -621,7 +621,7 @@ namespace internals
      * @param task 任务
      * @return 提交结果
      */
-    bool submit_task_internal(_interior_task_ptr task)
+    bool submit_task_internal(safety_unit_pointer task)
     {
       if (!task)
       {
@@ -716,7 +716,7 @@ namespace internals
       _statistics.active_thread_count.store(_scheduler->get_active_thread_count(), std::memory_order_relaxed);
 
       // 更新队列统计
-      auto queue_size = _task_queue->size();
+      auto queue_size = _unit_rank->size();
       _statistics.current_queue_size.store(queue_size, std::memory_order_relaxed);
 
       auto peak_queue = _statistics.peak_queue_size.load(std::memory_order_relaxed);
@@ -770,7 +770,7 @@ namespace internals
       {
         {
           std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
-          if (_active_tasks.empty() && _task_queue->empty())
+          if (_active_tasks.empty() && _unit_rank->empty())
           {
             return true;
           }
@@ -836,7 +836,7 @@ namespace internals
      * @return 任务future
      */
     template <typename function, typename... Args>
-    auto submit_dependency(const std::vector<_interior_task_ptr> &dependencies, function &&func, Args &&...args)
+    auto submit_dependency(const std::vector<safety_unit_pointer> &dependencies, function &&func, Args &&...args)
       -> std::future<std::invoke_result_t<function, Args...>>
     {
 
@@ -1214,7 +1214,7 @@ namespace internals
      */
     std::size_t get_queue_size() const
     {
-      return _task_queue->size();
+      return _unit_rank->size();
     }
 
     /**
@@ -1223,7 +1223,7 @@ namespace internals
      */
     bool is_queue_empty() const
     {
-      return _task_queue->empty();
+      return _unit_rank->empty();
     }
 
     /**
@@ -1232,8 +1232,8 @@ namespace internals
      */
     std::size_t clear_queue()
     {
-      auto size = _task_queue->size();
-      _task_queue->clear();
+      auto size = _unit_rank->size();
+      _unit_rank->clear();
 
       emit_event("queue", "Cleared " + std::to_string(size) + " tasks from queue");
 
@@ -1264,7 +1264,7 @@ namespace internals
       std::lock_guard<std::mutex> lock(_config_mutex);
       _config.max_queue_size = max_size;
       // 如果队列支持动态调整大小
-      auto transition_state = std::dynamic_pointer_cast<cohort_order>(_task_queue);
+      auto transition_state = std::dynamic_pointer_cast<cohort_order>(_unit_rank);
       if(transition_state.get() != nullptr)
       {
         transition_state->set_max_size(max_size);
@@ -1630,7 +1630,7 @@ namespace internals
       }
 
       // 检查任务队列状态
-      if (!_task_queue || _task_queue->closed())
+      if (!_unit_rank || _unit_rank->closed())
       {
         return false;
       }
@@ -1662,7 +1662,7 @@ namespace internals
       oss << "\n--- 组件状态 ---\n";
       oss << "池状态: "        << static_cast<int>(_state.load())                           << "\n";
       oss << "调度器运行中: "  << (_scheduler && _scheduler->is_running() ? "是" : "否")   << "\n";
-      oss << "任务队列启用: "  << (_task_queue && !_task_queue->closed() ? "是" : "否") << "\n";
+      oss << "任务队列启用: "  << (_unit_rank && !_unit_rank->closed() ? "是" : "否") << "\n";
 
       oss << "\n--- 资源状况 ---\n";
       auto thread_count = get_thread_count();
@@ -1703,7 +1703,7 @@ namespace internals
             _scheduler->stop(false);
           }
 
-          _scheduler = make_scheduler("adaptive", _task_queue,_config.scheduling_tactics, _config.expansion_strategy);
+          _scheduler = make_scheduler("adaptive", _unit_rank,_config.scheduling_tactics, _config.expansion_strategy);
           _scheduler->start(_config.initial_threads);
         }
 

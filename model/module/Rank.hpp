@@ -26,9 +26,9 @@ namespace internals::structure_r
   using namespace internals::structure_u;
   using safety_unit_pointer = std::shared_ptr<unit_ordinary>;
 
-  using internals_clk = std::chrono::system_clock;
+  using internals_clk    = std::chrono::system_clock;
   using internals_time_t = std::chrono::system_clock::time_point;
-  using internals_time = std::shared_ptr<internals_time_t>;
+  using internals_time   = std::shared_ptr<internals_time_t>;
 
   /**
    * @brief 任务队列基类
@@ -969,5 +969,4 @@ namespace pool
   using internals::structure_r::rank_priority;
   using internals::structure_r::rank_deferred;
   using internals::structure_r::rank_standard;
-  std::
 }

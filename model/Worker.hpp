@@ -13,8 +13,8 @@ namespace internals
 {
   namespace structure_w
   {
-    using _interior_task_ptr   = std::shared_ptr<internals::structure_u::unit_ordinary>;
-    using _interior_cohort_ptr = std::shared_ptr<internals::structure_r::cohort_base>;
+    using safety_unit_pointer   = std::shared_ptr<internals::structure_u::unit_ordinary>;
+    using safety_rank_pointer = std::shared_ptr<internals::structure_r::cohort_base>;
     /**
      * @enum worker_state
      * @brief 工作线程状态枚举
@@ -119,7 +119,7 @@ namespace internals
      *
      * 调用关系：被`thread_pool`管理和调用， 从`cohort_struct`获取任务， 执行`base_task`及其派生类
      */
-    class worker_base
+    class worker_ordinary
     {
     protected:
       std::unique_ptr<std::jthread> _worker_thread; // 线程对象
@@ -134,10 +134,10 @@ namespace internals
       std::shared_mutex _state_mutex; // 状态互斥锁
       std::condition_variable _condition; // 条件变量
 
-      _interior_cohort_ptr _task_queue; // 任务队列
+      safety_rank_pointer _unit_rank; // 任务队列
 
-      std::function<void(const std::string&, _interior_task_ptr&)> _starts_callback; // 任务开始回调
-      std::function<void(const std::string&, _interior_task_ptr&)> _finish_callback; // 任务完成回调
+      std::function<void(const std::string&, safety_unit_pointer&)> _unit_starts_callback; // 任务开始回调
+      std::function<void(const std::string&, safety_unit_pointer&)> _unit_finish_callback; // 任务完成回调
 
       std::function<void()> _worker_starts_callback; // 线程开始回调
       std::function<void()> _worker_finish_callback; // 线程完成回调
@@ -149,12 +149,12 @@ namespace internals
        * @param worker_name 线程ID
        * @param cohort_struct 任务队列
        */
-      worker_base(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
-        : _worker_name(worker_name), _task_queue(std::move(cohort_struct)) {}
+      worker_ordinary(const std::string &worker_name,safety_rank_pointer cohort_struct)
+        : _worker_name(worker_name), _unit_rank(std::move(cohort_struct)) {}
       /**
        * @brief 虚析构函数
        */
-      virtual ~worker_base()
+      virtual ~worker_ordinary()
       {
         stop();
         if (_worker_thread && _worker_thread->joinable())
@@ -163,10 +163,10 @@ namespace internals
         }
       }
       // 禁用拷贝和移动
-      worker_base(const worker_base &) = delete;
-      worker_base &operator=(const worker_base &) = delete;
-      worker_base(worker_base &&) = delete;
-      worker_base &operator=(worker_base &&) = delete;
+      worker_ordinary(const worker_ordinary &) = delete;
+      worker_ordinary &operator=(const worker_ordinary &) = delete;
+      worker_ordinary(worker_ordinary &&) = delete;
+      worker_ordinary &operator=(worker_ordinary &&) = delete;
       /**
        * @brief 启动工作线程
        * @return `true` 启动成功，`false` 启动失败
@@ -183,7 +183,7 @@ namespace internals
         try
         {
           _stop.store(false, std::memory_order_release);
-          _worker_thread = std::make_unique<std::jthread>(&worker_base::interior_run, this);
+          _worker_thread = std::make_unique<std::jthread>(&worker_ordinary::interior_run, this);
           _state.store(worker_state::running, std::memory_order_release);
           _statistics.start_time = std::chrono::steady_clock::now();
 
@@ -313,17 +313,17 @@ namespace internals
        * @brief 设置任务开始回调
        * @param callback 任务开始回调函数
        */
-      void set_start_callback(std::function<void(const std::string &,_interior_task_ptr)> callback)
+      void set_start_callback(std::function<void(const std::string &,safety_unit_pointer)> callback)
       {
-        _starts_callback = std::move(callback);
+        _unit_starts_callback = std::move(callback);
       }
       /**
        * @brief 设置任务结束回调
        * @param callback 任务结束回调函数
        */
-      void set_finish_callback(std::function<void(const std::string &,_interior_task_ptr)> callback)
+      void set_finish_callback(std::function<void(const std::string &,safety_unit_pointer)> callback)
       {
-        _finish_callback = std::move(callback);
+        _unit_finish_callback = std::move(callback);
       }
       /**
        * @brief 获取系统线程ID
@@ -340,14 +340,14 @@ namespace internals
       /**
        * @brief 设置线程开始时回调
        */
-      void on_thread_start(std::function<void()> callback)
+      void set_thread_start(std::function<void()> callback)
       {
         _worker_starts_callback = std::move(callback);
       }
       /**
        * @brief 设置线程结束时回调
        */
-      void on_thread_stop(std::function<void()> callback)
+      void set_thread_stop(std::function<void()> callback)
       {
         _worker_finish_callback = std::move(callback);
       }
@@ -361,7 +361,7 @@ namespace internals
       {
         try
         {
-          on_thread_start();
+          set_thread_start();
           while (!_stop.load(std::memory_order_acquire))
           {
             auto task = get_next_task();
@@ -374,7 +374,7 @@ namespace internals
               handle_no_task();
             }
           }
-          on_thread_stop();
+          call_thread_stop();
         }
         catch (const std::exception &e)
         {
@@ -399,20 +399,20 @@ namespace internals
        * @brief 获取下一个任务 - 策略方法
        * @return 任务智能指针，无任务时返回`nullptr`
        */
-      virtual _interior_task_ptr get_next_task()
+      virtual safety_unit_pointer get_next_task()
       {
-        if (!_task_queue)
+        if (!_unit_rank)
         {
           return nullptr;
         }
 
-        return _task_queue->pop();
+        return _unit_rank->pop();
       }
       /**
        * @brief 执行任务
        * @param task 要执行的任务
        */
-      virtual void execute_task(_interior_task_ptr task)
+      virtual void execute_task(safety_unit_pointer task)
       {
         if (!task)
         {
@@ -424,9 +424,9 @@ namespace internals
         try
         {
           // 任务开始回调
-          if (_starts_callback)
+          if (_unit_starts_callback)
           {
-            _starts_callback(_worker_name, task);
+            _unit_starts_callback(_worker_name, task);
           }
 
           // 检查任务是否已超时
@@ -449,9 +449,9 @@ namespace internals
           _statistics.last_task_time = end_time;
 
           // 任务结束回调
-          if (_finish_callback)
+          if (_unit_finish_callback)
           {
-            _finish_callback(_worker_name, task);
+            _unit_finish_callback(_worker_name, task);
           }
         }
         catch (const std::exception &e)
@@ -482,7 +482,7 @@ namespace internals
       /**
        * @brief 线程启动时调用
        */
-      virtual void on_thread_start()
+      virtual void call_thread_start()
       {
         // 派生类重写此方法进行初始化
         if(_worker_starts_callback)
@@ -493,7 +493,7 @@ namespace internals
       /**
        * @brief 线程停止时调用
        */
-      virtual void on_thread_stop()
+      virtual void call_thread_stop()
       {
         // 派生类重写此方法进行清理
         if(_worker_finish_callback)
@@ -510,7 +510,7 @@ namespace internals
      *
      * 调用关系：继承自`worker_baser`, 被`thread_pool`创建和管理, 从`FIFO`或优先级队列获取任务
      */
-    class worker_standard : public worker_base
+    class worker_standard : public worker_ordinary
     {
     public:
       /**
@@ -518,8 +518,8 @@ namespace internals
        * @param worker_name 线程ID
        * @param cohort_struct 任务队列
        */
-      worker_standard(const std::string &worker_name, _interior_cohort_ptr cohort_struct)
-        : worker_base(worker_name, std::move(cohort_struct)) {}
+      worker_standard(const std::string &worker_name, safety_rank_pointer cohort_struct)
+        : worker_ordinary(worker_name, std::move(cohort_struct)) {}
       /**
        * @brief 析构函数
        */
@@ -534,9 +534,9 @@ namespace internals
      * 特点：优先处理高优先级任务, 支持任务抢占机制, 动态调整处理策略
      *
      * 调用关系：
-     *   - 继承自`worker_base`,主要从`cohort_prior`获取任务,支持多级优先级调度
+     *   - 继承自`worker_ordinary`,主要从`cohort_prior`获取任务,支持多级优先级调度
      */
-    class worker_priority : public worker_base
+    class worker_priority : public worker_ordinary
     {
     private:
       std::atomic<bool> _preemptive_mode{false}; // 是否处于抢占模式
@@ -548,9 +548,9 @@ namespace internals
        * @param cohort_struct 任务队列
        * @param min_priority 最低处理优先级
        */
-      worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
+      worker_priority(const std::string &worker_name,safety_rank_pointer cohort_struct,
       structure_u::weight min_priority = structure_u::weight::low)
-        : worker_base(worker_name, std::move(cohort_struct)), _min_priority(min_priority) {}
+        : worker_ordinary(worker_name, std::move(cohort_struct)), _min_priority(min_priority) {}
       /**
        * @brief 析构函数
        */
@@ -592,15 +592,15 @@ namespace internals
        * @brief 获取下一个任务（优先级版本）
        * @return 任务智能指针
        */
-      _interior_task_ptr get_next_task() override
+      safety_unit_pointer get_next_task() override
       {
-        if (!_task_queue)
+        if (!_unit_rank)
         {
           return nullptr;
         }
 
         // 获取
-        auto task = _task_queue->pop();
+        auto task = _unit_rank->pop();
 
         // 检查任务优先级
         if (task)
@@ -609,7 +609,7 @@ namespace internals
           if (task->get_priority() < static_cast<int>(min_priority))
           {
             // 优先级不够，重新放回队列
-            _task_queue->push(task);
+            _unit_rank->push(task);
             return nullptr;
           }
         }
@@ -620,7 +620,7 @@ namespace internals
        * @brief 执行任务（优先级版本）
        * @param task 要执行的任务
        */
-      void execute_task(_interior_task_ptr task) override
+      void execute_task(safety_unit_pointer task) override
       {
         if (!task)
         {
@@ -630,21 +630,21 @@ namespace internals
         // 在抢占模式下，检查是否有更高优先级的任务
         if (_preemptive_mode.load(std::memory_order_acquire))
         {
-          auto higher_priority_task = _task_queue->try_pop();
+          auto higher_priority_task = _unit_rank->try_pop();
           if (higher_priority_task && higher_priority_task->get_priority() > task->get_priority())
           {
             // 有更高优先级任务，先执行高优先级任务
-            _task_queue->push(task); // 当前任务重新入队
-            worker_base::execute_task(higher_priority_task);
+            _unit_rank->push(task); // 当前任务重新入队
+            worker_ordinary::execute_task(higher_priority_task);
             return;
           }
           else if (higher_priority_task)
           {
             // 没有更高优先级，将任务放回队列
-            _task_queue->push(higher_priority_task);
+            _unit_rank->push(higher_priority_task);
           }
         }
-        worker_base::execute_task(task);
+        worker_ordinary::execute_task(task);
       }
     };
     /**
@@ -655,9 +655,9 @@ namespace internals
      *
      * 特点：支持协程任务执行,高并发异步处理,低内存占用
      *
-     * 调用关系：继承自`worker_base`,专门处理`task_coro`,支持协程调度和管理
+     * 调用关系：继承自`worker_ordinary`,专门处理`task_coro`,支持协程调度和管理
      */
-    class worker_fibersvr : public worker_base
+    class worker_fibersvr : public worker_ordinary
     {
     private:
       std::atomic<std::size_t> _active_coroutines{0}; // 当前活跃协程数
@@ -669,8 +669,8 @@ namespace internals
        * @param cohort_struct 任务队列
        * @param max_concurrent 最大并发协程数
        */
-      worker_fibersvr(const std::string &worker_name,_interior_cohort_ptr cohort_struct,std::size_t max_concurrent = 100)
-        : worker_base(worker_name, std::move(cohort_struct)), _max_concurrent_coroutines(max_concurrent){}
+      worker_fibersvr(const std::string &worker_name,safety_rank_pointer cohort_struct,std::size_t max_concurrent = 100)
+        : worker_ordinary(worker_name, std::move(cohort_struct)), _max_concurrent_coroutines(max_concurrent){}
       /**
        * @brief 析构函数
        */
@@ -704,7 +704,7 @@ namespace internals
        * @brief 执行任务（协程版本）
        * @param task 要执行的任务
        */
-      void execute_task(_interior_task_ptr task) override
+      void execute_task(safety_unit_pointer task) override
       {
         if (!task)
         {
@@ -720,7 +720,7 @@ namespace internals
         // else
         // {
         //   // 普通任务，使用基类方法执行
-        //   worker_base::execute_task(task);
+        //   worker_ordinary::execute_task(task);
         // }
       }
     private:
@@ -728,7 +728,7 @@ namespace internals
        * @brief 执行协程任务
        * @param task 协程任务
        */
-      void execute_coroutine_task(_interior_task_ptr task)
+      void execute_coroutine_task(safety_unit_pointer task)
       {
         // 检查并发限制
         auto current_coroutines = _active_coroutines.load(std::memory_order_acquire);
@@ -737,7 +737,7 @@ namespace internals
         if (current_coroutines >= max_coroutines)
         {
           // 达到并发限制，将任务重新放回队列
-          _task_queue->push(task);
+          _unit_rank->push(task);
           return;
         }
 
@@ -749,9 +749,9 @@ namespace internals
         try
         {
           // 任务开始回调
-          if (_starts_callback)
+          if (_unit_starts_callback)
           {
-            _starts_callback(_worker_name, task);
+            _unit_starts_callback(_worker_name, task);
           }
 
           // 执行协程任务
@@ -766,9 +766,9 @@ namespace internals
           _statistics.last_task_time = end_time;
 
           // 任务结束回调
-          if (_finish_callback)
+          if (_unit_finish_callback)
           {
-            _finish_callback(_worker_name, task);
+            _unit_finish_callback(_worker_name, task);
           }
         }
         catch (const std::exception &e)
@@ -792,9 +792,9 @@ namespace internals
      *
      * 特点：动态调整任务获取策略,自适应休眠时间,负载感知优化
      *
-     * 调用关系：继承自`worker_base`,支持多种任务队列类型,根据系统负载动态调整
+     * 调用关系：继承自`worker_ordinary`,支持多种任务队列类型,根据系统负载动态调整
      */
-    class worker_adaptive : public worker_base
+    class worker_adaptive : public worker_ordinary
     {
     private:
       static constexpr std::size_t LOAD_SAMPLE_SIZE = 100;  ///< 负载采样大小
@@ -809,8 +809,8 @@ namespace internals
        * @param worker_name 线程ID
        * @param cohort_struct 任务队列
        */
-      worker_adaptive(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
-        : worker_base(worker_name, std::move(cohort_struct)){}
+      worker_adaptive(const std::string &worker_name,safety_rank_pointer cohort_struct)
+        : worker_ordinary(worker_name, std::move(cohort_struct)){}
       /**
        * @brief 析构函数
        */
@@ -836,9 +836,9 @@ namespace internals
        * @brief 获取下一个任务（自适应版本）
        * @return 任务智能指针
        */
-      _interior_task_ptr get_next_task() override
+      safety_unit_pointer get_next_task() override
       {
-        if (!_task_queue)
+        if (!_unit_rank)
         {
           return nullptr;
         }
@@ -847,7 +847,7 @@ namespace internals
         auto load = _load_factor.load(std::memory_order_acquire);
         auto timeout = std::chrono::milliseconds(static_cast<long>(50 + load * 50));
 
-        auto task = _task_queue->try_pop_for(timeout);
+        auto task = _unit_rank->try_pop_for(timeout);
 
         if (task)
         {
@@ -910,7 +910,7 @@ namespace internals
      * @param cohort_struct 任务队列
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_standard(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
+    inline std::unique_ptr<worker_ordinary> make_worker_standard(const std::string &worker_name,safety_rank_pointer cohort_struct)
     {
       return std::make_unique<worker_standard>(worker_name, std::move(cohort_struct));
     }
@@ -921,7 +921,7 @@ namespace internals
      * @param min_priority 最低处理优先级
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_priority(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
+    inline std::unique_ptr<worker_ordinary> make_worker_priority(const std::string &worker_name,safety_rank_pointer cohort_struct,
       structure_u::weight min_priority =  structure_u::weight::low)
     {
       return std::make_unique<worker_priority>(worker_name, std::move(cohort_struct), min_priority);
@@ -933,7 +933,7 @@ namespace internals
      * @param max_concurrent 最大并发协程数
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_fibersvr(const std::string &worker_name,_interior_cohort_ptr cohort_struct,
+    inline std::unique_ptr<worker_ordinary> make_worker_fibersvr(const std::string &worker_name,safety_rank_pointer cohort_struct,
       std::size_t max_concurrent = 100)
     {
       return std::make_unique<worker_fibersvr>(worker_name, std::move(cohort_struct), max_concurrent);
@@ -944,7 +944,7 @@ namespace internals
      * @param cohort_struct 任务队列
      * @return 工作线程智能指针
      */
-    inline std::unique_ptr<worker_base> make_worker_adaptive(const std::string &worker_name,_interior_cohort_ptr cohort_struct)
+    inline std::unique_ptr<worker_ordinary> make_worker_adaptive(const std::string &worker_name,safety_rank_pointer cohort_struct)
     {
       return std::make_unique<worker_adaptive>(worker_name, std::move(cohort_struct));
     }

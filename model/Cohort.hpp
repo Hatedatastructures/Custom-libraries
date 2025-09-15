@@ -12,7 +12,7 @@ namespace internals
 {
   namespace structure_r
   {
-    using _interior_task_ptr = std::shared_ptr<internals::structure_u::unit_ordinary>;
+    using safety_unit_pointer = std::shared_ptr<internals::structure_u::unit_ordinary>;
     /**
      * @brief 任务队列类型的安全转换
      * @tparam originally_type 要转换的类型
@@ -25,7 +25,7 @@ namespace internals
      * @warning 转换函数和失败调用函数的参数需要用智能指针来维护内存安全
      */
     template<class originally_type,class function,class downgrade_function>
-    bool automatic_derivation(_interior_task_ptr pointer,function&& conversion_call, downgrade_function&& downgrade)
+    bool automatic_derivation(safety_unit_pointer pointer,function&& conversion_call, downgrade_function&& downgrade)
     {
       if(pointer.get() != nullptr)
       {
@@ -76,23 +76,23 @@ namespace internals
        * @param task 要添加的任务
        * @return `true` 添加成功，`false` 添加失败
        */
-      virtual bool push(_interior_task_ptr pointer) = 0;
+      virtual bool push(safety_unit_pointer pointer) = 0;
       /**
        * @brief 从队列中取出任务（阻塞）
        * @return 任务智能指针，队列关闭时返回`nullptr`
        */
-      virtual _interior_task_ptr pop() = 0;
+      virtual safety_unit_pointer pop() = 0;
       /**
        * @brief 尝试从队列中取出任务（非阻塞）
        * @return 任务智能指针，队列为空时返回`nullptr`
        */
-      virtual _interior_task_ptr try_pop() = 0;
+      virtual safety_unit_pointer try_pop() = 0;
       /**
        * @brief 带超时的取出任务
        * @param timeout 超时时间
        * @return 任务智能指针，超时或队列关闭时返回`nullptr`
        */
-      virtual _interior_task_ptr try_pop_for(const std::chrono::milliseconds& timeout) = 0;
+      virtual safety_unit_pointer try_pop_for(const std::chrono::milliseconds& timeout) = 0;
       /**
        * @brief 获取队列大小
        * @return 队列中任务数量
@@ -139,7 +139,7 @@ namespace internals
       std::condition_variable _judge_empty_cv;            // 非空条件变量
 
       std::atomic<bool> _closed{false};                   // 队列关闭标志
-      std::queue<_interior_task_ptr> _task_cohort;        // 任务队列
+      std::queue<safety_unit_pointer> _task_cohort;        // 任务队列
 
       std::atomic<std::size_t> _max_size{0};              // 最大队列大小，0表示无限制
     public:
@@ -161,7 +161,7 @@ namespace internals
        * @param task 要添加的任务
        * @return true 添加成功，false 添加失败（队列已关闭或已满）
        */
-      bool push(_interior_task_ptr task) override
+      bool push(safety_unit_pointer task) override
       {
         if (task.get() == nullptr || _closed.load(std::memory_order_acquire))
         {
@@ -185,7 +185,7 @@ namespace internals
        * @brief 从队列中取出任务（阻塞）
        * @return 任务智能指针，队列关闭时返回`nullptr`
        */
-      _interior_task_ptr pop() override
+      safety_unit_pointer pop() override
       {
         std::unique_lock<std::mutex> lock(_cohort_mutex);
         auto wait_logic = [this]()
@@ -207,7 +207,7 @@ namespace internals
        * @brief 尝试从队列中取出任务（非阻塞）
        * @return 任务智能指针，队列为空时返回`nullptr`
        */
-      _interior_task_ptr try_pop() override
+      safety_unit_pointer try_pop() override
       {
         std::lock_guard<std::mutex> lock(_cohort_mutex);
 
@@ -225,7 +225,7 @@ namespace internals
        * @param timeout 超时时间
        * @return 任务智能指针，超时或队列关闭时返回`nullptr`
        */
-      _interior_task_ptr try_pop_for(const std::chrono::milliseconds &timeout) override
+      safety_unit_pointer try_pop_for(const std::chrono::milliseconds &timeout) override
       {
         std::unique_lock<std::mutex> lock(_cohort_mutex);
         auto wait_logic = [this]()
@@ -267,7 +267,7 @@ namespace internals
       void clear() override
       {
         std::lock_guard<std::mutex> lock(_cohort_mutex);
-        std::queue<_interior_task_ptr> empty_queue;
+        std::queue<safety_unit_pointer> empty_queue;
         _task_cohort.swap(empty_queue);
       }
       /**
@@ -328,7 +328,7 @@ namespace internals
        */
       struct comparator
       {
-        bool operator()(const _interior_task_ptr &lhs, const _interior_task_ptr &rhs) const
+        bool operator()(const safety_unit_pointer &lhs, const safety_unit_pointer &rhs) const
         {
           auto lhs_priority = static_cast<int>(lhs->get_priority());
           auto rhs_priority = static_cast<int>(rhs->get_priority());
@@ -346,7 +346,7 @@ namespace internals
       std::atomic<bool> _closed{false};
       std::atomic<std::size_t> _max_size{0};
 
-      std::priority_queue<_interior_task_ptr, std::vector<_interior_task_ptr>, comparator> _task_cohort;
+      std::priority_queue<safety_unit_pointer, std::vector<safety_unit_pointer>, comparator> _task_cohort;
     public:
       /**
        * @brief 构造优先级任务队列
@@ -367,7 +367,7 @@ namespace internals
        * @param task 要添加的任务
        * @return `true` 添加成功，`false` 添加失败
        */
-      bool push(_interior_task_ptr task) override
+      bool push(safety_unit_pointer task) override
       {
         if (task.get() == nullptr || _closed.load(std::memory_order_acquire))
         {
@@ -390,7 +390,7 @@ namespace internals
        * @brief 从队列中取出任务（阻塞）
        * @return 任务智能指针，队列关闭时返回`nullptr`
        */
-      _interior_task_ptr pop() override
+      safety_unit_pointer pop() override
       {
         std::unique_lock<std::mutex> lock(_cohort_mutex);
         auto wait_logic = [this]()
@@ -413,7 +413,7 @@ namespace internals
        * @brief 尝试从队列中取出任务（非阻塞）
        * @return 任务智能指针，队列为空时返回`nullptr`
        */
-      _interior_task_ptr try_pop() override
+      safety_unit_pointer try_pop() override
       {
         std::lock_guard<std::mutex> lock(_cohort_mutex);
 
@@ -432,7 +432,7 @@ namespace internals
        * @param timeout 超时时间
        * @return 任务智能指针，超时或队列关闭时返回`nullptr`
        */
-      _interior_task_ptr try_pop_for(const std::chrono::milliseconds &timeout) override
+      safety_unit_pointer try_pop_for(const std::chrono::milliseconds &timeout) override
       {
         std::unique_lock<std::mutex> lock(_cohort_mutex);
         auto wait_logic = [this]()
@@ -476,7 +476,7 @@ namespace internals
       void clear() override
       {
         std::lock_guard<std::mutex> lock(_cohort_mutex);
-        std::priority_queue<_interior_task_ptr, std::vector<_interior_task_ptr>, comparator> empty_queue;
+        std::priority_queue<safety_unit_pointer, std::vector<safety_unit_pointer>, comparator> empty_queue;
         _task_cohort.swap(empty_queue);
       }
 
@@ -538,9 +538,9 @@ namespace internals
     private:
       struct delayed_task
       {
-        _interior_task_ptr task;
+        safety_unit_pointer task;
         std::chrono::steady_clock::time_point time;
-        delayed_task(_interior_task_ptr task, std::chrono::steady_clock::time_point time)
+        delayed_task(safety_unit_pointer task, std::chrono::steady_clock::time_point time)
           : task(task), time(time) {}
       };
       struct comparator
@@ -553,7 +553,7 @@ namespace internals
       mutable std::mutex _cohort_mutex;
       std::condition_variable _judge_empty_cv;
 
-      std::queue<_interior_task_ptr> _task_cohort;
+      std::queue<safety_unit_pointer> _task_cohort;
       std::priority_queue<delayed_task, std::vector<delayed_task>, comparator> _time_cohort;
 
       std::atomic<bool> _closed{false};                    
@@ -584,7 +584,7 @@ namespace internals
        * @param task 要添加的任务
        * @return `true` 添加成功，`false` 添加失败
        */
-      bool push(_interior_task_ptr task) override
+      bool push(safety_unit_pointer task) override
       {
         if (task.get() == nullptr || _closed.load(std::memory_order_acquire))
         {
@@ -613,7 +613,7 @@ namespace internals
        * @brief 从队列中取出任务（阻塞）
        * @return 任务智能指针，队列关闭时返回`nullptr`
        */
-      _interior_task_ptr pop() override
+      safety_unit_pointer pop() override
       {
         std::unique_lock<std::mutex> lock(_cohort_mutex);
         auto wait_logic = [this]()
@@ -635,7 +635,7 @@ namespace internals
        * @brief 尝试从队列中取出任务（非阻塞）
        * @return 任务智能指针，队列为空时返回`nullptr`
        */
-      _interior_task_ptr try_pop() override
+      safety_unit_pointer try_pop() override
       {
         std::lock_guard<std::mutex> lock(_cohort_mutex);
 
@@ -653,7 +653,7 @@ namespace internals
        * @param timeout 超时时间
        * @return 任务智能指针，超时或队列关闭时返回`nullptr`
        */
-      _interior_task_ptr try_pop_for(const std::chrono::milliseconds &timeout) override
+      safety_unit_pointer try_pop_for(const std::chrono::milliseconds &timeout) override
       {
         std::unique_lock<std::mutex> lock(_cohort_mutex);
         auto wait_logic = [this]()
@@ -698,7 +698,7 @@ namespace internals
       {
         std::lock_guard<std::mutex> lock(_cohort_mutex);
         std::priority_queue<delayed_task, std::vector<delayed_task>, comparator> empty_delayed;
-        std::queue<_interior_task_ptr> empty_ready;
+        std::queue<safety_unit_pointer> empty_ready;
         _time_cohort.swap(empty_delayed);
         _task_cohort.swap(empty_ready);
       }
@@ -866,7 +866,7 @@ namespace internals
        * @param task 要添加的任务
        * @return `true` 添加成功，`false` 添加失败
        */
-      bool push(_interior_task_ptr task) override
+      bool push(safety_unit_pointer task) override
       {
         if (!task || _closed.load(std::memory_order_acquire))
         {
@@ -893,7 +893,7 @@ namespace internals
        * @brief 从队列中取出任务（阻塞）
        * @return 任务智能指针，队列关闭时返回`nullptr`
        */
-      _interior_task_ptr pop() override
+      safety_unit_pointer pop() override
       {
         while (!_closed.load(std::memory_order_acquire))
         {
@@ -925,7 +925,7 @@ namespace internals
        * @brief 尝试从队列中取出任务（非阻塞）
        * @return 任务智能指针，队列为空时返回`nullptr`
        */
-      _interior_task_ptr try_pop() override
+      safety_unit_pointer try_pop() override
       {
         std::shared_lock<std::shared_mutex> lock(_multi_cohort_mutex);
 
@@ -954,7 +954,7 @@ namespace internals
        * @param timeout 超时时间
        * @return 任务智能指针，超时或队列关闭时返回`nullptr`
        */
-      _interior_task_ptr try_pop_for(const std::chrono::milliseconds &timeout) override
+      safety_unit_pointer try_pop_for(const std::chrono::milliseconds &timeout) override
       {
         auto deadline = std::chrono::steady_clock::now() + timeout;
 
@@ -1080,7 +1080,7 @@ namespace internals
        * @param task 要推送的任务
        * @return 队列索引
        */
-      std::size_t select_queue_for_push(_interior_task_ptr task)
+      std::size_t select_queue_for_push(safety_unit_pointer task)
       {
         switch (_strategy)
         {

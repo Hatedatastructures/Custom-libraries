@@ -145,6 +145,14 @@ enum class rank_strategy
   delay, // 延迟
   round_robin, // 轮询
 };
+enum class worker_state
+{
+  idle,     // 空闲状态 
+  running,  // 运行状态 
+  stopping, // 停止中   
+  stopped,  // 已停止   
+  error     // 错误状态 
+};
 
 inline std::string to_string(current_status state) noexcept
 {
@@ -414,5 +422,83 @@ public:
     static_assert(!std::is_void_v<convert_t>, "Cannot emplace void type");
     _data.emplace<convert_t>(std::forward<Args>(args)...);
     _void = false;
+  }
+};
+/**
+ * @brief 工作线程统计信息
+ *
+ * 记录工作线程的性能统计数据，用于监控和优化
+ */
+class worker_statistics
+{
+public:
+  std::atomic<std::uint64_t> tasks_failed{0};           // 执行失败任务数量
+  std::atomic<std::uint64_t> tasks_executed{0};         // 已执行任务数量
+  std::atomic<std::uint64_t> total_idle_time{0};        // 总空闲时间(微秒)
+  std::atomic<std::uint64_t> total_execution_time{0};   // 总执行时间(微秒)
+
+  std::chrono::steady_clock::time_point start_time;     // 线程启动时间
+  std::chrono::steady_clock::time_point last_task_time; // 最后任务执行时间
+
+  worker_statistics()
+  {
+    reset();
+  }
+
+  /**
+   * @brief 重置统计信息
+   */
+  void reset()
+  {
+    tasks_failed.store(0, std::memory_order_relaxed);
+    tasks_executed.store(0, std::memory_order_relaxed);
+    total_idle_time.store(0, std::memory_order_relaxed);
+    total_execution_time.store(0, std::memory_order_relaxed);
+    start_time = std::chrono::steady_clock::now();
+    last_task_time = start_time;
+  }
+
+  /**
+   * @brief 获取平均任务执行时间
+   * @return 平均执行时间(微秒)
+   */
+  double get_average_execution_time() const
+  {
+    auto executed = tasks_executed.load(std::memory_order_relaxed);
+    if (executed == 0)
+      return 0.0;
+
+    auto total_time = total_execution_time.load(std::memory_order_relaxed);
+    return static_cast<double>(total_time) / executed;
+  }
+
+  /**
+   * @brief 获取任务成功率
+   * @return 成功率(0.0-1.0)
+   */
+  double get_success_rate() const
+  {
+    auto executed = tasks_executed.load(std::memory_order_relaxed);
+    if (executed == 0)
+      return 1.0;
+
+    auto failed = tasks_failed.load(std::memory_order_relaxed);
+    return static_cast<double>(executed - failed) / executed;
+  }
+
+  /**
+   * @brief 获取线程利用率
+   * @return 利用率(0.0-1.0)
+   */
+  double get_utilization() const
+  {
+    auto now = std::chrono::steady_clock::now();
+    auto total_time = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time).count();
+
+    if (total_time == 0)
+      return 0.0;
+
+    auto execution_time = total_execution_time.load(std::memory_order_relaxed);
+    return static_cast<double>(execution_time) / total_time;
   }
 };
