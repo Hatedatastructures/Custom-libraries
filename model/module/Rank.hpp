@@ -172,7 +172,7 @@ namespace internals::structure_r
       {
         return internal_push(std::move(pointer), mode, internal_calculation_deadline());
       }
-      return internal_push(std::move(pointer), mode);
+      return internal_push(std::move(pointer), mode,nullptr);
     }
 
     bool push(safety_unit_pointer pointer, std::chrono::system_clock::time_point deadline,
@@ -303,7 +303,6 @@ namespace internals::structure_r
         _judge_empty_cv.notify_one();
         return true;
       }
-      else
       switch(mode)
       {
         case backpressure::block:
@@ -515,7 +514,6 @@ namespace internals::structure_r
         _judge_empty_cv.notify_one();
         return true;
       }
-      else
       switch(mode)
       {
         case backpressure::block:
@@ -689,41 +687,287 @@ namespace internals::structure_r
     {
       return 0;
     }
-    class rank_deferred : public rank_ordinary
+  };
+  /**
+   * @brief 延迟队列
+   */
+  class rank_deferred : public rank_ordinary
+  {
+  protected:
+    class delay_unit
     {
-    protected:
-      class delay_unit
+    public:
+      safety_unit_pointer _safety_unit_pointer;
+      internals_time_t _delay_time;
+      delay_unit(safety_unit_pointer safety_unit_pointer,internals_time_t delay_time = internals_clk::now())
+      :_safety_unit_pointer(std::move(safety_unit_pointer)),_delay_time(delay_time) {}
+    };
+    struct comparator
+    {
+      bool operator()(const std::shared_ptr<delay_unit>& first, const std::shared_ptr<delay_unit>& second)
       {
-      public:
-        safety_unit_pointer _safety_unit_pointer;
-        internals_time_t _delay_time;
-        delay_unit(safety_unit_pointer safety_unit_pointer,internals_time_t delay_time = internals_clk::now())
-        :_safety_unit_pointer(std::move(safety_unit_pointer)),_delay_time(delay_time) {}
-        bool operator<(const delay_unit& other) const {return _delay_time > other._delay_time;}
-        bool operator>(const delay_unit& other) const {return _delay_time < other._delay_time;}
-      };
-    protected:
-      std::jthread _background_detection;
-
-      std::condition_variable_any _judge_empty_cv;
-      std::condition_variable_any _judge_full_cv;
-
-      mutable std::shared_mutex _rank_priority_mutex; 
-      std::priority_queue<delay_unit,std::vector<delay_unit>,std::greater<delay_unit>> _rank_unit_deferred;
-    private:
-      bool enqueue_with_backpressure(std::shared_ptr<delay_unit> struct_pointer, backpressure mode)
-      {
-        
-      }
-    protected:
-      virtual bool internal_push(safety_unit_pointer pointer, backpressure mode) override
-      {
-        if(_closed.load(std::memory_order_acquire)) return false;
-        if(pointer == nullptr) return false;
-        // delay_unit small_unit(std::move(pointer));
-        std::shared_ptr<delay_unit> small_unit = std::make_shared<delay_unit>(std::move(pointer));
-        return enqueue_with_backpressure(small_unit, mode);
+        return first->_delay_time > second->_delay_time;
       }
     };
+  protected:
+    std::jthread _background_detection;
+
+    std::condition_variable_any _judge_empty_cv;
+    std::condition_variable_any _judge_full_cv;
+
+    mutable std::shared_mutex _rank_deferred_mutex; 
+    std::multiset <std::shared_ptr<delay_unit>,comparator> _rank_unit_deferred;
+  private:
+    bool enqueue_with_backpressure(std::shared_ptr<delay_unit> struct_pointer, backpressure mode)
+    {
+      if(struct_pointer == nullptr) 
+        throw operation_exception("The incoming pointer is null, please check the parameters passed from the upper layer.");
+
+      std::size_t current_size = 0;
+      std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      current_size = _rank_unit_deferred.size();
+      if((_max_storage_capacity != 0 && current_size >= _max_storage_capacity) == false)
+      {
+        _rank_unit_deferred.insert(std::move(struct_pointer));
+        lock.unlock();
+        _judge_empty_cv.notify_one();
+        return true;
+      }
+      switch(mode)
+      {
+        case backpressure::block:
+        {
+          auto block_func = [this]()
+          {
+            return this->_rank_unit_deferred.size() < this->_max_storage_capacity
+            || this->_closed.load(std::memory_order_acquire);
+          };
+          _judge_full_cv.wait(lock, block_func);
+          if(_closed.load(std::memory_order_acquire)) return false;
+          _rank_unit_deferred.insert(std::move(struct_pointer));
+          lock.unlock();
+          _judge_empty_cv.notify_one();
+          return true;
+        }
+        case backpressure::overwrite:
+        {
+          
+          if(!_rank_unit_deferred.empty())
+          {
+            auto replace_iterator = std::prev(_rank_unit_deferred.end());
+            _rank_unit_deferred.erase(replace_iterator);
+          }
+          _rank_unit_deferred.insert(std::move(struct_pointer));
+          lock.unlock();
+          _judge_empty_cv.notify_one();
+          return true;
+        }
+        case backpressure::exception:
+          throw operation_exception("The queue is full, please check the overflow policy.");
+        case backpressure::drop:
+          return false;
+        default:
+          throw operation_exception("Unknown backpressure mode.");
+      }
+    }
+    void background_detection()
+    {
+
+    }
+  protected:
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode) override
+    {
+      if(_closed.load(std::memory_order_acquire)) return false;
+      if(pointer == nullptr) return false;
+      std::shared_ptr<delay_unit> small_unit = std::make_shared<delay_unit>(std::move(pointer));
+      return enqueue_with_backpressure(small_unit, mode);
+    }
+    virtual bool internal_push(safety_unit_pointer pointer, backpressure mode, 
+      internals_time delay_time) override
+    {
+      if(_closed.load(std::memory_order_acquire)) return false;
+      if(pointer == nullptr) return false;
+      std::shared_ptr<delay_unit> small_unit = std::make_shared<delay_unit>(std::move(pointer), *delay_time);
+      return enqueue_with_backpressure(small_unit, mode);
+    }
+    virtual std::size_t internal_push_batch(std::vector<safety_unit_pointer>&& pointer, backpressure mode) override
+    {
+      if(_closed.load(std::memory_order_acquire)) return false;
+      if(pointer.empty())  throw operation_exception("The vector pointers is empty.");
+      std::size_t complete_push_unit_counter = 0;
+      for(auto& unit : pointer)
+      {
+        if (internal_push(unit, mode))
+        {
+          complete_push_unit_counter++;
+        }
+      }
+      return complete_push_unit_counter; 
+    }
+    virtual safety_unit_pointer internal_pop() override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      if(_rank_unit_deferred.empty() && _closed.load(std::memory_order_acquire)) return nullptr;
+      _judge_empty_cv.wait(lock);
+      safety_unit_pointer high_level_value = (*_rank_unit_deferred.begin())->_safety_unit_pointer;
+      safety_unit_pointer pointer = std::move(high_level_value);
+      _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+      lock.unlock();
+      _judge_full_cv.notify_one();
+      return pointer;
+    }
+    virtual std::vector<safety_unit_pointer> internal_pop_batch(std::size_t count) override
+    {
+      std::vector<safety_unit_pointer> pointer;
+      std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      const std::size_t safety_count = std::min(count, _rank_unit_deferred.size());
+      for(std::size_t i = 0; i < safety_count; i++)
+      {
+        if(_rank_unit_deferred.empty()) break;
+        if((*_rank_unit_deferred.begin())->_delay_time < internals_clk::now())
+        {
+          pointer.push_back(std::move((*_rank_unit_deferred.begin())->_safety_unit_pointer));
+          _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+        }
+        else
+        {
+          _judge_empty_cv.wait(lock);
+        }
+      }
+      lock.unlock();
+      if (safety_count > 0) _judge_full_cv.notify_one();
+      return pointer;
+    }
+    virtual safety_unit_pointer internal_try_pop() override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      if(_rank_unit_deferred.empty()) return nullptr;
+      if((*_rank_unit_deferred.begin())->_delay_time < internals_clk::now())
+      {
+        safety_unit_pointer high_level_value = (*_rank_unit_deferred.begin())->_safety_unit_pointer;
+        safety_unit_pointer pointer = std::move(high_level_value);
+        _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+        lock.unlock();
+        _judge_full_cv.notify_one();
+        return pointer;
+      }
+      return nullptr;
+    }
+    virtual safety_unit_pointer internal_try_pop_for(const std::chrono::milliseconds& timeout) override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      auto  popup_func = [this]()
+      {
+        return !this->_rank_unit_deferred.empty() || this->_closed.load(std::memory_order_acquire);
+      };
+      if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
+      {
+        safety_unit_pointer high_level_value = (*_rank_unit_deferred.begin())->_safety_unit_pointer;
+        safety_unit_pointer pointer = std::move(high_level_value);
+        _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+
+        lock.unlock();
+        _judge_full_cv.notify_one();
+        return pointer;
+      }
+      return nullptr;
+    }
+    virtual std::size_t internal_size()const override
+    {
+      std::shared_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      return _rank_unit_deferred.size();
+    }
+    virtual bool internal_empty()const override
+    {
+      std::shared_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      return _rank_unit_deferred.empty();
+    }
+    virtual void internal_clear() override
+    {
+      std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+      _closed.store(false, std::memory_order_release);
+      _max_storage_capacity.store(0, std::memory_order_release);
+      _rank_unit_deferred.clear();
+    }
+    virtual void internal_close() override
+    {
+      _closed.store(true, std::memory_order_release);
+      _max_storage_capacity.store(0, std::memory_order_release);
+      _judge_empty_cv.notify_all();
+      _judge_full_cv.notify_all();
+    }
+    virtual rank_strategy internal_strategy()const override
+    {
+      return rank_strategy::delay;
+    }
+    virtual std::size_t internal_get_sub_queue_count()const override
+    {
+      return 0;
+    }
+    virtual std::size_t internal_get_delay_uint_count()const override
+    {
+      return 0;
+    }
   };
+  /**
+   * @brief 任务队列工厂函数 - 创建`FIFO`队列
+   * @param max_capacity 最大队列容量
+   * @return 队列智能指针
+   */
+  inline std::shared_ptr<rank_standard> make_rank_standard(std::size_t max_capacity = 0)
+  {
+    return std::make_shared<rank_standard>(max_capacity);
+  }
+  /**
+   * @brief 任务队列工厂函数 - 创建优先级队列
+   * @param max_capacity 最大队列容量
+   * @return 队列智能指针
+   */
+  inline std::shared_ptr<rank_priority> make_rank_priority(std::size_t max_capacity = 0)
+  {
+    return std::make_shared<rank_priority>(max_capacity);
+  }
+  /**
+   * @brief 任务队列工厂函数 - 创建延迟队列
+   * @param max_capacity 最大队列容量
+   * @return 队列智能指针
+   */
+  inline std::shared_ptr<rank_deferred> make_rank_deferred(std::size_t max_capacity = 0)
+  {
+    return std::make_shared<rank_deferred>(max_capacity);
+  }
+  /**
+   * @brief 任务队列工厂函数 - 根据策略创建队列
+   * @param strategy 队列策略
+   * @param max_capacity 最大队列容量
+   * @return 队列智能指针
+   */
+  inline std::shared_ptr<rank_ordinary> make_rank(rank_strategy strategy, std::size_t max_capacity = 0)
+  {
+    switch(strategy)
+    {
+      case rank_strategy::standard:
+        return make_rank_standard(max_capacity);
+      case rank_strategy::priority:
+        return make_rank_priority(max_capacity);
+      case rank_strategy::delay:
+        return make_rank_deferred(max_capacity);
+      default:
+        return make_rank_standard(max_capacity);
+    }
+  }
+}
+namespace pool 
+{
+  using internals::structure_r::make_rank;
+
+  using internals::structure_r::make_rank_standard;
+  using internals::structure_r::make_rank_priority;
+  using internals::structure_r::make_rank_deferred;
+
+  using internals::structure_r::rank_ordinary;
+  using internals::structure_r::rank_priority;
+  using internals::structure_r::rank_deferred;
+  using internals::structure_r::rank_standard;
+  std::
 }
