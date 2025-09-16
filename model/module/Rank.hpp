@@ -355,7 +355,7 @@ namespace internals::structure_r
     virtual std::size_t internal_push_batch(std::vector<safety_unit_pointer>&& pointers, 
       backpressure mode) override
     {
-      if(_closed.load(std::memory_order_acquire)) return false;
+      if(_closed.load(std::memory_order_acquire)) return 0;
       if(pointers.empty()) throw operation_exception("The vector pointers is empty.");
       std::size_t complete_push_unit_counter = 0;
       for(auto& unit_pointers : pointers)
@@ -570,7 +570,7 @@ namespace internals::structure_r
     virtual std::size_t internal_push_batch(std::vector<safety_unit_pointer>&& pointers, 
       backpressure mode) override
     {
-      if(_closed.load(std::memory_order_acquire)) return false;
+      if(_closed.load(std::memory_order_acquire)) return 0;
       if(pointers.empty()) throw operation_exception("The vector pointers is empty.");
       std::size_t complete_push_unit_counter = 0;
       for(auto& unit_pointers : pointers)
@@ -591,7 +591,7 @@ namespace internals::structure_r
       }; 
       _judge_empty_cv.wait(lock, check_units_func);
       if(_closed.load(std::memory_order_acquire) && _rank_unit_priority.empty()) return nullptr;
-      safety_unit_pointer high_level_value = *_rank_unit_priority.begin();
+      safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
       safety_unit_pointer pointer = std::move(high_level_value);
       _rank_unit_priority.erase(_rank_unit_priority.begin());
       lock.unlock();
@@ -609,11 +609,14 @@ namespace internals::structure_r
       _judge_empty_cv.wait(lock, popup_func);
       if(_closed.load(std::memory_order_acquire) && _rank_unit_priority.empty()) return pointers;
       const std::size_t safety_count = std::min(count, _rank_unit_priority.size());
-      auto last_iterator = std::next(_rank_unit_priority.begin(), safety_count);
-      auto first = std::make_move_iterator(_rank_unit_priority.begin());
-      auto last  = std::make_move_iterator(last_iterator);
-      pointers.assign(first, last);
-      _rank_unit_priority.erase(_rank_unit_priority.begin(), last_iterator);
+      pointers.reserve(safety_count);
+      for(std::size_t i = 0; i < safety_count; ++i)
+      {
+        safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
+        safety_unit_pointer pointer = std::move(high_level_value);
+        pointers.push_back(std::move(pointer));
+        _rank_unit_priority.erase(_rank_unit_priority.begin());
+      }
       lock.unlock();
       if(count > safety_count)
       {
@@ -626,7 +629,7 @@ namespace internals::structure_r
     {
       std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
       if(_rank_unit_priority.empty()) return nullptr;
-      safety_unit_pointer high_level_value = *_rank_unit_priority.begin();
+      safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
       safety_unit_pointer pointer = std::move(high_level_value);
       _rank_unit_priority.erase(_rank_unit_priority.begin());
       _judge_full_cv.notify_one();
@@ -641,7 +644,7 @@ namespace internals::structure_r
       };
       if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
       {
-        safety_unit_pointer high_level_value = *_rank_unit_priority.begin();
+        safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
         safety_unit_pointer pointer = std::move(high_level_value);
         _rank_unit_priority.erase(_rank_unit_priority.begin());
 
@@ -704,7 +707,7 @@ namespace internals::structure_r
     };
     struct comparator
     {
-      bool operator()(const std::shared_ptr<delay_unit>& first, const std::shared_ptr<delay_unit>& second)
+      bool operator()(const std::shared_ptr<delay_unit>& first, const std::shared_ptr<delay_unit>& second)const
       {
         return first->_delay_time > second->_delay_time;
       }
@@ -772,7 +775,36 @@ namespace internals::structure_r
     }
     void background_detection()
     {
-
+      // 后台检测线程
+      while (!_closed.load(std::memory_order_acquire))
+      {
+        std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+        if (!_rank_unit_deferred.empty())
+        {
+          auto now = std::chrono::system_clock::now();
+          if ((*_rank_unit_deferred.begin())->_delay_time <= now)
+          {
+            lock.unlock();
+            _judge_empty_cv.notify_one();          // 有元素到期，叫醒消费者
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+          }
+        }
+        lock.unlock();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+  public:
+    rank_deferred() = default;
+    rank_deferred(std::size_t max_storage_capacity = 0) :rank_ordinary(max_storage_capacity)
+    {
+      _background_detection = std::jthread(&rank_deferred::background_detection, this);
+    }
+    ~rank_deferred()
+    {
+      internal_close();
+      if(_background_detection.joinable())
+        _background_detection.join();
     }
   protected:
     virtual bool internal_push(safety_unit_pointer pointer, backpressure mode) override
@@ -792,7 +824,7 @@ namespace internals::structure_r
     }
     virtual std::size_t internal_push_batch(std::vector<safety_unit_pointer>&& pointer, backpressure mode) override
     {
-      if(_closed.load(std::memory_order_acquire)) return false;
+      if(_closed.load(std::memory_order_acquire)) return 0;
       if(pointer.empty())  throw operation_exception("The vector pointers is empty.");
       std::size_t complete_push_unit_counter = 0;
       for(auto& unit : pointer)
@@ -824,9 +856,10 @@ namespace internals::structure_r
       for(std::size_t i = 0; i < safety_count; i++)
       {
         if(_rank_unit_deferred.empty()) break;
-        if((*_rank_unit_deferred.begin())->_delay_time < internals_clk::now())
+        if((*_rank_unit_deferred.begin())->_delay_time <= internals_clk::now())
         {
-          pointer.push_back(std::move((*_rank_unit_deferred.begin())->_safety_unit_pointer));
+          auto& delay_ptr = const_cast<std::shared_ptr<delay_unit>&>(*_rank_unit_deferred.begin());
+          pointer.push_back(std::move(delay_ptr->_safety_unit_pointer));
           _rank_unit_deferred.erase(_rank_unit_deferred.begin());
         }
         else
@@ -946,7 +979,7 @@ namespace internals::structure_r
   {
     switch(strategy)
     {
-      case rank_strategy::standard:
+      case rank_strategy::fifo:
         return make_rank_standard(max_capacity);
       case rank_strategy::priority:
         return make_rank_priority(max_capacity);

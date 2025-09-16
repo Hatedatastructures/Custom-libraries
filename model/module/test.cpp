@@ -857,21 +857,21 @@ int main()
   //   std::cout << "\n===== 性能测试完成 =====" << std::endl;
   // }
   {
-    pro_test::TestConfig config;
-    config.total_tasks = 10000000;          // 1000万任务
-    config.producer_count = 16;             // 16个生产者
-    config.consumer_count = 16;             // 16个消费者
-    config.queue_max_size = 1000;           // 队列最大1000容量
-    config.push_mode = backpressure::block; // 阻塞模式
-    config.test_duration_sec = 120;         // 最长120秒
+    // pro_test::TestConfig config;
+    // config.total_tasks = 10000000;          // 1000万任务
+    // config.producer_count = 16;             // 16个生产者
+    // config.consumer_count = 16;             // 16个消费者
+    // config.queue_max_size = 1000;           // 队列最大1000容量
+    // config.push_mode = backpressure::block; // 阻塞模式
+    // config.test_duration_sec = 120;         // 最长120秒
 
-    // 测试标准队列
-    auto standard_result = pro_test::stress_test<rank_standard>(config);
-    pro_test::print_result("标准队列(rank_standard)", config, standard_result);
+    // // 测试标准队列
+    // auto standard_result = pro_test::stress_test<rank_standard>(config);
+    // pro_test::print_result("标准队列(rank_standard)", config, standard_result);
 
-    // 测试优先级队列
-    auto priority_result = pro_test::stress_test<rank_priority>(config);
-    pro_test::print_result("优先级队列(rank_priority)", config, priority_result);
+    // // 测试优先级队列
+    // auto priority_result = pro_test::stress_test<rank_priority>(config);
+    // pro_test::print_result("优先级队列(rank_priority)", config, priority_result);
 
     // 测试不同背压策略（可选）
     /*
@@ -883,6 +883,14 @@ int main()
     auto drop_result = stress_test<rank_standard>(config);
     print_result("标准队列(drop模式)", config, drop_result);
     */
+  }
+  {
+    std::jthread test([](){std::cout << std::this_thread::get_id() << std::endl;});
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::jthread test2([](){std::cout << std::this_thread::get_id() << std::endl;});
+    test.join();
+    test2.join();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   return 0;
 }

@@ -16,8 +16,17 @@ namespace internals::structure_w
 {
   using safety_unit_pointer = internals::structure_r::safety_unit_pointer;
   using safety_rank_pointer = std::shared_ptr<internals::structure_r::rank_ordinary>;
-
-  class worker_ordinary
+  /**
+   * @class worker_ordinary
+   * @brief 工作线程基类
+   * 
+   * 定义工作线程的基本接口和行为，所有具体的工作线程类型都继承自此类
+   * 
+   * 设计模式： 模板方法模式：定义线程执行流程，策略模式：支持不同的任务获取策略
+   * 
+   * 调用关系：被`thread_pool`管理和调用， 从`rank_ordinary`获取任务， 执行`unit_ordinary`及其派生类
+   */
+class worker_ordinary
   {
   protected:
     std::unique_ptr<std::jthread> _worker_thread; // 线程对象
