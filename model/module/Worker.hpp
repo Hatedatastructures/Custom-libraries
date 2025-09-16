@@ -1,11 +1,12 @@
 #pragma once
-#include "Integration.hpp"
 #include "Unit.hpp"
 #include "Rank.hpp"
+#include "Integration.hpp"
 #include <thread>
 #include <string>
 #include <atomic>
 #include <memory>
+#include <iostream>
 #include <condition_variable>
 
 namespace internals
@@ -43,8 +44,8 @@ class worker_ordinary
 
     safety_rank_pointer _unit_rank; // 任务队列
 
-    std::function<void(const std::string&, safety_unit_pointer&)> _unit_starts_callback; // 任务开始回调
-    std::function<void(const std::string&, safety_unit_pointer&)> _unit_finish_callback; // 任务完成回调
+    std::function<void(const std::string&, safety_unit_pointer)> _unit_starts_callback; // 任务开始回调
+    std::function<void(const std::string&, safety_unit_pointer)> _unit_finish_callback; // 任务完成回调
 
     std::function<void()> _worker_starts_callback; // 线程开始回调
     std::function<void()> _worker_finish_callback; // 线程完成回调
@@ -55,10 +56,11 @@ class worker_ordinary
     : _worker_name(name), _unit_rank(std::move(rank)) {}
     virtual ~worker_ordinary()
     {
-      stop();
-      if(_worker_thread && _worker_thread->joinable())
+      if(!_detached.load(std::memory_order_acquire))
       {
-        _worker_thread->join();
+        stop();
+        if(_worker_thread && _worker_thread->joinable())
+          _worker_thread->join();
       }
     }
     worker_ordinary(const worker_ordinary &) = delete;
@@ -108,17 +110,20 @@ class worker_ordinary
      */
     virtual void stop(bool wait_for_completion = true)
     {
-      _stop.store(true, std::memory_order_release);
-
+      if(!_detached.load(std::memory_order_acquire))
       {
-        std::unique_lock<std::shared_mutex> lock(_state_mutex);
-        _state.store(worker_state::stopping, std::memory_order_release);
-      }
-      _condition.notify_all();
+        _stop.store(true, std::memory_order_release);
 
-      if (_worker_thread && _worker_thread->joinable() && wait_for_completion)
-      {
-        _worker_thread->join();
+        {
+          std::unique_lock<std::shared_mutex> lock(_state_mutex);
+          _state.store(worker_state::stopping, std::memory_order_release);
+        }
+        _condition.notify_all();
+
+        if (_worker_thread && _worker_thread->joinable() && wait_for_completion)
+        {
+          _worker_thread->join();
+        }
       }
     }
     // 分离工作线程
@@ -138,7 +143,7 @@ class worker_ordinary
     template <typename rep, typename period>
     bool wait_for_stop(const std::chrono::duration<rep, period> &timeout)
     {
-      std::shared_lock<std::shared_mutex> lock(_state_mutex);
+      std::unique_lock<std::shared_mutex> lock(_state_mutex);
       auto state_function = [this]()
       {
         auto state = _state.load(std::memory_order_acquire);
@@ -218,7 +223,7 @@ class worker_ordinary
       {
         _state.store(worker_state::error, std::memory_order_release);
         if (_abnormal_callback) _abnormal_callback(_worker_name, e);
-        else throw;
+        else std::cerr << "Worker " << _worker_name << " encountered exception: " << e.what() << std::endl;
       }
       {
         std::unique_lock<std::shared_mutex> lock(_state_mutex);
@@ -293,6 +298,82 @@ class worker_ordinary
     {
       if(_worker_finish_callback)
         _worker_finish_callback();
+    }
+  };
+  class worker_adaptive : public worker_ordinary
+  {
+  private:
+    static constexpr std::size_t MAX_SLEEP_TIME_MS = 100; ///< 最大休眠时间(毫秒)
+    std::atomic<double> _load_factor{0.0}; // 负载因子
+    std::atomic<std::size_t> _consecutive_empty_polls{0};  // 连续空轮询次数
+    std::atomic<std::chrono::milliseconds> _adaptive_sleep_time{std::chrono::milliseconds(1)}; // 自适应休眠时间 
+  public:
+    worker_adaptive(const std::string& name, safety_rank_pointer rank) : worker_ordinary(name,std::move(rank)){}
+    double get_load_factor() const
+    {
+      return _load_factor.load(std::memory_order_acquire);
+    }
+    void set_load_factor(double load_factor)
+    {
+      _load_factor.store(load_factor, std::memory_order_release);
+    }
+    std::chrono::milliseconds get_adaptive_sleep_time() const
+    {
+      return _adaptive_sleep_time.load(std::memory_order_acquire);
+    }
+    void set_adaptive_sleep_time(std::chrono::milliseconds sleep_time)
+    {
+      _adaptive_sleep_time.store(sleep_time, std::memory_order_release);
+    }
+  protected:
+    safety_unit_pointer get_next_task() override
+    {
+      if (!_unit_rank)
+        return nullptr;
+      auto load = _load_factor.load(std::memory_order_acquire);
+      auto timeout = std::chrono::milliseconds(static_cast<long>(50 + load * 50));
+
+      auto task = _unit_rank->try_pop_for(timeout);
+      if (task)
+      {
+        // 获取到任务，重置空轮询计数
+        _consecutive_empty_polls.store(0, std::memory_order_relaxed);
+        update_load_factor(true);
+      }
+      else
+      {
+        // 未获取到任务，增加空轮询计数
+        auto empty_polls = _consecutive_empty_polls.fetch_add(1, std::memory_order_relaxed);
+        update_load_factor(false);
+        adjust_sleep_time(empty_polls + 1);
+      }
+      return task;
+    }
+    void handle_no_task() override
+    {
+      auto sleep_time = _adaptive_sleep_time.load(std::memory_order_acquire);
+
+      auto idle_start = std::chrono::steady_clock::now();
+      std::this_thread::sleep_for(sleep_time);
+      auto idle_end = std::chrono::steady_clock::now();
+
+      auto idle_time = std::chrono::duration_cast<std::chrono::microseconds>(idle_end - idle_start).count();
+      _statistics.total_idle_time.fetch_add(idle_time, std::memory_order_relaxed);
+    }
+  private:
+    void adjust_sleep_time(std::size_t empty_polls)
+    {
+      std::size_t sleep_ms = std::min(empty_polls / 10, MAX_SLEEP_TIME_MS);
+      _adaptive_sleep_time.store(std::chrono::milliseconds(sleep_ms), std::memory_order_release);
+    }
+    void update_load_factor(bool got_task)
+    {
+      // 使用指数移动平均更新负载因子
+      constexpr double alpha = 0.1; // 平滑因子
+      auto current_load = _load_factor.load(std::memory_order_acquire);
+      auto new_sample = got_task ? 1.0 : 0.0;
+      auto new_load = alpha * new_sample + (1.0 - alpha) * current_load;
+      _load_factor.store(new_load, std::memory_order_release);
     }
   };
 }

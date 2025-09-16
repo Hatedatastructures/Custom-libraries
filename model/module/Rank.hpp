@@ -427,6 +427,8 @@ namespace internals::structure_r
       };
       if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
       {
+        if(_closed.load(std::memory_order_acquire) && _rank_unit_standard.empty()) return nullptr;
+
         auto pointer = std::move(_rank_unit_standard.front());
         _rank_unit_standard.pop_front();
         lock.unlock();

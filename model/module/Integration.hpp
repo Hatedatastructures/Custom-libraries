@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include <atomic>
 #include <string>
 /**
  * @brief #### 时间转换工具类
