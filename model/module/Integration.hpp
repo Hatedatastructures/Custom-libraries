@@ -593,35 +593,33 @@ class pool_config
 {
 public:
   // 基础配置
-  std::string pool_name = "default_pool"; // 线程池名称
-
-  std::size_t min_threads = 1; // 最小线程数
-  std::size_t max_threads = 64; // 最大线程数
-  std::size_t core_threads = 4; // 核心线程数
-  std::size_t initial_threads = 4; // 初始线程数
+  std::string _pool_name = "default_pool"; // 线程池名称标识
+  std::size_t _min_threads = 1; // 最小线程数量
+  std::size_t _max_threads = 8; // 最大线程数量
+  std::size_t _core_threads = 4; // 核心线程数量
+  std::size_t _initial_threads = 4; // 初始线程数量
 
   // 队列配置
-  std::size_t max_queue_size = 0; // 最大队列大小
-  rank_strategy queue_policy = rank_strategy::fifo; // 队列策略
+  std::size_t _max_queue_size = 0; // 最大队列容量
+  rank_strategy _queue_policy = rank_strategy::fifo; // 队列调度策略
 
   // 调度配置
-  expansion_strategy expansion_strategy = expansion_strategy::hybrid; // 扩缩容策略
-  scheduling_tactics scheduling_tactics = scheduling_tactics::adaptive; // 调度策略
+  expansion_strategy _expansion_strategy = expansion_strategy::hybrid; // 扩缩容策略
+  scheduling_tactics _scheduling_tactics = scheduling_tactics::adaptive; // 调度策略
   
-
   // 超时配置
-  std::chrono::milliseconds task_timeout{300}; // 默认任务超时时间
-  std::chrono::milliseconds idle_timeout{600}; // 线程空闲超时时间
-  std::chrono::milliseconds shutdown_timeout{1000}; // 关闭超时时间
+  std::chrono::milliseconds _task_timeout{300}; // 任务执行超时时间
+  std::chrono::milliseconds _idle_timeout{600}; // 线程空闲超时时间
+  std::chrono::milliseconds _shutdown_timeout{1000}; // 线程池关闭超时时间
 
   // 监控配置
-  bool enable_monitoring = true; // 启用监控
-  bool enable_performance_profiling = false; // 启用性能分析
-  std::chrono::milliseconds monitoring_interval{1000}; // 监控间隔
+  bool _enable_monitoring = true; // 是否启用性能监控
+  bool _enable_performance_profiling = false; // 是否启用性能分析
+  std::chrono::milliseconds _monitoring_interval{1000}; // 性能监控采样间隔
 
   // 日志配置
-  std::string log_file_path; // 日志文件路径
-  bool enable_event_logging = false; // 启用事件日志
+  std::string _log_file_path; // 日志文件存储路径
+  bool _enable_event_logging = false; // 是否启用事件日志记录
 
   /**
    * @brief 验证配置有效性
@@ -629,73 +627,67 @@ public:
    */
   bool validate() const
   {
-    return min_threads > 0 && max_threads >= min_threads && initial_threads >= min_threads &&
-    initial_threads <= max_threads && core_threads >= min_threads && core_threads <= max_threads &&
-    max_queue_size > 0;
+    return _min_threads > 0 && _max_threads >= _min_threads && _initial_threads >= _min_threads &&
+    _initial_threads <= _max_threads && _core_threads >= _min_threads && _core_threads <= _max_threads &&
+    _max_queue_size > 0;
   }
 };
 struct pool_statistics
 {
   // 基础统计
-  std::atomic<std::uint64_t> total_tasks_failed{0}; // 总失败任务数
-  std::atomic<std::uint64_t> total_tasks_timeout{0}; // 总超时任务数
-  std::atomic<std::uint64_t> total_tasks_cancelled{0}; // 总取消任务数
-  std::atomic<std::uint64_t> total_tasks_submitted{0}; // 总提交任务数
-  std::atomic<std::uint64_t> total_tasks_completed{0}; // 总完成任务数
+  std::atomic<std::uint64_t> _total_tasks_failed{0}; // 累计失败任务数量
+  std::atomic<std::uint64_t> _total_tasks_timeout{0}; // 累计超时任务数量
+  std::atomic<std::uint64_t> _total_tasks_cancelled{0}; // 累计取消任务数量
+  std::atomic<std::uint64_t> _total_tasks_submitted{0}; // 累计提交任务数量
+  std::atomic<std::uint64_t> _total_tasks_completed{0}; // 累计完成任务数量
 
   // 性能统计
-  std::atomic<double> peak_throughput{0.0}; // 峰值吞吐量(任务/秒)
-  std::atomic<double> average_wait_time{0.0}; // 平均等待时间(毫秒)
-  std::atomic<double> current_throughput{0.0}; // 当前吞吐量(任务/秒)
-  std::atomic<double> average_task_duration{0.0}; // 平均任务执行时间(毫秒)
+  std::atomic<double> _current_throughput{0.0}; // 当前任务吞吐量
+  std::atomic<double> _peak_throughput{0.0}; // 历史峰值吞吐量
+  
+  // 吞吐量计算辅助变量
+  std::atomic<std::int64_t> _last_throughput_time{0}; // 上次吞吐量计算时间戳
+  std::atomic<std::uint64_t> _last_completed_count{0}; // 上次完成任务计数
 
   // 线程统计
-  std::atomic<std::size_t> idle_thread_count{0}; // 空闲线程数
-  std::atomic<std::size_t> peak_thread_count{0}; // 峰值线程数
-  std::atomic<std::size_t> active_thread_count{0}; // 活跃线程数
-  std::atomic<std::size_t> current_thread_count{0}; // 当前线程数
+  std::atomic<std::size_t> _active_thread_count{0}; // 当前活跃线程数量
+  std::atomic<std::size_t> _current_thread_count{0}; // 当前总线程数量
+  std::atomic<std::size_t> _peak_thread_count{0}; // 历史峰值线程数量
 
   // 队列统计
-  std::atomic<std::size_t> peak_queue_size{0}; // 峰值队列大小
-  std::atomic<std::size_t> current_queue_size{0}; // 当前队列大小
-
-  // 扩缩容统计
-  std::atomic<std::uint64_t> total_scale_up_operations{0};   // 总扩容操作数
-  std::atomic<std::uint64_t> total_scale_down_operations{0}; // 总缩容操作数
+  std::atomic<std::size_t> _current_queue_size{0}; // 当前队列任务数量
+  std::atomic<std::size_t> _peak_queue_size{0}; // 历史峰值队列大小
 
   // 时间统计
-  std::chrono::steady_clock::time_point start_time; // 启动时间
-  std::chrono::steady_clock::time_point last_task_time; // 最后任务时间
+  std::chrono::steady_clock::time_point _start_time; // 线程池启动时间
+  std::chrono::steady_clock::time_point _last_task_time; // 最后任务执行时间
 
   /**
    * @brief 重置统计信息
    */
   void reset()
   {
-    total_tasks_failed.store(0, std::memory_order_relaxed);
-    total_tasks_timeout.store(0, std::memory_order_relaxed);
-    total_tasks_cancelled.store(0, std::memory_order_relaxed);
-    total_tasks_submitted.store(0, std::memory_order_relaxed);
-    total_tasks_completed.store(0, std::memory_order_relaxed);
+    _total_tasks_failed.store(0, std::memory_order_relaxed);
+    _total_tasks_timeout.store(0, std::memory_order_relaxed);
+    _total_tasks_cancelled.store(0, std::memory_order_relaxed);
+    _total_tasks_submitted.store(0, std::memory_order_relaxed);
+    _total_tasks_completed.store(0, std::memory_order_relaxed);
 
-    peak_throughput.store(0.0, std::memory_order_relaxed);
-    average_wait_time.store(0.0, std::memory_order_relaxed);
-    current_throughput.store(0.0, std::memory_order_relaxed);
-    average_task_duration.store(0.0, std::memory_order_relaxed);
+    _peak_throughput.store(0.0, std::memory_order_relaxed);
+    _current_throughput.store(0.0, std::memory_order_relaxed);
+    
+    _last_throughput_time.store(0, std::memory_order_relaxed);
+    _last_completed_count.store(0, std::memory_order_relaxed);
 
-    idle_thread_count.store(0, std::memory_order_relaxed);
-    peak_thread_count.store(0, std::memory_order_relaxed);
-    active_thread_count.store(0, std::memory_order_relaxed);
-    current_thread_count.store(0, std::memory_order_relaxed);
+    _peak_thread_count.store(0, std::memory_order_relaxed);
+    _active_thread_count.store(0, std::memory_order_relaxed);
+    _current_thread_count.store(0, std::memory_order_relaxed);
 
-    peak_queue_size.store(0, std::memory_order_relaxed);
-    current_queue_size.store(0, std::memory_order_relaxed);
+    _peak_queue_size.store(0, std::memory_order_relaxed);
+    _current_queue_size.store(0, std::memory_order_relaxed);
 
-    total_scale_up_operations.store(0, std::memory_order_relaxed);
-    total_scale_down_operations.store(0, std::memory_order_relaxed);
-
-    last_task_time = start_time;
-    start_time = std::chrono::steady_clock::now();
+    _last_task_time = _start_time;
+    _start_time = std::chrono::steady_clock::now();
   }
 
   /**
@@ -704,11 +696,11 @@ struct pool_statistics
    */
   double calculate_success_rate() const
   {
-    auto total = total_tasks_submitted.load(std::memory_order_relaxed);
+    auto total = _total_tasks_submitted.load(std::memory_order_relaxed);
     if (total == 0)
       return 1.0;
 
-    auto completed = total_tasks_completed.load(std::memory_order_relaxed);
+    auto completed = _total_tasks_completed.load(std::memory_order_relaxed);
     return static_cast<double>(completed) / total;
   }
 
@@ -719,7 +711,7 @@ struct pool_statistics
   double calculate_uptime() const
   {
     auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - start_time);
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - _start_time);
     return duration.count();
   }
 };

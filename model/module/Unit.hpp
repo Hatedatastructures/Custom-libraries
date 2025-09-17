@@ -34,6 +34,7 @@ namespace internals
      */
     class unit_ordinary
     {
+      friend class thread_pool;
     public:
       /**
        * @brief #### 标记任务开始执行（由`worker`线程调用）
@@ -70,6 +71,33 @@ namespace internals
         _state.store(current_status::failed, std::memory_order_release);
         std::lock_guard<std::mutex> lock(_state_mutex);
         _state_cv.notify_all();
+      }
+
+      /**
+       * @brief #### 获取任务创建时间
+       * @return 任务创建时间点
+       */
+      std::chrono::steady_clock::time_point get_creation_time() const
+      {
+        return _submit_time;
+      }
+
+      /**
+       * @brief #### 获取任务执行函数
+       * @return 任务执行函数的引用
+       */
+      const std::function<void()>& get_execution() const
+      {
+        return _ordinary_execution;
+      }
+
+      /**
+       * @brief #### 设置任务执行函数
+       * @param execution 新的执行函数
+       */
+      void set_execution(const std::function<void()>& execution)
+      {
+        _ordinary_execution = execution;
       }
 
     protected:

@@ -264,7 +264,7 @@ namespace internals::structure_s
       return _running.load(std::memory_order_acquire);
     }
   protected:
-    virtual bool schedule_task(safety_task_pointer task)
+    virtual bool schedule_task(safety_unit_pointer task)
     {
       if(!_running.load(std::memory_order_acquire))
         return false;

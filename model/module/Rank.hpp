@@ -328,10 +328,13 @@ namespace internals::structure_r
           return true;
         }
         case backpressure::exception:
+          lock.unlock();
           throw operation_exception("The queue is full, please check the overflow policy.");
         case backpressure::drop:
+          lock.unlock();
           return false;
         default:
+          lock.unlock();
           throw operation_exception("Unknown backpressure mode.");
       }
     }
@@ -545,10 +548,13 @@ namespace internals::structure_r
           return true;
         }
         case backpressure::exception:
+          lock.unlock();
           throw operation_exception("The queue is full, please check the overflow policy.");
         case backpressure::drop:
+          lock.unlock();
           return false;
         default:
+          lock.unlock();
           throw operation_exception("Unknown backpressure mode.");
       }
     }
@@ -780,20 +786,54 @@ namespace internals::structure_r
       // 后台检测线程
       while (!_closed.load(std::memory_order_acquire))
       {
-        std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
-        if (!_rank_unit_deferred.empty())
+        bool has_expired = false;
+        std::chrono::system_clock::time_point next_check_time;
+        
         {
-          auto now = std::chrono::system_clock::now();
-          if ((*_rank_unit_deferred.begin())->_delay_time <= now)
+          std::shared_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+          if (!_rank_unit_deferred.empty())
           {
-            lock.unlock();
-            _judge_empty_cv.notify_one();          // 有元素到期，叫醒消费者
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
+            auto now = std::chrono::system_clock::now();
+            auto earliest_task = *_rank_unit_deferred.begin();
+            
+            if (earliest_task->_delay_time <= now)
+            {
+              has_expired = true;
+            }
+            else
+            {
+              next_check_time = earliest_task->_delay_time;
+            }
           }
         }
-        lock.unlock();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        
+        if (has_expired)
+        {
+          _judge_empty_cv.notify_one();          // 有元素到期，叫醒消费者
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        else if (!_rank_unit_deferred.empty())
+        {
+          // 智能等待：等待到下一个任务到期时间，但最多等待10ms
+          auto now = std::chrono::system_clock::now();
+          auto wait_time = std::min(
+            std::chrono::duration_cast<std::chrono::milliseconds>(next_check_time - now),
+            std::chrono::milliseconds(10)
+          );
+          if (wait_time > std::chrono::milliseconds(0))
+          {
+            std::this_thread::sleep_for(wait_time);
+          }
+          else
+          {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          }
+        }
+        else
+        {
+          // 队列为空时等待更长时间
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
       }
     }
   public:

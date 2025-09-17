@@ -1,3 +1,4 @@
+#pragma once
 #include "Unit.hpp"
 #include "Integration.hpp"
 #include "Rank.hpp"
@@ -7,7 +8,7 @@
 
 namespace internals
 {
-  using namespace structure_t;
+  namespace structure_t{}
 }
 namespace internals::structure_t
 {
@@ -42,6 +43,7 @@ namespace internals::structure_t
     // 任务
     mutable std::shared_mutex _tasks_mutex; // 任务映射读写锁
     std::unordered_map<std::string, std::shared_ptr<unit_ordinary>> _active_tasks; // 活跃任务映射
+    std::atomic<uint64_t> _task_id_counter{0}; // 任务ID计数器
 
     // 扩展和插件
     mutable std::mutex _plugins_mutex; // 插件互斥锁
@@ -50,6 +52,25 @@ namespace internals::structure_t
     // 性能分析
     std::atomic<bool> _profiling_enabled{false};   // 性能分析启用标志
     std::unique_ptr<std::jthread> _profiler_thread; // 性能分析线程
+    
+  public:
+    // 性能指标结构
+    struct performance_metrics
+    {
+      std::chrono::steady_clock::time_point timestamp;
+      double throughput;
+      double queue_utilization;
+      std::size_t active_threads;
+      std::size_t total_threads;
+      std::size_t pending_tasks;
+      std::uint64_t completed_tasks;
+    };
+    
+  private:
+    // 回调钩子
+    std::function<void(const performance_metrics&)> _performance_callback;
+    std::function<void(const std::string&)> _error_callback;
+    
   public:
     explicit thread_pool(const pool_config &config = pool_config()) : _config(config)
     {
@@ -57,9 +78,17 @@ namespace internals::structure_t
         throw std::invalid_argument("Invalid thread pool configuration");
       initialize();
     }
-    ~thread_pool()
+    ~thread_pool() noexcept
     {
-      shutdown(std::chrono::milliseconds{500});
+      try
+      {
+        shutdown(std::chrono::milliseconds{500});
+      }
+      catch (...)
+      {
+        // 析构函数中不能抛出异常，静默处理
+        // 可以记录日志但不能抛出
+      }
     }
     thread_pool(const thread_pool &) = delete;
     thread_pool &operator=(const thread_pool &) = delete;
@@ -74,39 +103,57 @@ namespace internals::structure_t
       std::unique_lock<std::shared_mutex> lock(_state_mutex);
 
       if (_state.load() != pool_state::stopped)
+      {
         return false;
+      }
 
       _state.store(pool_state::starting);
 
       try
       {
         // 启动调度器
-        if (!_scheduler->start(_config.initial_threads))
+        if (!_scheduler->start(_config._initial_threads))
         {
           _state.store(pool_state::error);
           return false;
         }
 
         // 启动监控线程
-        if (_config.enable_monitoring)
+        if (_config._enable_monitoring)
+        {
           start_monitoring();
+        }
 
         // 启动性能分析
-        if (_config.enable_performance_profiling)
+        if (_config._enable_performance_profiling)
+        {
           start_profiling();
+        }
 
         _statistics.reset();
         _state.store(pool_state::running);
         _state_cv.notify_all();
 
-        emit_event("lifecycle", "Thread pool started with " + std::to_string(_config.initial_threads) + " threads");
+        emit_event("lifecycle", "Thread pool started with " + std::to_string(_config._initial_threads) + " threads");
 
         return true;
       }
       catch (const std::exception &e)
       {
+        // 异常安全：清理已启动的组件
+        cleanup_on_error();
+        
         _state.store(pool_state::error);
         emit_event("error", "Failed to start thread pool: " + std::string(e.what()));
+        return false;
+      }
+      catch (...)
+      {
+        // 处理未知异常
+        cleanup_on_error();
+        
+        _state.store(pool_state::error);
+        emit_event("error", "Failed to start thread pool: unknown exception");
         return false;
       }
     }
@@ -130,16 +177,28 @@ namespace internals::structure_t
       try
       {
         // 停止接受新任务
-        _unit_rank->close();
+        if (_unit_rank)
+        {
+          _unit_rank->close();
+        }
 
         // 等待任务完成或超时
         if (wait_for_completion)
         {
-          wait_for_all_tasks(_config.shutdown_timeout);
+          wait_for_all_tasks(_config._shutdown_timeout);
         }
 
         // 停止调度器
-        _scheduler->stop(wait_for_completion);
+        if (_scheduler)
+        {
+          _scheduler->stop(wait_for_completion);
+        }
+
+        // 清理活跃任务映射
+        {
+          std::unique_lock<std::shared_mutex> tasks_lock(_tasks_mutex);
+          _active_tasks.clear();
+        }
 
         // 停止监控和分析线程
         stop_monitoring();
@@ -154,8 +213,28 @@ namespace internals::structure_t
       }
       catch (const std::exception &e)
       {
+        // 即使停止过程中出现异常，也要尽力清理资源
+        try {
+          force_cleanup();
+        } catch (...) {
+          // 忽略强制清理中的异常
+        }
+        
         _state.store(pool_state::error);
         emit_event("error", "Failed to stop thread pool: " + std::string(e.what()));
+        return false;
+      }
+      catch (...)
+      {
+        // 处理未知异常
+        try {
+          force_cleanup();
+        } catch (...) {
+          // 忽略强制清理中的异常
+        }
+        
+        _state.store(pool_state::error);
+        emit_event("error", "Failed to stop thread pool: unknown exception");
         return false;
       }
     }
@@ -169,19 +248,32 @@ namespace internals::structure_t
       std::unique_lock<std::shared_mutex> lock(_state_mutex);
 
       if (_state.load() != pool_state::running)
+      {
         return false;
+      }
 
       _state.store(pool_state::pausing);
 
-      // 暂停任务队列
-      _unit_rank->close();
+      try
+      {
+        // 暂停任务队列
+        if (_unit_rank)
+        {
+          _unit_rank->close();
+        }
 
-      _state.store(pool_state::paused);
-      _state_cv.notify_all();
+        _state.store(pool_state::paused);
+        _state_cv.notify_all();
 
-      emit_event("lifecycle", "Thread pool paused");
-
-      return true;
+        emit_event("lifecycle", "Thread pool paused");
+        return true;
+      }
+      catch (const std::exception &e)
+      {
+        _state.store(pool_state::error);
+        emit_event("error", "Failed to pause thread pool: " + std::string(e.what()));
+        return false;
+      }
     }
     /**
      * @brief 恢复线程池
@@ -196,24 +288,53 @@ namespace internals::structure_t
         return false;
       }
 
-      // 重新建立任务队列
-      // 注意：这里需要重新创建队列，因为close()可能是不可逆的
-
-      while(!_unit_rank->empty())
+      try
       {
-        std::this_thread::sleep_for(std::chrono::milliseconds{1});
-      }
-      if(_unit_rank->size() == 0)
-      {
-        _unit_rank.reset();
-        _unit_rank = make_rank(_config.queue_policy,_config.max_queue_size)
-      }
-      else  return false;
-      _state.store(pool_state::running);
-      _state_cv.notify_all();
+        // 检查队列状态并重新创建
+        if (!_unit_rank || _unit_rank->closed())
+        {
+          _unit_rank = make_rank(_config._queue_policy, _config._max_queue_size);
+          if (!_unit_rank)
+          {
+            emit_event("error", "Failed to create task queue during resume");
+            return false;
+          }
+        }
 
-      emit_event("lifecycle", "Thread pool resumed");
-      return true;
+        if (_scheduler)
+        {
+          // 停止旧调度器
+          _scheduler->stop(false);
+          
+          // 创建新调度器
+          _scheduler = make_scheduler_ordinary(_unit_rank, _config._scheduling_tactics, _config._expansion_strategy);
+          
+          // 设置调度器配置
+          scaling_config scaling_cfg;
+          scaling_cfg.min_threads = _config._min_threads;
+          scaling_cfg.max_threads = _config._max_threads;
+          scaling_cfg.core_threads = _config._core_threads;
+          _scheduler->set_scaling_config(scaling_cfg);
+          
+          auto event_callback = [this](const std::string& event) 
+          {
+            emit_event("scheduler", event);
+          };
+          _scheduler->set_event_callback(event_callback);
+        }
+
+        _state.store(pool_state::running);
+        _state_cv.notify_all();
+
+        emit_event("lifecycle", "Thread pool resumed");
+        return true;
+      }
+      catch (const std::exception &e)
+      {
+        _state.store(pool_state::error);
+        emit_event("error", "Failed to resume thread pool: " + std::string(e.what()));
+        return false;
+      }
     }
     /**
      * @brief 重启线程池
@@ -223,7 +344,9 @@ namespace internals::structure_t
     bool restart(bool wait_for_completion = true)
     {
       if (!stop(wait_for_completion))
+      {
         return false;
+      }
 
       initialize();
       return start();
@@ -235,7 +358,12 @@ namespace internals::structure_t
      */
     bool shutdown(std::chrono::milliseconds timeout = std::chrono::milliseconds{1000})
     {
-      std::this_thread::sleep_for(timeout);
+      // 先等待任务完成，然后停止线程池
+      if (!wait_for_all_tasks(timeout))
+      {
+        // 超时后强制停止
+        return stop(false);
+      }
       return stop(true);
     }
     /**
@@ -257,13 +385,17 @@ namespace internals::structure_t
     {
 
       if (!is_running())
+      {
         throw std::runtime_error("Thread pool is not running");
+      }
       auto task = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
 
-      auto future = std::move(task->get_future());
+      auto future = task->get_future();
 
       if (!submit_task_internal(task))
+      {
         throw std::runtime_error("Failed to submit task");
+      }
       return future;
     }
     /**
@@ -273,17 +405,21 @@ namespace internals::structure_t
      * @return 任务ID
      */
     template <typename function, typename... Args>
-    std::size_t submit_v(function &&func, Args &&...args)
+    std::size_t submit_invalid(function &&func, Args &&...args)
     {
       if (!is_running())
+      {
         throw std::runtime_error("Thread pool is not running");
+      }
 
       auto task = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
 
       auto task_id = task->get_identifier();
 
       if (!submit_task_internal(task))
+      {
         throw std::runtime_error("Failed to submit task");
+      }
 
       return task_id;
     }
@@ -299,14 +435,18 @@ namespace internals::structure_t
     {
 
       if (!is_running())
+      {
         throw std::runtime_error("Thread pool is not running");
+      }
 
       auto task = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...),priority);
 
       auto future = std::move(task->get_future());
 
       if (!submit_task_internal(task))
+      {
         throw std::runtime_error("Failed to submit priority task");
+      }
       return future;
     }
     /**
@@ -322,14 +462,18 @@ namespace internals::structure_t
     {
 
       if (!is_running())
+      {
         throw std::runtime_error("Thread pool is not running");
+      }
 
       auto task = make_task_time(std::bind(std::forward<function>(func), std::forward<Args>(args)...),timeout);
 
       auto future = std::move(task->get_future());
 
       if (!submit_task_internal(task))
+      {
         throw std::runtime_error("Failed to submit timeout task");
+      }
 
       return future;
     }
@@ -350,20 +494,21 @@ namespace internals::structure_t
         throw std::runtime_error("Thread pool is not running");
       }
 
-      auto task = make_unit_overtime(std::bind(std::forward<function>(func), std::forward<Args>(args)...), delay);
+      auto task = make_unit_overtime(
+          std::bind(std::forward<function>(func), std::forward<Args>(args)...), 
+          delay,
+          [](){
+            // 超时回调函数（空实现）
+            // 延迟任务超时处理，可以在这里添加日志或其他处理逻辑
+          }
+      );
 
       auto future = std::move(task->get_future());
 
-      // 使用延迟队列
-      if (_unit_rank)
+      // 提交延迟任务到调度器
+      if (!submit_task_internal(task))
       {
-        _unit_rank->push(task);
-      }
-      else
-      {
-        // 回退到普通提交
-        if (!submit_task_internal(task))
-          throw std::runtime_error("Failed to submit delayed task");
+        throw std::runtime_error("Failed to submit delayed task");
       }
 
       return future;
@@ -372,17 +517,24 @@ namespace internals::structure_t
     void initialize()
     {
       // 创建任务队列
-      _unit_rank = make_rank(_config.queue_policy, _config.max_queue_size);
+      _unit_rank = make_rank(_config._queue_policy, _config._max_queue_size);
+      if (!_unit_rank)
+      {
+        throw std::runtime_error("Failed to create task queue");
+      }
       
       // 创建调度器
-      _scheduler = make_scheduler_ordinary("adaptive", _unit_rank, 
-      _config.scheduling_tactics, _config.expansion_strategy);
+      _scheduler = make_scheduler_ordinary( _unit_rank, _config._scheduling_tactics, _config._expansion_strategy);
+      if (!_scheduler)
+      {
+        throw std::runtime_error("Failed to create scheduler");
+      }
       
       // 设置调度器配置
       scaling_config scaling_cfg;
-      scaling_cfg.min_threads = _config.min_threads;
-      scaling_cfg.max_threads = _config.max_threads;
-      scaling_cfg.core_threads = _config.core_threads;
+      scaling_cfg.min_threads = _config._min_threads;
+      scaling_cfg.max_threads = _config._max_threads;
+      scaling_cfg.core_threads = _config._core_threads;
       _scheduler->set_scaling_config(scaling_cfg);
       
       auto event_callback = [this](const std::string& event) 
@@ -396,42 +548,127 @@ namespace internals::structure_t
     bool submit_task_internal(safety_unit_pointer task)
     {
       if (!task)
+      {
+        emit_event("error", "Attempted to submit null task");
         return false;
-
-      // 添加到活跃任务映射
-      {
-        std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-        _active_tasks[std::to_string(task->get_identifier())] = task;
       }
 
-      // 提交到调度器
-      bool result = _scheduler->submit_task(task);
+      // 检查线程池状态
+      if (_state.load(std::memory_order_acquire) != pool_state::running)
+      {
+        emit_event("warning", "Cannot submit task: thread pool is not running");
+        return false;
+      }
 
-      if (result)
+      // 生成唯一任务ID（优化：减少字符串操作）
+      auto unique_task_id = _task_id_counter.fetch_add(1, std::memory_order_relaxed);
+      
+      // 优化：只在需要跟踪任务时才添加到映射表
+      bool need_tracking = _config._enable_monitoring || _config._enable_performance_profiling;
+      std::string task_id_str;
+      
+      if (need_tracking)
+        task_id_str = "task_" + std::to_string(unique_task_id);
+      
+      try
       {
-        _statistics.total_tasks_submitted.fetch_add(1, std::memory_order_relaxed);
-        _statistics.last_task_time = std::chrono::steady_clock::now();
+        if (need_tracking)
+        {
+          // 添加到活跃任务映射
+          std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+          _active_tasks[task_id_str] = task;
+        }
+
+        // 提交到调度器
+        bool result = _scheduler->submit_task(task);
+
+        if (result)
+        {
+          _statistics._total_tasks_submitted.fetch_add(1, std::memory_order_relaxed);
+          _statistics._last_task_time = std::chrono::steady_clock::now();
+          if (need_tracking) {
+            emit_event("task_submitted", "Task " + task_id_str + " submitted successfully");
+          }
+        }
+        else
+        {
+          // 提交失败，从活跃任务中移除
+          if (need_tracking) {
+            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+            _active_tasks.erase(task_id_str);
+            emit_event("error", "Failed to submit task " + task_id_str + " to scheduler");
+          }
+        }
+        return result;
       }
-      else
+      catch (const std::exception& e)
       {
-        // 提交失败，从活跃任务中移除
-        std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-        _active_tasks.erase(std::to_string(task->get_identifier()));
+        // 任务提交失败时的清理
+        if (need_tracking && !task_id_str.empty())
+        {
+          try
+          {
+            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+            _active_tasks.erase(task_id_str);
+          }
+          catch (...)
+          {
+            // 忽略清理过程中的异常
+          }
+        }
+        
+        _statistics._total_tasks_failed.fetch_add(1, std::memory_order_relaxed);
+        emit_event("error", "Exception in submit_task_internal for task " + task_id_str + ": " + e.what());
+        return false;
       }
-      return result;
+      catch (...)
+      {
+        // 处理未知异常
+        if (need_tracking && !task_id_str.empty())
+        {
+          try
+          {
+            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+            _active_tasks.erase(task_id_str);
+          }
+          catch (...)
+          {
+            // 忽略清理过程中的异常
+          }
+        }
+        
+        _statistics._total_tasks_failed.fetch_add(1, std::memory_order_relaxed);
+        emit_event("error", "Unknown exception in submit_task_internal for task " + task_id_str);
+        return false;
+      }
     }
     void start_monitoring()
     {
       auto monitoring_functions = [this]()
       {
-        while (_state.load() == pool_state::running)
+        // 优化：使用更高效的循环间隔和批量处理
+        auto last_cleanup = std::chrono::steady_clock::now();
+        const auto cleanup_interval = std::chrono::seconds(5); // 减少清理频率
+        
+        while (_state.load(std::memory_order_relaxed) == pool_state::running)
         {
+          auto now = std::chrono::steady_clock::now();
+          
+          // 每次都更新统计信息（轻量级操作）
           update_statistics();
-          if (_statistics_handler)
+          
+          // 定期清理过期任务（重量级操作）
+          if (now - last_cleanup >= cleanup_interval)
           {
-            _statistics_handler(_statistics);
+            cleanup_stale_tasks();
+            last_cleanup = now;
           }
-          std::this_thread::sleep_for(_config.monitoring_interval);
+          
+          // 只在有处理器时才调用
+          if (_statistics_handler)
+            _statistics_handler(_statistics);
+          
+          std::this_thread::sleep_for(_config._monitoring_interval);
         }
       };
       _monitor_thread = std::make_unique<std::jthread>(std::move(monitoring_functions));
@@ -451,13 +688,36 @@ namespace internals::structure_t
      */
     void start_profiling()
     {
-      _profiling_enabled.store(true);
+      _profiling_enabled.store(true, std::memory_order_relaxed);
       auto performance_analysis = [this]()
       {
-        while (_profiling_enabled.load())
+        const auto profiling_interval = std::chrono::milliseconds(1000);
+        
+        while (_profiling_enabled.load(std::memory_order_relaxed))
         {
-          // 收集性能数据,回传到网络
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          try
+          {
+            // 收集基本性能指标
+            performance_metrics metrics;
+            metrics.timestamp = std::chrono::steady_clock::now();
+            metrics.throughput = _statistics._current_throughput.load(std::memory_order_relaxed);
+            metrics.queue_utilization = get_rank_utilization();
+            metrics.active_threads = _statistics._active_thread_count.load(std::memory_order_relaxed);
+            metrics.total_threads = _statistics._current_thread_count.load(std::memory_order_relaxed);
+            metrics.pending_tasks = get_rank_size();
+            metrics.completed_tasks = _statistics._total_tasks_completed.load(std::memory_order_relaxed);
+            
+            // 调用性能分析钩子
+            if (_performance_callback)
+              _performance_callback(metrics);
+            
+            std::this_thread::sleep_for(profiling_interval);
+          }
+          catch (const std::exception& e)
+           {
+             if (_error_callback)
+               _error_callback("Profiling error: " + std::string(e.what()));
+           }
         }
       };
       _profiler_thread = std::make_unique<std::jthread>(std::move(performance_analysis));
@@ -467,7 +727,7 @@ namespace internals::structure_t
      */
     void stop_profiling()
     {
-      _profiling_enabled.store(false);
+      _profiling_enabled.store(false, std::memory_order_relaxed);
       if (_profiler_thread && _profiler_thread->joinable())
       {
         _profiler_thread->join();
@@ -479,47 +739,65 @@ namespace internals::structure_t
     void update_statistics()
     {
       // 更新线程统计
-      _statistics.current_thread_count.store(_scheduler->get_thread_count(), std::memory_order_relaxed);
-      _statistics.active_thread_count.store(_scheduler->get_active_thread_count(), std::memory_order_relaxed);
+      auto current_threads = _scheduler->get_thread_count();
+      auto active_threads = _scheduler->get_active_thread_count();
+      
+      _statistics._current_thread_count.store(current_threads, std::memory_order_relaxed);
+      _statistics._active_thread_count.store(active_threads, std::memory_order_relaxed);
+      
+      // 使用compare_exchange_weak避免峰值线程数更新的竞态条件
+      auto expected_peak_threads = _statistics._peak_thread_count.load(std::memory_order_relaxed);
+      while (current_threads > expected_peak_threads && 
+      !_statistics._peak_thread_count.compare_exchange_weak(expected_peak_threads, current_threads))
+      {
+        // 循环直到成功更新或发现更大的峰值
+      }
 
       // 更新队列统计
       auto queue_size = _unit_rank->size();
-      _statistics.current_queue_size.store(queue_size, std::memory_order_relaxed);
+      _statistics._current_queue_size.store(queue_size, std::memory_order_relaxed);
 
-      auto peak_queue = _statistics.peak_queue_size.load(std::memory_order_relaxed);
-      if (queue_size > peak_queue)
+      // 使用compare_exchange_weak避免峰值队列大小更新的竞态条件
+      auto expected_peak = _statistics._peak_queue_size.load(std::memory_order_relaxed);
+      while (queue_size > expected_peak && 
+      !_statistics._peak_queue_size.compare_exchange_weak(expected_peak, queue_size))
       {
-        _statistics.peak_queue_size.store(queue_size, std::memory_order_relaxed);
+        // 循环直到成功更新或发现更大的峰值
       }
 
-      // 计算吞吐量
       calculate_throughput();
     }
     //计算吞吐量
     void calculate_throughput()
     {
-      static auto last_time = std::chrono::steady_clock::now();
-      static std::uint64_t last_completed = 0;
-
       auto now = std::chrono::steady_clock::now();
-      auto current_completed = _statistics.total_tasks_completed.load(std::memory_order_relaxed);
+      auto current_completed = _statistics._total_tasks_completed.load(std::memory_order_relaxed);
 
-      auto time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count();
+      // 使用原子操作确保线程安全的时间戳更新
+      auto last_time = _statistics._last_throughput_time.load(std::memory_order_relaxed);
+      auto time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() - last_time;
+      
       if (time_diff >= 1000) // 每秒计算一次
       {
-        auto task_diff = current_completed - last_completed;
-        auto throughput = static_cast<double>(task_diff) / (time_diff / 1000.0);
-
-        _statistics.current_throughput.store(throughput, std::memory_order_relaxed);
-
-        auto peak = _statistics.peak_throughput.load(std::memory_order_relaxed);
-        if (throughput > peak)
+        // 原子地更新时间戳，避免重复计算
+        auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        if (_statistics._last_throughput_time.compare_exchange_strong(last_time, now_ms, std::memory_order_relaxed))
         {
-          _statistics.peak_throughput.store(throughput, std::memory_order_relaxed);
-        }
+          auto last_completed = _statistics._last_completed_count.load(std::memory_order_relaxed);
+          auto task_diff = current_completed - last_completed;
+          auto throughput = static_cast<double>(task_diff) / (time_diff / 1000.0);
 
-        last_time = now;
-        last_completed = current_completed;
+          _statistics._current_throughput.store(throughput, std::memory_order_relaxed);
+          _statistics._last_completed_count.store(current_completed, std::memory_order_relaxed);
+
+          // 使用compare_exchange_weak避免峰值更新的竞态条件
+          auto expected_peak = _statistics._peak_throughput.load(std::memory_order_relaxed);
+          while (throughput > expected_peak && 
+          !_statistics._peak_throughput.compare_exchange_weak(expected_peak, throughput))
+          {
+            // 循环直到成功更新或发现更大的峰值
+          }
+        }
       }
     }
     /**
@@ -530,18 +808,23 @@ namespace internals::structure_t
     bool wait_for_all_tasks(std::chrono::milliseconds timeout)
     {
       auto start_time = std::chrono::steady_clock::now();
+      const auto sleep_interval = std::chrono::milliseconds(10);
 
       while (std::chrono::steady_clock::now() - start_time < timeout)
       {
+        bool all_tasks_done = false;
         {
           std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
-          if (_active_tasks.empty() && _unit_rank->empty())
-          {
-            return true;
-          }
+          // 检查活跃任务和队列是否都为空
+          all_tasks_done = _active_tasks.empty() && (_unit_rank ? _unit_rank->empty() : true);
+        }
+        
+        if (all_tasks_done)
+        {
+          return true;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(sleep_interval);
       }
       return false;
     }
@@ -550,11 +833,143 @@ namespace internals::structure_t
      * @param category 事件类别
      * @param message 事件消息
      */
-    void emit_event(const std::string &category, const std::string &message)
+    void emit_event(const std::string &category, const std::string &message) noexcept
     {
-      if (_event_handler)
+      try
       {
-        _event_handler(category, message);
+        if (_event_handler)
+        {
+          _event_handler(category, message);
+        }
+      }
+      catch (...)
+      {
+        // 事件处理器异常不应影响主逻辑
+        // 可以记录到内部日志但不抛出异常
+      }
+    }
+    
+    /**
+     * @brief 清理过期和孤儿任务
+     */
+    void cleanup_stale_tasks() noexcept
+    {
+      try
+      {
+        std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+        
+        auto now = std::chrono::steady_clock::now();
+        auto it = _active_tasks.begin();
+        
+        while (it != _active_tasks.end())
+         {
+           try
+           {
+             auto& task = it->second;
+             if (!task)
+             {
+               // 移除空指针任务
+               it = _active_tasks.erase(it);
+               continue;
+             }
+             
+             // 检查任务是否已完成但未清理
+             auto task_state = task->get_state();
+             if (task_state == current_status::completed || 
+                 task_state == current_status::cancelled ||
+                 task_state == current_status::failed)
+             {
+               emit_event("cleanup", "Removing completed/cancelled/failed task: " + it->first);
+               it = _active_tasks.erase(it);
+               continue;
+             }
+             
+             // 检查任务是否超时
+             if (_config._task_timeout.count() > 0)
+             {
+               auto task_age = now - task->get_submit_time();
+               if (task_age > _config._task_timeout)
+               {
+                 if (task->cancel())
+                 {
+                   emit_event("cleanup", "Cancelled timeout task: " + it->first);
+                   _statistics._total_tasks_cancelled.fetch_add(1, std::memory_order_relaxed);
+                 }
+                 it = _active_tasks.erase(it);
+                 continue;
+               }
+             }
+             
+             ++it;
+           }
+           catch (...)
+           {
+             // 单个任务清理失败时，跳过该任务继续处理其他任务
+             ++it;
+           }
+         }
+      }
+      catch (...)
+      {
+        // 静默处理清理过程中的异常，防止影响线程池稳定性
+      }
+    }
+    
+    /**
+     * @brief 为任务设置完成回调函数
+     * @param task 任务指针
+     * @param callback 完成回调函数
+     */
+    void set_task_completion_callback(safety_unit_pointer task, std::function<void()> callback)
+    {
+      if (!task || !callback)
+      {
+        return;
+      }
+    }
+    
+    /**
+     * @brief 错误时的清理函数
+     */
+    void cleanup_on_error() noexcept
+    {
+      try 
+      {
+        if (_scheduler)
+          _scheduler->stop(false);
+        stop_monitoring();
+        stop_profiling();
+      }
+      catch (...)
+      {
+        // 忽略清理过程中的异常
+      }
+    }
+    
+    /**
+     * @brief 强制清理资源
+     */
+    void force_cleanup() noexcept
+    {
+      try
+      {
+        // 清理活跃任务映射
+        std::unique_lock<std::shared_mutex> tasks_lock(_tasks_mutex);
+        _active_tasks.clear();
+      }
+      catch (...)
+      {
+        // 忽略清理中的异常
+      }
+      
+      try
+      {
+        stop_monitoring();
+        stop_profiling();
+      }
+      catch (...)
+      {
+        // 忽略清理中的异常
       }
     }
   public: 
@@ -606,14 +1021,18 @@ namespace internals::structure_t
     {
 
       if (!is_running())
+      {
         throw std::runtime_error("Thread pool is not running");
+      }
 
       auto task = make_unit_reliance(std::bind(std::forward<function>(func), std::forward<Args>(args)...),reliance);
 
       auto future = std::move(task->get_future());
 
       if (!submit_task_internal(task))
+      {
         throw std::runtime_error("Failed to submit dependency task");
+      }
       return future;
     }
      /**
@@ -625,7 +1044,9 @@ namespace internals::structure_t
     std::size_t submit_batch(const task_container &tasks)
     {
       if (!is_running())
+      {
         throw std::runtime_error("Thread pool is not running");
+      }
 
       std::size_t submitted_count = 0;
 
@@ -662,9 +1083,9 @@ namespace internals::structure_t
      * @param task_id 任务ID
      * @return true 取消成功，false 取消失败
      */
-    bool cancel_task(const std::string &task_id)
+    bool cancel_unit(const std::string &task_id)
     {
-      std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
+      std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
 
       auto it = _active_tasks.find(task_id);
       if (it != _active_tasks.end())
@@ -672,7 +1093,10 @@ namespace internals::structure_t
         auto task = it->second;
         if (task->cancel())
         {
-          _statistics.total_tasks_cancelled.fetch_add(1, std::memory_order_relaxed);
+          // 任务取消成功后，从活跃任务映射中移除
+          _active_tasks.erase(it);
+          _statistics._total_tasks_cancelled.fetch_add(1, std::memory_order_relaxed);
+          emit_event("task_cancelled", "Task cancelled: " + task_id);
           return true;
         }
       }
@@ -683,13 +1107,13 @@ namespace internals::structure_t
      * @param task_ids 任务ID列表
      * @return 成功取消的任务数量
      */
-    std::size_t cancel_tasks(const std::vector<std::string> &task_ids)
+    std::size_t cancel_units(const std::vector<std::string> &task_ids)
     {
       std::size_t cancelled_count = 0;
 
       for (const auto &task_id : task_ids)
       {
-        if (cancel_task(task_id))
+        if (cancel_unit(task_id))
         {
           ++cancelled_count;
         }
@@ -701,20 +1125,37 @@ namespace internals::structure_t
      * @brief 取消所有待处理任务
      * @return 取消的任务数量
      */
-    std::size_t cancel_all_pending_tasks()
+    std::size_t cancel_all_pending_units()
     {
       std::size_t cancelled_count = 0;
+      std::vector<std::string> cancelled_task_ids;
 
-      std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
-
-      for (const auto &[task_id, task] : _active_tasks)
       {
-        if (task->get_state() == current_status::pending && task->cancel())
+        std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+        
+        auto it = _active_tasks.begin();
+        while (it != _active_tasks.end())
         {
-          ++cancelled_count;
+          if (it->second->get_state() == current_status::pending && it->second->cancel())
+          {
+            cancelled_task_ids.push_back(it->first);
+            it = _active_tasks.erase(it);
+            ++cancelled_count;
+          }
+          else
+          {
+            ++it;
+          }
         }
       }
-      _statistics.total_tasks_cancelled.fetch_add(cancelled_count, std::memory_order_relaxed);
+      
+      // 在锁外发送事件通知
+      for (const auto& task_id : cancelled_task_ids)
+      {
+        emit_event("task_cancelled", "Pending task cancelled: " + task_id);
+      }
+      
+      _statistics._total_tasks_cancelled.fetch_add(cancelled_count, std::memory_order_relaxed);
       return cancelled_count;
     }
     /**
@@ -722,7 +1163,7 @@ namespace internals::structure_t
      * @param task_id 任务ID
      * @return 任务状态
      */
-    current_status get_task_state(const std::string &task_id) const
+    current_status get_unit_state(const std::string &task_id) const
     {
       std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
 
@@ -740,7 +1181,7 @@ namespace internals::structure_t
      * @param timeout 超时时间
      * @return true 任务完成，false 超时
      */
-    bool wait_for_task(const std::string &task_id,
+    bool wait_for_unit(const std::string &task_id,
     std::chrono::milliseconds timeout = std::chrono::milliseconds::max())
     {
       std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
@@ -759,7 +1200,7 @@ namespace internals::structure_t
      * @param timeout 超时时间
      * @return 完成的任务数量
      */
-    std::size_t wait_for_tasks(const std::vector<std::string> &task_ids,
+    std::size_t wait_for_units(const std::vector<std::string> &task_ids,
     std::chrono::milliseconds timeout = std::chrono::milliseconds::max())
     {
       std::size_t completed_count = 0;
@@ -775,7 +1216,7 @@ namespace internals::structure_t
           break;
         }
 
-        if (wait_for_task(task_id, remaining_time))
+        if (wait_for_unit(task_id, remaining_time))
         {
           ++completed_count;
         }
@@ -786,19 +1227,19 @@ namespace internals::structure_t
      * @brief 获取活跃任务列表
      * @return 活跃任务ID列表
      */
-    std::vector<std::string> get_active_task_ids() const
+    std::vector<std::string> get_active_unit_ids() const
     {
       std::shared_lock<std::shared_mutex> lock(_tasks_mutex);
 
-      std::vector<std::string> task_ids;
-      task_ids.reserve(_active_tasks.size());
+      std::vector<std::string> unit_ids;
+      unit_ids.reserve(_active_tasks.size());
 
-      for (const auto &[task_id, task] : _active_tasks)
+      for (const auto &[unit_id, unit] : _active_tasks)
       {
-        task_ids.push_back(task_id);
+        unit_ids.push_back(unit_id);
       }
 
-      return task_ids;
+      return unit_ids;
     }
     /**
      * @brief 获取当前线程数
@@ -837,12 +1278,12 @@ namespace internals::structure_t
       }
 
       auto current_count = get_thread_count();
-      auto new_count = std::min(current_count + count, _config.max_threads);
+      auto new_count = std::min(current_count + count, _config._max_threads);
 
       if (new_count > current_count)
       {
         _scheduler->manual_scale_downs(count);
-        _statistics.total_scale_up_operations.fetch_add(1, std::memory_order_relaxed);
+        // _statistics._total_scale_up_operations.fetch_add(1, std::memory_order_relaxed);
 
         emit_event("scaling", "Scaled up to " + std::to_string(new_count) + " threads");
         return true;
@@ -862,12 +1303,12 @@ namespace internals::structure_t
       }
 
       auto current_count = get_thread_count();
-      auto new_count = std::max(current_count - count, _config.min_threads);
+      auto new_count = std::max(current_count - count, _config._min_threads);
 
       if (new_count < current_count)
       {
         _scheduler->manual_scale_down();
-        _statistics.total_scale_down_operations.fetch_add(1, std::memory_order_relaxed);
+        // _statistics._total_scale_down_operations.fetch_add(1, std::memory_order_relaxed);
 
         emit_event("scaling", "Scaled down to " + std::to_string(new_count) + " threads");
         return true;
@@ -887,7 +1328,7 @@ namespace internals::structure_t
         return false;
       }
 
-      count = std::clamp(count, _config.min_threads, _config.max_threads);
+      count = std::clamp(count, _config._min_threads, _config._max_threads);
       auto current_count = get_thread_count();
 
       if (count > current_count)
@@ -904,7 +1345,7 @@ namespace internals::structure_t
      * @brief 获取队列大小
      * @return 队列中的任务数量
      */
-    std::size_t get_queue_size() const
+    std::size_t get_rank_size() const
     {
       return _unit_rank->size();
     }
@@ -922,7 +1363,7 @@ namespace internals::structure_t
      * @brief 清空任务队列
      * @return 清除的任务数量
      */
-    std::size_t clear_queue()
+    std::size_t clear_rank()
     {
       auto size = _unit_rank->size();
       _unit_rank->clear();
@@ -936,9 +1377,9 @@ namespace internals::structure_t
      * @brief 获取队列容量
      * @return 队列最大容量
      */
-    std::size_t get_queue_capacity() const
+    std::size_t get_rank_capacity() const
     {
-      return _config.max_queue_size;
+      return _config._max_queue_size;
     }
 
     /**
@@ -946,14 +1387,14 @@ namespace internals::structure_t
      * @param max_size 最大大小
      * @return true 设置成功，false 设置失败
      */
-    bool set_queue_max_size(std::size_t max_size)
+    bool set_rank_max_size(std::size_t max_size)
     {
       if (max_size == 0)
       {
         return false;
       }
       std::lock_guard<std::mutex> lock(_config_mutex);
-      _config.max_queue_size = max_size;
+      _config._max_queue_size = max_size;
       // 如果队列支持动态调整大小
       auto transition_state = std::dynamic_pointer_cast<rank_ordinary>(_unit_rank);
       if(transition_state.get() != nullptr)
@@ -967,10 +1408,10 @@ namespace internals::structure_t
      * @brief 获取队列使用率
      * @return 使用率(0.0-1.0)
      */
-    double get_queue_utilization() const
+    double get_rank_utilization() const
     {
-      auto current_size = get_queue_size();
-      auto max_size = get_queue_capacity();
+      auto current_size = get_rank_size();
+      auto max_size = get_rank_capacity();
 
       if (max_size == 0)
       {
@@ -987,7 +1428,7 @@ namespace internals::structure_t
     bool set_scheduling_policy(scheduling_tactics policy)
     {
       std::lock_guard<std::mutex> lock(_config_mutex);
-      _config.scheduling_tactics = policy;
+      _config._scheduling_tactics = policy;
 
       if (_scheduler)
       {
@@ -1004,7 +1445,7 @@ namespace internals::structure_t
     bool set_scaling_policy(expansion_strategy policy)
     {
       std::lock_guard<std::mutex> lock(_config_mutex);
-      _config.expansion_strategy = policy;
+      _config._expansion_strategy = policy;
 
       if (_scheduler)
       {
@@ -1017,10 +1458,10 @@ namespace internals::structure_t
      * @brief 设置任务超时时间
      * @param timeout 超时时间
      */
-    void set_task_timeout(std::chrono::milliseconds timeout)
+    void set_unit_timeout(std::chrono::milliseconds timeout)
     {
       std::lock_guard<std::mutex> lock(_config_mutex);
-      _config.task_timeout = timeout;
+      _config._task_timeout = timeout;
     }
 
     /**
@@ -1030,7 +1471,7 @@ namespace internals::structure_t
     void set_idle_timeout(std::chrono::milliseconds timeout)
     {
       std::lock_guard<std::mutex> lock(_config_mutex);
-      _config.idle_timeout = timeout;
+      _config._idle_timeout = timeout;
     }
     /**
      * @brief 重置统计信息
@@ -1063,19 +1504,19 @@ namespace internals::structure_t
             _scheduler->stop(false);
           }
 
-          _scheduler = make_scheduler("adaptive", _unit_rank,_config.scheduling_tactics, _config.expansion_strategy);
-          _scheduler->start(_config.initial_threads);
+          _scheduler = make_scheduler_ordinary(_unit_rank,_config._scheduling_tactics, _config._expansion_strategy);
+          _scheduler->start(_config._initial_threads);
         }
 
         // 检查线程数量
         auto thread_count = get_thread_count();
-        if (thread_count < _config.min_threads)
+        if (thread_count < _config._min_threads)
         {
-          scale_up(_config.min_threads - thread_count);
+          scale_up(_config._min_threads - thread_count);
         }
-        else if (thread_count > _config.max_threads)
+        else if (thread_count > _config._max_threads)
         {
-          scale_down(thread_count - _config.max_threads);
+          scale_down(thread_count - _config._max_threads);
         }
 
         emit_event("repair", "Auto repair completed");
@@ -1087,7 +1528,69 @@ namespace internals::structure_t
         return false;
       }
     }
-  }
+    
+    /**
+     * @brief 设置性能分析回调
+     * @param callback 性能分析回调函数
+     */
+    void set_performance_callback(std::function<void(const performance_metrics&)> callback)
+    {
+      _performance_callback = std::move(callback);
+    }
+    
+    /**
+     * @brief 设置错误回调
+     * @param callback 错误回调函数
+     */
+    void set_error_callback(std::function<void(const std::string&)> callback)
+    {
+      _error_callback = std::move(callback);
+    }
+    
+    /**
+     * @brief 设置事件处理器
+     * @param handler 事件处理函数，接收事件类别和消息
+     */
+    void set_event_handler(std::function<void(const std::string&, const std::string&)> handler)
+    {
+      _event_handler = std::move(handler);
+    }
+    
+    /**
+     * @brief 设置统计处理器
+     * @param handler 统计处理函数
+     */
+    void set_statistics_handler(std::function<void(const pool_statistics&)> handler)
+    {
+      _statistics_handler = std::move(handler);
+    }
+    
+    /**
+     * @brief 健康检查
+     * @return true 健康，false 不健康
+     */
+    bool health_check() const
+    {
+      if (_state.load() != pool_state::running)
+       return false;
+      
+      if (!_scheduler || !_scheduler->is_running())
+       return false;
+      
+      // 检查线程数量是否在合理范围内
+      auto thread_count = get_thread_count();
+      if (thread_count < _config._min_threads || thread_count > _config._max_threads)
+        return false;
+      
+      // 检查队列是否过载
+      auto queue_utilization = get_rank_utilization();
+      if (queue_utilization > 0.95)  // 队列使用率超过95%
+        return false;
+      
+      return true;
+    }
+  }; //  thread_pool class
+
   /**
    * @brief 创建标准线程池
    * @param thread_count 线程数量
@@ -1097,17 +1600,16 @@ namespace internals::structure_t
   inline std::unique_ptr<thread_pool> make_thread_pool(std::size_t thread_count,std::size_t queue_size = 10000)
   {
     pool_config config;
-    config.max_queue_size     = queue_size;
-    config.initial_threads    = thread_count;
-    config.min_threads        = 1;
-    config.max_threads        = thread_count;
-    config.core_threads       = thread_count;
-    config.queue_policy       = rank_strategy::fifo;
-    config.scheduling_tactics = scheduling_tactics::round_robin;
-    config.expansion_strategy = expansion_strategy::aggressive;
-    config.enable_work_stealing = false;
-    config.enable_monitoring    = false;
-    config.enable_performance_profiling = false;
+    config._max_queue_size     = queue_size;
+    config._initial_threads    = thread_count;
+    config._min_threads        = 1;
+    config._max_threads        = thread_count;
+    config._core_threads       = thread_count;
+    config._queue_policy       = rank_strategy::fifo;
+    config._scheduling_tactics = scheduling_tactics::round_robin;
+    config._expansion_strategy = expansion_strategy::aggressive;
+    config._enable_monitoring    = false;
+    config._enable_performance_profiling = false;
     if(config.validate())
     {
       return std::make_unique<thread_pool>(config);
@@ -1127,24 +1629,23 @@ namespace internals::structure_t
     }
     return nullptr;
   }
-  /**
+  /** 
    * @brief 创建高性能线程池
    * @param thread_count 线程数量
    * @return 线程池智能指针
    */
-  inline std::unique_ptr<thread_pool> make_high_performance_pool(std::size_t thread_count)
+  inline std::unique_ptr<thread_pool> make_performance_pool(std::size_t thread_count)
   {
     pool_config config;
-    config.initial_threads      = thread_count;
-    config.min_threads          = thread_count;
-    config.max_threads          = thread_count * 2;
-    config.core_threads         = thread_count;
-    config.queue_policy         = rank_strategy::priority;
-    config.scheduling_tactics   = scheduling_tactics::adaptive;
-    config.expansion_strategy   = expansion_strategy::aggressive;
-    config.enable_work_stealing = true;
-    config.enable_monitoring    = true;
-    config.enable_performance_profiling = true;
+    config._initial_threads      = thread_count;
+    config._min_threads          = thread_count;
+    config._max_threads          = thread_count * 2;
+    config._core_threads         = thread_count;
+    config._queue_policy         = rank_strategy::priority;
+    config._scheduling_tactics   = scheduling_tactics::adaptive;
+    config._expansion_strategy   = expansion_strategy::aggressive;
+    config._enable_monitoring    = true;
+    config._enable_performance_profiling = true;
 
     if(config.validate())
     {
@@ -1161,16 +1662,15 @@ namespace internals::structure_t
   inline std::unique_ptr<thread_pool> make_lightweight_pool(std::size_t thread_count)
   {
     pool_config config;
-    config.initial_threads    = thread_count;
-    config.min_threads        = thread_count;
-    config.max_threads        = thread_count;
-    config.core_threads       = thread_count;
-    config.queue_policy       = rank_strategy::fifo;
-    config.scheduling_tactics = scheduling_tactics::round_robin;
-    config.expansion_strategy = expansion_strategy::conservative;
-    config.enable_work_stealing = false;
-    config.enable_monitoring    = false;
-    config.enable_performance_profiling = false;
+    config._initial_threads    = thread_count;
+    config._min_threads        = thread_count;
+    config._max_threads        = thread_count;
+    config._core_threads       = thread_count;
+    config._queue_policy       = rank_strategy::fifo;
+    config._scheduling_tactics = scheduling_tactics::round_robin;
+    config._expansion_strategy = expansion_strategy::conservative;
+    config._enable_monitoring    = false;
+    config._enable_performance_profiling = false;
 
     if(config.validate())
     {
@@ -1178,8 +1678,18 @@ namespace internals::structure_t
     }
     return nullptr;
   }
-}
+
+} //  structure_t
+
 namespace pool
 {
  using namespace internals::structure_t;
+}
+namespace con
+{
+  using internals::structure_t::make_thread_pool;
+  using internals::structure_t::make_lightweight_pool;
+  using internals::structure_t::make_performance_pool;
+
+  using internals::structure_t::thread_pool;
 }
