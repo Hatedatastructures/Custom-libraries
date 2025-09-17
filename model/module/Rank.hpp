@@ -221,7 +221,7 @@ namespace internals::structure_r
     {
       internal_clear();
     }
-
+    // 关闭提交，拒绝新任务提交
     virtual void close() 
     {
       internal_close();

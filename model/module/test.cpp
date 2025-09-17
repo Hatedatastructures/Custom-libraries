@@ -151,7 +151,7 @@ namespace rank_test
       // 提交任务
       for (size_t i = 0; i < BASELINE_TASKS; ++i)
       {
-        auto task = make_uint_standard(simple_task, "baseline_task_" + std::to_string(i));
+        auto task = make_unit_standard(simple_task, "baseline_task_" + std::to_string(i));
         queue.push(task);
       }
 
@@ -212,7 +212,7 @@ namespace rank_test
         submitters.emplace_back([&, t]()
                                 {
                 for (size_t i = 0; i < tasks_per_thread; ++i) {
-                    auto task = make_uint_standard(simple_task, 
+                    auto task = make_unit_standard(simple_task, 
                         "concurrent_task_" + std::to_string(t) + "_" + std::to_string(i));
                     queue.push(task, backpressure::block);
                 } });
@@ -280,7 +280,7 @@ namespace rank_test
   //     // 创建带返回值的任务
   //     for (size_t i = 0; i < BASELINE_TASKS / 10; ++i)
   //     { // 数量减少，因为计算量更大
-  //       auto task = make_uint_standard([i]()
+  //       auto task = make_unit_standard([i]()
   //                                      { return result_task(i); },
   //                                      "result_task_" + std::to_string(i));
   //       tasks.push_back(task);
@@ -335,7 +335,7 @@ namespace rank_test
       std::shared_ptr<unit_ordinary> prev_task;
       for (size_t i = 0; i < DEPENDENCY_CHAIN_LENGTH; ++i)
       {
-        auto task = make_uint_reliance([i]()
+        auto task = make_unit_reliance([i]()
                                        {
                                          volatile int sum = 0;
                                          for (int j = 0; j < 100000; ++j)
@@ -435,7 +435,7 @@ namespace rank_test
                     const std::string task_id = "stress_task_" + std::to_string(t) + "_" + std::to_string(i);
                     
                     // 创建任务：包含固定处理时间和完成计数
-                    auto task = make_uint_standard([&]() {
+                    auto task = make_unit_standard([&]() {
                         std::this_thread::sleep_for(microseconds(10));  // 模拟处理耗时
                         completed_tasks.fetch_add(1, std::memory_order_relaxed);
                     }, task_id);
@@ -814,7 +814,7 @@ int main()
   //   // std::cout << "Is Void Task: " << std::boolalpha << task.is_void_task() << std::endl;
   // }
   // {
-  //   auto task = internals::structure_u::make_uint_standard
+  //   auto task = internals::structure_u::make_unit_standard
   //   ([]()-> int { std::cout << "当前是一个带返回值的标准任务"<< std::endl; return 100; }, "Return Value Task");
   //   auto value = task->execute().get<int>();
   //   std::cout << "Value from task: " << value << std::endl;
@@ -825,7 +825,7 @@ int main()
   //   // std::cout << "Is Void Task: " << std::boolalpha << task.is_void_task() << std::endl;
   //   std::cout << "-----------------" << std::endl;
 
-  //   auto ptrs = internals::structure_u::make_uint_reliance<300ULL>
+  //   auto ptrs = internals::structure_u::make_unit_reliance<300ULL>
   //   ([]()-> int { std::cout << "当前是一个依赖任务"<< std::endl; return 200; },task,
   //    "Reliance Task");
   //   auto ptrs_value = ptrs->execute().get<int>();

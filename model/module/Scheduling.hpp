@@ -124,6 +124,9 @@ namespace internals::structure_s
       if (_event_callback)
         _event_callback("Scheduler stopped");
     }
+    /**
+     * @brief 提交任务
+     */
     virtual bool submit_task(safety_unit_pointer task)
     {
       if (!task || !_running.load(std::memory_order_acquire))

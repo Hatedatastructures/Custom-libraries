@@ -781,8 +781,8 @@ namespace internals
      * @return 智能指针
      */
     template<typename funcion_t>
-    std::shared_ptr<unit_ordinary> make_uint_ordinary(funcion_t&& func,const std::string &name = "",
-      weight priority = weight::normal)
+    std::shared_ptr<unit_ordinary> make_unit_ordinary(funcion_t&& func,
+      weight priority = weight::normal,const std::string &name = "")
     {
       return std::make_shared<unit_ordinary>(std::forward<funcion_t>(func),name,priority);
     }
@@ -796,8 +796,8 @@ namespace internals
      * @return 智能指针
      */
     template<typename function_t, typename result_t = std::invoke_result_t<function_t>>
-    std::shared_ptr<unit_standard<function_t, result_t>> make_uint_standard(function_t&& func,
-      const std::string &name = "", weight priority = weight::normal)
+    std::shared_ptr<unit_standard<function_t, result_t>> make_unit_standard(function_t&& func,
+      weight priority = weight::normal,const std::string &name = "")
     {
       return std::make_shared<unit_standard<function_t, result_t>>
       (std::forward<function_t>(func),name,priority);
@@ -814,7 +814,7 @@ namespace internals
      * @return 智能指针
      */
     template<typename function_t, typename timeout_function, typename rep, typename period>
-    std::shared_ptr<unit_overtime<function_t, timeout_function>> make_uint_overtime(function_t&& func,
+    std::shared_ptr<unit_overtime<function_t, timeout_function>> make_unit_overtime(function_t&& func,
       const std::chrono::duration<rep, period>& timeout, timeout_function&& timeout_callback,
       const std::string &name = "")
     {
@@ -832,7 +832,7 @@ namespace internals
      * @return 智能指针
      */
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
-    std::shared_ptr<unit_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance(
+    std::shared_ptr<unit_reliance<function_t,MAX_CACHE_VALIDITY>> make_unit_reliance(
       function_t&& func,const std::vector<std::shared_ptr<unit_ordinary>>& dependencies = {},
       const std::string &name = "", weight priority = weight::normal)
     {
@@ -840,7 +840,7 @@ namespace internals
       (std::forward<function_t>(func),dependencies,name,priority);
     }
     template<uint64_t MAX_CACHE_VALIDITY = 100ULL, typename function_t>
-    std::shared_ptr<unit_reliance<function_t,MAX_CACHE_VALIDITY>> make_uint_reliance
+    std::shared_ptr<unit_reliance<function_t,MAX_CACHE_VALIDITY>> make_unit_reliance
     (function_t&& func, std::shared_ptr<unit_ordinary> dependency,
       const std::string &name = "", weight priority = weight::normal)
     {
@@ -857,8 +857,8 @@ namespace pool
   using internals::structure_u::unit_overtime;
   using internals::structure_u::unit_reliance;
 
-  using internals::structure_u::make_uint_ordinary;
-  using internals::structure_u::make_uint_standard;
-  using internals::structure_u::make_uint_overtime;
-  using internals::structure_u::make_uint_reliance;
+  using internals::structure_u::make_unit_ordinary;
+  using internals::structure_u::make_unit_standard;
+  using internals::structure_u::make_unit_overtime;
+  using internals::structure_u::make_unit_reliance;
 }
