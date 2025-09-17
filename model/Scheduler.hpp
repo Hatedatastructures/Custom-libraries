@@ -132,7 +132,7 @@ namespace internals
     class scheduler_base
     {
     protected:
-    safety_rank_pointer _unit_rank; // 任务队列
+      safety_rank_pointer _unit_rank; // 任务队列
       std::vector<_interior_thread_ptr> _workers; // 工作线程列表
 
       std::atomic<bool> _running{false}; // 调度器运行状态

@@ -154,6 +154,33 @@ enum class worker_state
   stopped,  // 已停止   
   error     // 错误状态 
 };
+//  调度策略枚举
+enum class scheduling_tactics
+{
+  round_robin,    // 轮询调度   - 平均分配任务
+  least_loaded,   // 最少负载   - 分配给负载最轻的线程
+  adaptive,       // 自适应调度 - 根据性能动态调整
+  priority_based, // 优先级调度 - 基于任务优先级
+};
+//扩缩容策略枚举
+enum class expansion_strategy
+{
+  conservative, // 保守策略 - 缓慢调整
+  aggressive,   // 激进策略 - 快速调整
+  reactive,     // 响应策略 - 基于当前负载
+  hybrid        // 混合策略 - 结合多种策略
+};
+
+enum class pool_state
+{
+  stopped,  // 已停止
+  starting, // 启动中
+  running,  // 运行中
+  pausing,  // 暂停中
+  paused,   // 已暂停
+  stopping, // 停止中
+  error     // 错误状态
+};
 
 inline std::string to_string(current_status state) noexcept
 {
@@ -501,5 +528,109 @@ public:
 
     auto execution_time = total_execution_time.load(std::memory_order_relaxed);
     return static_cast<double>(execution_time) / total_time;
+  }
+};
+class load_metrics
+{
+public:
+  std::atomic<double> throughput{0.0};               // 吞吐量(任务/秒)
+  std::atomic<double> memory_usage{0.0};             // 内存使用率
+  std::atomic<double> cpu_utilization{0.0};          // CPU利用率
+  std::atomic<double> average_task_time{0.0};        // 平均任务执行时间
+
+  std::atomic<std::size_t> queue_length{0};          // 队列长度
+  std::atomic<std::size_t> active_threads{0};        // 活跃线程数
+
+  std::chrono::steady_clock::time_point last_update; // 最后更新时间
+
+  /**
+   * @brief 重置指标
+   */
+  void reset()
+  {
+    throughput.store(0.0, std::memory_order_relaxed);
+    memory_usage.store(0.0, std::memory_order_relaxed);
+    cpu_utilization.store(0.0, std::memory_order_relaxed);
+    average_task_time.store(0.0, std::memory_order_relaxed);
+
+    queue_length.store(0, std::memory_order_relaxed);
+    active_threads.store(0, std::memory_order_relaxed);
+
+    last_update = std::chrono::steady_clock::now();
+  }
+
+  /**
+   * @brief 计算综合负载分数
+   * @return 负载分数(0.0-1.0)
+   */
+  double calculate_load_score() const
+  {
+    auto cpu = cpu_utilization.load(std::memory_order_relaxed);
+    auto memory = memory_usage.load(std::memory_order_relaxed);
+    auto queue_factor = std::min(queue_length.load(std::memory_order_relaxed) / 100.0, 1.0);
+
+    // 加权计算综合负载分数
+    return 0.4 * cpu + 0.3 * memory + 0.3 * queue_factor;
+  }
+};
+class scaling_config
+{
+public:
+  std::size_t min_threads = 1;                      // 最小线程数
+  std::size_t max_threads = 32;                     // 最大线程数
+  std::size_t core_threads = 4;                     // 核心线程数
+  double scale_up_threshold = 0.8;                  // 扩容阈值
+  double scale_down_threshold = 0.4;                // 缩容阈值
+
+  std::size_t scale_up_step = 1;                    // 扩容步长
+  std::size_t scale_down_step = 1;                  // 缩容步长
+  bool enable_predictive_scaling = true;            // 启用预测性扩缩容
+
+  std::chrono::milliseconds scale_up_delay{1000};   // 扩容延迟
+  std::chrono::milliseconds scale_down_delay{5000}; // 缩容延迟
+};
+class pool_config
+{
+public:
+  // 基础配置
+  std::string pool_name = "default_pool"; // 线程池名称
+
+  std::size_t min_threads = 1; // 最小线程数
+  std::size_t max_threads = 64; // 最大线程数
+  std::size_t core_threads = 4; // 核心线程数
+  std::size_t initial_threads = 4; // 初始线程数
+
+  // 队列配置
+  std::size_t max_queue_size = 0; // 最大队列大小
+  rank_strategy queue_policy = rank_strategy::fifo; // 队列策略
+
+  // 调度配置
+  expansion_strategy expansion_strategy = expansion_strategy::hybrid; // 扩缩容策略
+  scheduling_tactics scheduling_tactics = scheduling_tactics::adaptive; // 调度策略
+  
+
+  // 超时配置
+  std::chrono::milliseconds task_timeout{30000}; // 默认任务超时时间
+  std::chrono::milliseconds idle_timeout{60000}; // 线程空闲超时时间
+  std::chrono::milliseconds shutdown_timeout{10000}; // 关闭超时时间
+
+  // 监控配置
+  bool enable_monitoring = true; // 启用监控
+  bool enable_performance_profiling = false; // 启用性能分析
+  std::chrono::milliseconds monitoring_interval{1000}; // 监控间隔
+
+  // 日志配置
+  std::string log_file_path; // 日志文件路径
+  bool enable_event_logging = false; // 启用事件日志
+
+  /**
+   * @brief 验证配置有效性
+   * @return true 配置有效，false 配置无效
+   */
+  bool validate() const
+  {
+    return min_threads > 0 && max_threads >= min_threads && initial_threads >= min_threads &&
+    initial_threads <= max_threads && core_threads >= min_threads && core_threads <= max_threads &&
+    max_queue_size > 0;
   }
 };

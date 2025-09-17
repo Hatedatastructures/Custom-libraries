@@ -376,4 +376,22 @@ class worker_ordinary
       _load_factor.store(new_load, std::memory_order_release);
     }
   };
+  std::unique_ptr<worker_adaptive> make_worker_adaptive(const std::string& worker_name, safety_rank_pointer worker_rank)
+  {
+    return std::make_unique<worker_adaptive>(worker_name, std::move(worker_rank));
+  }
+  std::unique_ptr<worker_ordinary> make_worker_ordinary(const std::string& worker_name, safety_rank_pointer worker_rank)
+  {
+    return std::make_unique<worker_ordinary>(worker_name, std::move(worker_rank));
+  }
+}
+
+namespace pool 
+{
+  using internals::structure_w::worker_adaptive;
+  using internals::structure_w::worker_ordinary;
+
+  using internals::structure_w::make_worker_adaptive;
+  using internals::structure_w::make_worker_ordinary;
+
 }
