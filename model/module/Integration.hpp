@@ -628,8 +628,7 @@ public:
   bool validate() const
   {
     return _min_threads > 0 && _max_threads >= _min_threads && _initial_threads >= _min_threads &&
-    _initial_threads <= _max_threads && _core_threads >= _min_threads && _core_threads <= _max_threads &&
-    _max_queue_size > 0;
+    _initial_threads <= _max_threads && _core_threads >= _min_threads && _core_threads <= _max_threads;
   }
 };
 struct pool_statistics

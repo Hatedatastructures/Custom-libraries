@@ -138,18 +138,6 @@ namespace internals::structure_r
       macro_statement;
       return 0;
     }
-    // 内部添加子队列接口
-    // virtual std::size_t internal_add_sub_cohort(std::unique_ptr<rank_ordinary>&& rank)
-    // {
-    //   parameter_discard(rank); macro_statement;
-    //   return 0;
-    // }
-    // // 内部移除子队列接口
-    // virtual std::size_t internal_remove_sub_cohort(std::unique_ptr<rank_ordinary> rank)
-    // {
-    //   macro_statement;
-    //   return 0;
-    // }
     // 内部获取调度策略接口
     virtual rank_strategy internal_strategy() const
     {
@@ -250,21 +238,6 @@ namespace internals::structure_r
     { 
       return internal_get_delay_uint_count(); 
     }
-
-    // std::size_t get_ready_uint_count() const 
-    // { 
-    //   return internal_get_delay_uint_count(); 
-    // }
-
-    // std::size_t add_sub_cohort(std::unique_ptr<rank_ordinary>&& cohort) 
-    // {
-    //   return internal_add_sub_cohort(std::move(cohort));
-    // }
-
-    // std::size_t remove_sub_cohort(std::unique_ptr<rank_ordinary> cohort)
-    // {
-    //   return internal_remove_sub_cohort(std::move(cohort));
-    // }
 
   };
   /**
@@ -599,9 +572,12 @@ namespace internals::structure_r
       }; 
       _judge_empty_cv.wait(lock, check_units_func);
       if(_closed.load(std::memory_order_acquire) && _rank_unit_priority.empty()) return nullptr;
-      safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
-      safety_unit_pointer pointer = std::move(high_level_value);
-      _rank_unit_priority.erase(_rank_unit_priority.begin());
+      
+      auto it = _rank_unit_priority.begin();
+      if(it == _rank_unit_priority.end()) return nullptr;
+      
+      safety_unit_pointer pointer = *it;
+      _rank_unit_priority.erase(it);
       lock.unlock();
       _judge_full_cv.notify_one();
       return pointer;
@@ -637,9 +613,12 @@ namespace internals::structure_r
     {
       std::unique_lock<std::shared_mutex> lock(_rank_priority_mutex);
       if(_rank_unit_priority.empty()) return nullptr;
-      safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
-      safety_unit_pointer pointer = std::move(high_level_value);
-      _rank_unit_priority.erase(_rank_unit_priority.begin());
+      
+      auto it = _rank_unit_priority.begin();
+      if(it == _rank_unit_priority.end()) return nullptr;
+      
+      safety_unit_pointer pointer = *it;
+      _rank_unit_priority.erase(it);
       _judge_full_cv.notify_one();
       return pointer;
     }
@@ -652,9 +631,11 @@ namespace internals::structure_r
       };
       if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
       {
-        safety_unit_pointer high_level_value = const_cast<safety_unit_pointer&>(*_rank_unit_priority.begin());
-        safety_unit_pointer pointer = std::move(high_level_value);
-        _rank_unit_priority.erase(_rank_unit_priority.begin());
+        auto it = _rank_unit_priority.begin();
+        if(it == _rank_unit_priority.end()) return nullptr;
+        
+        safety_unit_pointer pointer = *it;
+        _rank_unit_priority.erase(it);
 
         lock.unlock();
         _judge_full_cv.notify_one();
@@ -790,7 +771,7 @@ namespace internals::structure_r
         std::chrono::system_clock::time_point next_check_time;
         
         {
-          std::shared_lock<std::shared_mutex> lock(_rank_deferred_mutex);
+          std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
           if (!_rank_unit_deferred.empty())
           {
             auto now = std::chrono::system_clock::now();
@@ -883,9 +864,9 @@ namespace internals::structure_r
       std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
       if(_rank_unit_deferred.empty() && _closed.load(std::memory_order_acquire)) return nullptr;
       _judge_empty_cv.wait(lock);
-      safety_unit_pointer high_level_value = (*_rank_unit_deferred.begin())->_safety_unit_pointer;
-      safety_unit_pointer pointer = std::move(high_level_value);
-      _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+      auto it = _rank_unit_deferred.begin();
+      safety_unit_pointer pointer = (*it)->_safety_unit_pointer;
+      _rank_unit_deferred.erase(it);
       lock.unlock();
       _judge_full_cv.notify_one();
       return pointer;
@@ -917,11 +898,11 @@ namespace internals::structure_r
     {
       std::unique_lock<std::shared_mutex> lock(_rank_deferred_mutex);
       if(_rank_unit_deferred.empty()) return nullptr;
-      if((*_rank_unit_deferred.begin())->_delay_time < internals_clk::now())
+      auto it = _rank_unit_deferred.begin();
+      if((*it)->_delay_time < internals_clk::now())
       {
-        safety_unit_pointer high_level_value = (*_rank_unit_deferred.begin())->_safety_unit_pointer;
-        safety_unit_pointer pointer = std::move(high_level_value);
-        _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+        safety_unit_pointer pointer = (*it)->_safety_unit_pointer;
+        _rank_unit_deferred.erase(it);
         lock.unlock();
         _judge_full_cv.notify_one();
         return pointer;
@@ -937,9 +918,9 @@ namespace internals::structure_r
       };
       if(_judge_empty_cv.wait_for(lock, timeout, popup_func))
       {
-        safety_unit_pointer high_level_value = (*_rank_unit_deferred.begin())->_safety_unit_pointer;
-        safety_unit_pointer pointer = std::move(high_level_value);
-        _rank_unit_deferred.erase(_rank_unit_deferred.begin());
+        auto it = _rank_unit_deferred.begin();
+        safety_unit_pointer pointer = (*it)->_safety_unit_pointer;
+        _rank_unit_deferred.erase(it);
 
         lock.unlock();
         _judge_full_cv.notify_one();

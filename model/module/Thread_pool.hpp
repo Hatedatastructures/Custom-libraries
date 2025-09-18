@@ -296,7 +296,7 @@ namespace internals::structure_t
           _unit_rank = make_rank(_config._queue_policy, _config._max_queue_size);
           if (!_unit_rank)
           {
-            emit_event("error", "Failed to create task queue during resume");
+            emit_event("error", "Failed to create execution_unit queue during resume");
             return false;
           }
         }
@@ -388,13 +388,13 @@ namespace internals::structure_t
       {
         throw std::runtime_error("Thread pool is not running");
       }
-      auto task = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
+      auto execution_unit = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
 
-      auto future = task->get_future();
+      auto future = execution_unit->get_future();
 
-      if (!submit_task_internal(task))
+      if (!submit_unit_internal(execution_unit))
       {
-        throw std::runtime_error("Failed to submit task");
+        throw std::runtime_error("Failed to submit execution_unit");
       }
       return future;
     }
@@ -412,13 +412,13 @@ namespace internals::structure_t
         throw std::runtime_error("Thread pool is not running");
       }
 
-      auto task = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
+      auto execution_unit = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...));
 
-      auto task_id = task->get_identifier();
+      auto task_id = execution_unit->get_identifier();
 
-      if (!submit_task_internal(task))
+      if (!submit_unit_internal(execution_unit))
       {
-        throw std::runtime_error("Failed to submit task");
+        throw std::runtime_error("Failed to submit execution_unit");
       }
 
       return task_id;
@@ -439,13 +439,13 @@ namespace internals::structure_t
         throw std::runtime_error("Thread pool is not running");
       }
 
-      auto task = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...),priority);
+      auto execution_unit = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...),priority);
 
-      auto future = std::move(task->get_future());
+      auto future = std::move(execution_unit->get_future());
 
-      if (!submit_task_internal(task))
+      if (!submit_unit_internal(execution_unit))
       {
-        throw std::runtime_error("Failed to submit priority task");
+        throw std::runtime_error("Failed to submit priority execution_unit");
       }
       return future;
     }
@@ -466,13 +466,13 @@ namespace internals::structure_t
         throw std::runtime_error("Thread pool is not running");
       }
 
-      auto task = make_task_time(std::bind(std::forward<function>(func), std::forward<Args>(args)...),timeout);
+      auto execution_unit = make_task_time(std::bind(std::forward<function>(func), std::forward<Args>(args)...),timeout);
 
-      auto future = std::move(task->get_future());
+      auto future = std::move(execution_unit->get_future());
 
-      if (!submit_task_internal(task))
+      if (!submit_unit_internal(execution_unit))
       {
-        throw std::runtime_error("Failed to submit timeout task");
+        throw std::runtime_error("Failed to submit timeout execution_unit");
       }
 
       return future;
@@ -494,7 +494,7 @@ namespace internals::structure_t
         throw std::runtime_error("Thread pool is not running");
       }
 
-      auto task = make_unit_overtime(
+      auto execution_unit = make_unit_overtime(
           std::bind(std::forward<function>(func), std::forward<Args>(args)...), 
           delay,
           [](){
@@ -503,12 +503,12 @@ namespace internals::structure_t
           }
       );
 
-      auto future = std::move(task->get_future());
+      auto future = std::move(execution_unit->get_future());
 
       // 提交延迟任务到调度器
-      if (!submit_task_internal(task))
+      if (!submit_unit_internal(execution_unit))
       {
-        throw std::runtime_error("Failed to submit delayed task");
+        throw std::runtime_error("Failed to submit delayed execution_unit");
       }
 
       return future;
@@ -520,7 +520,7 @@ namespace internals::structure_t
       _unit_rank = make_rank(_config._queue_policy, _config._max_queue_size);
       if (!_unit_rank)
       {
-        throw std::runtime_error("Failed to create task queue");
+        throw std::runtime_error("Failed to create execution_unit queue");
       }
       
       // 创建调度器
@@ -545,18 +545,18 @@ namespace internals::structure_t
       
       _statistics.reset();
     }
-    bool submit_task_internal(safety_unit_pointer task)
+    bool submit_unit_internal(safety_unit_pointer execution_unit)
     {
-      if (!task)
+      if (!execution_unit)
       {
-        emit_event("error", "Attempted to submit null task");
+        emit_event("error", "Attempted to submit null execution_unit");
         return false;
       }
 
       // 检查线程池状态
       if (_state.load(std::memory_order_acquire) != pool_state::running)
       {
-        emit_event("warning", "Cannot submit task: thread pool is not running");
+        emit_event("warning", "Cannot submit execution_unit: thread pool is not running");
         return false;
       }
 
@@ -572,33 +572,21 @@ namespace internals::structure_t
       
       try
       {
-        if (need_tracking)
+        bool result = _scheduler->submit_uint(unit);
+    
+        if (result && need_tracking) 
         {
-          // 添加到活跃任务映射
           std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-          _active_tasks[task_id_str] = task;
+          _active_tasks[task_id_str] = unit;
+          emit_event("task_submitted", "Task " + task_id_str + " submitted successfully");
         }
-
-        // 提交到调度器
-        bool result = _scheduler->submit_task(task);
-
-        if (result)
+        
+        if (result) 
         {
           _statistics._total_tasks_submitted.fetch_add(1, std::memory_order_relaxed);
           _statistics._last_task_time = std::chrono::steady_clock::now();
-          if (need_tracking) {
-            emit_event("task_submitted", "Task " + task_id_str + " submitted successfully");
-          }
         }
-        else
-        {
-          // 提交失败，从活跃任务中移除
-          if (need_tracking) {
-            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-            _active_tasks.erase(task_id_str);
-            emit_event("error", "Failed to submit task " + task_id_str + " to scheduler");
-          }
-        }
+        
         return result;
       }
       catch (const std::exception& e)
@@ -618,7 +606,7 @@ namespace internals::structure_t
         }
         
         _statistics._total_tasks_failed.fetch_add(1, std::memory_order_relaxed);
-        emit_event("error", "Exception in submit_task_internal for task " + task_id_str + ": " + e.what());
+        emit_event("error", "Exception in submit_unit_internal for execution_unit " + task_id_str + ": " + e.what());
         return false;
       }
       catch (...)
@@ -638,7 +626,7 @@ namespace internals::structure_t
         }
         
         _statistics._total_tasks_failed.fetch_add(1, std::memory_order_relaxed);
-        emit_event("error", "Unknown exception in submit_task_internal for task " + task_id_str);
+        emit_event("error", "Unknown exception in submit_unit_internal for execution_unit " + task_id_str);
         return false;
       }
     }
@@ -865,8 +853,8 @@ namespace internals::structure_t
          {
            try
            {
-             auto& task = it->second;
-             if (!task)
+             auto& execution_unit = it->second;
+             if (!execution_unit)
              {
                // 移除空指针任务
                it = _active_tasks.erase(it);
@@ -874,12 +862,12 @@ namespace internals::structure_t
              }
              
              // 检查任务是否已完成但未清理
-             auto task_state = task->get_state();
+             auto task_state = execution_unit->get_state();
              if (task_state == current_status::completed || 
                  task_state == current_status::cancelled ||
                  task_state == current_status::failed)
              {
-               emit_event("cleanup", "Removing completed/cancelled/failed task: " + it->first);
+               emit_event("cleanup", "Removing completed/cancelled/failed execution_unit: " + it->first);
                it = _active_tasks.erase(it);
                continue;
              }
@@ -887,12 +875,12 @@ namespace internals::structure_t
              // 检查任务是否超时
              if (_config._task_timeout.count() > 0)
              {
-               auto task_age = now - task->get_submit_time();
+               auto task_age = now - execution_unit->get_submit_time();
                if (task_age > _config._task_timeout)
                {
-                 if (task->cancel())
+                 if (execution_unit->cancel())
                  {
-                   emit_event("cleanup", "Cancelled timeout task: " + it->first);
+                   emit_event("cleanup", "Cancelled timeout execution_unit: " + it->first);
                    _statistics._total_tasks_cancelled.fetch_add(1, std::memory_order_relaxed);
                  }
                  it = _active_tasks.erase(it);
@@ -917,12 +905,12 @@ namespace internals::structure_t
     
     /**
      * @brief 为任务设置完成回调函数
-     * @param task 任务指针
+     * @param execution_unit 任务指针
      * @param callback 完成回调函数
      */
-    void set_task_completion_callback(safety_unit_pointer task, std::function<void()> callback)
+    void set_task_completion_callback(safety_unit_pointer execution_unit, std::function<void()> callback)
     {
-      if (!task || !callback)
+      if (!execution_unit || !callback)
       {
         return;
       }
@@ -1025,13 +1013,13 @@ namespace internals::structure_t
         throw std::runtime_error("Thread pool is not running");
       }
 
-      auto task = make_unit_reliance(std::bind(std::forward<function>(func), std::forward<Args>(args)...),reliance);
+      auto execution_unit = make_unit_reliance(std::bind(std::forward<function>(func), std::forward<Args>(args)...),reliance);
 
-      auto future = std::move(task->get_future());
+      auto future = std::move(execution_unit->get_future());
 
-      if (!submit_task_internal(task))
+      if (!submit_unit_internal(execution_unit))
       {
-        throw std::runtime_error("Failed to submit dependency task");
+        throw std::runtime_error("Failed to submit dependency execution_unit");
       }
       return future;
     }
@@ -1050,9 +1038,9 @@ namespace internals::structure_t
 
       std::size_t submitted_count = 0;
 
-      for(const auto &task : tasks)
+      for(const auto &execution_unit : tasks)
       {
-        if (submit_task_internal(task))
+        if (submit_unit_internal(execution_unit))
         {
           ++submitted_count;
         }
@@ -1090,8 +1078,8 @@ namespace internals::structure_t
       auto it = _active_tasks.find(task_id);
       if (it != _active_tasks.end())
       {
-        auto task = it->second;
-        if (task->cancel())
+        auto execution_unit = it->second;
+        if (execution_unit->cancel())
         {
           // 任务取消成功后，从活跃任务映射中移除
           _active_tasks.erase(it);
@@ -1152,7 +1140,7 @@ namespace internals::structure_t
       // 在锁外发送事件通知
       for (const auto& task_id : cancelled_task_ids)
       {
-        emit_event("task_cancelled", "Pending task cancelled: " + task_id);
+        emit_event("task_cancelled", "Pending execution_unit cancelled: " + task_id);
       }
       
       _statistics._total_tasks_cancelled.fetch_add(cancelled_count, std::memory_order_relaxed);
@@ -1354,7 +1342,7 @@ namespace internals::structure_t
      * @brief 检查队列是否为空
      * @return true 队列为空，false 队列非空
      */
-    bool is_queue_empty() const
+    bool is_rank_empty() const
     {
       return _unit_rank->empty();
     }

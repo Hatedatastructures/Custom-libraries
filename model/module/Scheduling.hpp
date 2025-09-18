@@ -127,7 +127,7 @@ namespace internals::structure_s
     /**
      * @brief 提交任务
      */
-    virtual bool submit_task(safety_unit_pointer task)
+    virtual bool submit_uint(safety_unit_pointer task)
     {
       if (!task || !_running.load(std::memory_order_acquire))
         return false;

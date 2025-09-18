@@ -565,7 +565,7 @@ namespace internals
     protected:
 
       std::atomic<bool> _timeout_handled{false}; // 超时是否已处理
-      std::function<std::invoke_result_t<timeout_function>> _timeout_callback; // 超时回调函数
+      std::decay_t<timeout_function> _timeout_callback; // 超时回调函数
 
     public:
 
