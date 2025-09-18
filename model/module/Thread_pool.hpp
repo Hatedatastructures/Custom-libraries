@@ -164,7 +164,7 @@ namespace internals::structure_t
      */
     bool stop(bool wait_for_completion = true)
     {
-      std::unique_lock<std::shared_mutex> lock(_state_mutex);
+      std::unique_lock<std::shared_mutex> state_lock(_state_mutex);
 
       auto current_state = _state.load();
       if (current_state == pool_state::stopped || current_state == pool_state::stopping)
@@ -178,23 +178,22 @@ namespace internals::structure_t
       {
         // 停止接受新任务
         if (_unit_rank)
-        {
           _unit_rank->close();
-        }
 
         // 等待任务完成或超时
         if (wait_for_completion)
         {
+          // 释放状态锁，避免wait_for_all_tasks中的死锁
+          state_lock.unlock();
           wait_for_all_tasks(_config._shutdown_timeout);
+          state_lock.lock();
         }
 
         // 停止调度器
         if (_scheduler)
-        {
           _scheduler->stop(wait_for_completion);
-        }
 
-        // 清理活跃任务映射
+        // 清理活跃任务映射（保持锁顺序：先state_lock，再tasks_mutex）
         {
           std::unique_lock<std::shared_mutex> tasks_lock(_tasks_mutex);
           _active_tasks.clear();
@@ -213,12 +212,10 @@ namespace internals::structure_t
       }
       catch (const std::exception &e)
       {
-        // 即使停止过程中出现异常，也要尽力清理资源
-        try {
+        try 
+        {
           force_cleanup();
-        } catch (...) {
-          // 忽略强制清理中的异常
-        }
+        } catch (...) {}
         
         _state.store(pool_state::error);
         emit_event("error", "Failed to stop thread pool: " + std::string(e.what()));
@@ -226,12 +223,10 @@ namespace internals::structure_t
       }
       catch (...)
       {
-        // 处理未知异常
-        try {
+        try 
+        {
           force_cleanup();
-        } catch (...) {
-          // 忽略强制清理中的异常
-        }
+        } catch (...) {}
         
         _state.store(pool_state::error);
         emit_event("error", "Failed to stop thread pool: unknown exception");
@@ -572,59 +567,35 @@ namespace internals::structure_t
       
       try
       {
-        bool result = _scheduler->submit_uint(unit);
-    
-        if (result && need_tracking) 
-        {
-          std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-          _active_tasks[task_id_str] = unit;
-          emit_event("task_submitted", "Task " + task_id_str + " submitted successfully");
-        }
-        
-        if (result) 
+        bool result = _scheduler->submit_uint(execution_unit);
+
+        if (result)
         {
           _statistics._total_tasks_submitted.fetch_add(1, std::memory_order_relaxed);
           _statistics._last_task_time = std::chrono::steady_clock::now();
+          
+          if (need_tracking)
+          {
+            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
+            _active_tasks[task_id_str] = execution_unit;
+            emit_event("task_submitted", "Task " + task_id_str + " submitted successfully");
+          }
         }
-        
+        else
+        {
+          if (need_tracking) 
+            emit_event("error", "Failed to submit unit " + task_id_str + " to scheduler");
+        }
         return result;
       }
       catch (const std::exception& e)
       {
-        // 任务提交失败时的清理
-        if (need_tracking && !task_id_str.empty())
-        {
-          try
-          {
-            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-            _active_tasks.erase(task_id_str);
-          }
-          catch (...)
-          {
-            // 忽略清理过程中的异常
-          }
-        }
-        
         _statistics._total_tasks_failed.fetch_add(1, std::memory_order_relaxed);
         emit_event("error", "Exception in submit_unit_internal for execution_unit " + task_id_str + ": " + e.what());
         return false;
       }
       catch (...)
       {
-        // 处理未知异常
-        if (need_tracking && !task_id_str.empty())
-        {
-          try
-          {
-            std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-            _active_tasks.erase(task_id_str);
-          }
-          catch (...)
-          {
-            // 忽略清理过程中的异常
-          }
-        }
-        
         _statistics._total_tasks_failed.fetch_add(1, std::memory_order_relaxed);
         emit_event("error", "Unknown exception in submit_unit_internal for execution_unit " + task_id_str);
         return false;
@@ -636,7 +607,7 @@ namespace internals::structure_t
       {
         // 优化：使用更高效的循环间隔和批量处理
         auto last_cleanup = std::chrono::steady_clock::now();
-        const auto cleanup_interval = std::chrono::seconds(5); // 减少清理频率
+        const auto cleanup_interval = std::chrono::seconds(3); // 减少清理频率
         
         while (_state.load(std::memory_order_relaxed) == pool_state::running)
         {
@@ -945,20 +916,14 @@ namespace internals::structure_t
         std::unique_lock<std::shared_mutex> tasks_lock(_tasks_mutex);
         _active_tasks.clear();
       }
-      catch (...)
-      {
-        // 忽略清理中的异常
-      }
+      catch (...) {}
       
       try
       {
         stop_monitoring();
         stop_profiling();
       }
-      catch (...)
-      {
-        // 忽略清理中的异常
-      }
+      catch (...) {}
     }
   public: 
     /**
@@ -1073,15 +1038,15 @@ namespace internals::structure_t
      */
     bool cancel_unit(const std::string &task_id)
     {
+      if (_state.load(std::memory_order_acquire) != pool_state::running)
+        return false;
       std::unique_lock<std::shared_mutex> lock(_tasks_mutex);
-
       auto it = _active_tasks.find(task_id);
       if (it != _active_tasks.end())
       {
         auto execution_unit = it->second;
-        if (execution_unit->cancel())
+        if (execution_unit && execution_unit->cancel())
         {
-          // 任务取消成功后，从活跃任务映射中移除
           _active_tasks.erase(it);
           _statistics._total_tasks_cancelled.fetch_add(1, std::memory_order_relaxed);
           emit_event("task_cancelled", "Task cancelled: " + task_id);
@@ -1097,6 +1062,8 @@ namespace internals::structure_t
      */
     std::size_t cancel_units(const std::vector<std::string> &task_ids)
     {
+      if (_state.load(std::memory_order_acquire) != pool_state::running)
+        return 0;
       std::size_t cancelled_count = 0;
 
       for (const auto &task_id : task_ids)
@@ -1137,7 +1104,6 @@ namespace internals::structure_t
         }
       }
       
-      // 在锁外发送事件通知
       for (const auto& task_id : cancelled_task_ids)
       {
         emit_event("task_cancelled", "Pending execution_unit cancelled: " + task_id);
