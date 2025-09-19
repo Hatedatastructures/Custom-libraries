@@ -817,7 +817,7 @@ namespace rec
   using recorders::recorder;
 }
 
-namespace con
+namespace wan
 {
   using instrument::chronix;
   using instrument::open_mode;

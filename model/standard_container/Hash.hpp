@@ -70,7 +70,7 @@ namespace hash
     {
       return static_cast<uint64_t>(data);
     }
-    [[nodiscard]] uint64_t operator()(const con::string &data_string) noexcept
+    [[nodiscard]] uint64_t operator()(const standard_con::string &data_string) noexcept
     {
       uint64_t hash_value = 0;
       for (auto &str : data_string)
@@ -100,7 +100,7 @@ namespace hash
 
         * * - `hash_algorithm_type`: 待计算哈希值的数据类型
         *
-        * * - `hash_if`: 基础哈希仿函数类型，默认为 `con::imitation_functions::hash_imitation_functions`
+        * * - `hash_if`: 基础哈希仿函数类型，默认为 `standard_con::imitation_functions::hash_imitation_functions`
         *
         *   （需实现 `operator()` 用于生成基础哈希值）
 
@@ -187,7 +187,7 @@ namespace hash
     };
   }
 }
-namespace con
+namespace standard_con
 {
   using hash::hash_imitation_functions;
   using hash::hash_algorithm::hash_function;

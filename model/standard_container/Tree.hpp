@@ -18,7 +18,7 @@ namespace tree_container
 
       * * - `binary_search_tree_type`: 树中存储的元素类型
       *
-      * * - `container_imitate_function`: 比较器类型，默认为 `con::imitation_functions::less<binary_search_tree_type>`
+      * * - `container_imitate_function`: 比较器类型，默认为 `standard_con::imitation_functions::less<binary_search_tree_type>`
       *   - 用于定义元素间的大小关系，返回 `true`
       *   - 可自定义比较规则，改变树的排序逻辑（如改为大于则为右子树）
 
@@ -90,7 +90,7 @@ namespace tree_container
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename binary_search_tree_type, typename container_imitate_function = con::less<binary_search_tree_type>>
+  template <typename binary_search_tree_type, typename container_imitate_function = standard_con::less<binary_search_tree_type>>
   class binary_tree
   {
   private:
@@ -118,7 +118,7 @@ namespace tree_container
     void interior_middle_order_traversal(container_node *root_subtree_node)
     {
       // 内调中序遍历函数
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       while (root_subtree_node != nullptr || !interior_stack.empty())
       {
         while (root_subtree_node != nullptr)
@@ -141,7 +141,7 @@ namespace tree_container
     }
     uint64_t interior_middle_order_traversal(container_node *root_subtree_node, uint64_t &node_counter)
     {
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       while (root_subtree_node != nullptr || !interior_stack.empty())
       {
         while (root_subtree_node != nullptr)
@@ -164,7 +164,7 @@ namespace tree_container
         return;
       }
       container_node *reference_node = root_subtree_node;
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       interior_stack.push(reference_node);
       // 不能添加|| reference_node != nullptr ，因为最后一层循环后reference_node指针还是为真后面循环无意义，反之还会破环性质
       while (!interior_stack.empty())
@@ -189,7 +189,7 @@ namespace tree_container
       {
         return;
       }
-      con::stack<container_node *> resource_release_stack;
+      standard_con::stack<container_node *> resource_release_stack;
       resource_release_stack.push(_root);
       while (resource_release_stack.empty() == false)
       {
@@ -241,11 +241,11 @@ namespace tree_container
       {
         throw custom_exception::fault("拷贝构造失败二叉搜索树为空", "binary_tree", __LINE__);
       }
-      con::stack<con::pair<container_node *, container_node **>> interior_stack;
+      standard_con::stack<standard_con::pair<container_node *, container_node **>> interior_stack;
       // 注意这里把本地_root类型传过去，是因为要对本地的_root进行操作，所以要传二级指针
       // 这里传引用也不行，这里的对象是动态变化的，所以传引用也不行
       // 如果是对全局的_ROOT进行操作，就传一级指针
-      interior_stack.push(con::pair<container_node *, container_node **>(reference_node, &_root));
+      interior_stack.push(standard_con::pair<container_node *, container_node **>(reference_node, &_root));
       while (!interior_stack.empty())
       {
         auto pair_node = interior_stack.top();
@@ -265,11 +265,11 @@ namespace tree_container
         // 移除临时变量，直接使用指针解引用
         if (pair_node.first->_right != nullptr)
         {
-          interior_stack.push(con::pair<container_node *, container_node **>(pair_node.first->_right, &((*pair_node.second)->_right)));
+          interior_stack.push(standard_con::pair<container_node *, container_node **>(pair_node.first->_right, &((*pair_node.second)->_right)));
         }
         if (pair_node.first->_left != nullptr)
         {
-          interior_stack.push(con::pair<container_node *, container_node **>(pair_node.first->_left, &((*pair_node.second)->_left)));
+          interior_stack.push(standard_con::pair<container_node *, container_node **>(pair_node.first->_left, &((*pair_node.second)->_left)));
         }
       }
     }
@@ -392,7 +392,7 @@ namespace tree_container
               right_subtree_least_node = right_subtree_least_node->_left;
             }
             // 找到最左节点
-            con::algorithm::swap(reference_node->_data, right_subtree_least_node->_data);
+            standard_con::algorithm::swap(reference_node->_data, right_subtree_least_node->_data);
             // 因为右树最左节点已经被删，但是还需要把被删的上一节点的左子树指向被删节点的右子树，不管右子树有没有节点都要连接上
             if (subtree_parent_node == reference_node)
             {
@@ -478,7 +478,7 @@ namespace tree_container
         clear();
         function_policy = binary_search_tree_object.function_policy;
         binary_tree reference_node = binary_search_tree_object;
-        con::algorithm::swap(reference_node._root, _root);
+        standard_con::algorithm::swap(reference_node._root, _root);
       }
       return *this;
     }
@@ -510,11 +510,11 @@ namespace tree_container
       *
       * * - `avl_tree_type_v`: 值的类型，与键关联的存储数据
       *
-      * * - `container_imitate_function`: 比较器类型，默认为 `con::imitation_functions::less<avl_tree_type_k>`
+      * * - `container_imitate_function`: 比较器类型，默认为 `standard_con::imitation_functions::less<avl_tree_type_k>`
       *   - 用于定义键的大小关系，返回 `true` 表示左操作数小于右操作数
       *   - 可自定义比较规则，改变树的排序逻辑
       *
-      * * - `avl_tree_node_pair`: 键值对类型，默认为 `con::pair<avl_tree_type_k, avl_tree_type_v>`
+      * * - `avl_tree_node_pair`: 键值对类型，默认为 `standard_con::pair<avl_tree_type_k, avl_tree_type_v>`
       *   - 用于存储节点中的键值对数据
 
       * 迭代器相关方法:
@@ -600,8 +600,8 @@ namespace tree_container
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename avl_tree_type_k, typename avl_tree_type_v, typename container_imitate_function = con::less<avl_tree_type_k>,
-            typename avl_tree_node_pair = con::pair<avl_tree_type_k, avl_tree_type_v>>
+  template <typename avl_tree_type_k, typename avl_tree_type_v, typename container_imitate_function = standard_con::less<avl_tree_type_k>,
+            typename avl_tree_node_pair = standard_con::pair<avl_tree_type_k, avl_tree_type_v>>
   class balance_tree
   {
   private:
@@ -953,7 +953,7 @@ namespace tree_container
       }
       else
       {
-        con::stack<container_node *> interior_stack;
+        standard_con::stack<container_node *> interior_stack;
         // 前序释放
         interior_stack.push(_root);
         while (!interior_stack.empty())
@@ -983,7 +983,7 @@ namespace tree_container
         return;
       }
       container_node *reference_node = root_subtree_node;
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       interior_stack.push(reference_node);
       // 不能添加|| reference_node != nullptr ，因为最后一层循环后_Pre_order_traversal_test还是为真后面循环无意义，反之还会破环性质
       while (!interior_stack.empty())
@@ -1006,7 +1006,7 @@ namespace tree_container
     void interior_middle_order_traversal(container_node *root_subtree_node)
     {
       // 中序遍历函数
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       while (root_subtree_node != nullptr || !interior_stack.empty())
       {
         while (root_subtree_node != nullptr)
@@ -1037,7 +1037,7 @@ namespace tree_container
       else
       {
         container_node *reference_node = _root;
-        con::stack<container_node *> interior_stack;
+        standard_con::stack<container_node *> interior_stack;
         interior_stack.push(reference_node);
         while (!interior_stack.empty())
         {
@@ -1151,7 +1151,7 @@ namespace tree_container
       }
 
       // 使用单栈，存储源节点和目标父节点（均为一级指针）
-      con::stack<con::pair<container_node *, container_node *>> stack;
+      standard_con::stack<standard_con::pair<container_node *, container_node *>> stack;
 
       // 创建根节点
       _root = new container_node(avl_tree_data._root->_data);
@@ -1161,11 +1161,11 @@ namespace tree_container
       // 初始化栈，将根节点的子节点压入（注意：这里父节点是 _ROOT，一级指针）
       if (avl_tree_data._root->_right != nullptr)
       {
-        stack.push(con::pair<container_node *, container_node *>(avl_tree_data._root->_right, _root));
+        stack.push(standard_con::pair<container_node *, container_node *>(avl_tree_data._root->_right, _root));
       }
       if (avl_tree_data._root->_left != nullptr)
       {
-        stack.push(con::pair<container_node *, container_node *>(avl_tree_data._root->_left, _root));
+        stack.push(standard_con::pair<container_node *, container_node *>(avl_tree_data._root->_left, _root));
       }
 
       // 遍历并复制剩余节点
@@ -1201,11 +1201,11 @@ namespace tree_container
         // 处理子节点（注意：压栈时父节点是 new_structure_node，一级指针）
         if (first_node->_right != nullptr)
         {
-          stack.push(con::pair<container_node *, container_node *>(first_node->_right, new_structure_node));
+          stack.push(standard_con::pair<container_node *, container_node *>(first_node->_right, new_structure_node));
         }
         if (first_node->_left != nullptr)
         {
-          stack.push(con::pair<container_node *, container_node *>(first_node->_left, new_structure_node));
+          stack.push(standard_con::pair<container_node *, container_node *>(first_node->_left, new_structure_node));
         }
       }
     }
@@ -1237,8 +1237,8 @@ namespace tree_container
       {
         return *this;
       }
-      con::algorithm::swap(function_policy, avl_tree_data.function_policy);
-      con::algorithm::swap(_root, avl_tree_data._root);
+      standard_con::algorithm::swap(function_policy, avl_tree_data.function_policy);
+      standard_con::algorithm::swap(_root, avl_tree_data._root);
       return *this;
     }
     ~balance_tree() noexcept
@@ -1585,7 +1585,7 @@ namespace tree_container
         }
 
         // 交换数据
-        con::algorithm::swap(right_subtree_smallest_node->_data, reference_node->_data);
+        standard_con::algorithm::swap(right_subtree_smallest_node->_data, reference_node->_data);
 
         // 更新要删除的节点信息
         reference_node = right_subtree_smallest_node;
@@ -1675,7 +1675,7 @@ namespace tree_container
     }
   };
 }
-namespace con
+namespace standard_con
 {
   using tree_container::balance_tree;
   using tree_container::binary_tree;

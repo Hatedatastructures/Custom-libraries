@@ -299,7 +299,7 @@ namespace string_container
 			_size = str_data.size();
 			_capacity = _size;
 			_data = new char[_capacity + 1];
-			con::algorithm::copy(str_data.begin(), str_data.end(), _data);
+			standard_con::algorithm::copy(str_data.begin(), str_data.end(), _data);
 			_data[_size] = '\0';
 		}
 		~string() noexcept
@@ -556,9 +556,9 @@ namespace string_container
 		}
 		string &swap(string &str_data) noexcept
 		{
-			con::algorithm::swap(_data, str_data._data);
-			con::algorithm::swap(_size, str_data._size);
-			con::algorithm::swap(_capacity, str_data._capacity);
+			standard_con::algorithm::swap(_data, str_data._data);
+			standard_con::algorithm::swap(_size, str_data._size);
+			standard_con::algorithm::swap(_capacity, str_data._capacity);
 			return *this;
 		}
 		[[nodiscard]] string reverse() const
@@ -794,7 +794,7 @@ namespace string_container
 		return string_ostream;
 	}
 }
-namespace con
+namespace standard_con
 {
 	using string_container::string;
 }

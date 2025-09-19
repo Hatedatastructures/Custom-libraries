@@ -9,13 +9,13 @@ namespace stack_adapter
 
       *   - 自定义栈容器适配器，遵循 LIFO（后进先出）原则
 
-      *   - 基于底层容器实现（默认为 `con::vector`），提供栈的标准操作接口
+      *   - 基于底层容器实现（默认为 `standard_con::vector`），提供栈的标准操作接口
 
       * 模板参数:
 
       * * - `stack_type`: 栈中存储的元素类型
       *
-      * * - `vector_based_stack`: 底层容器类型，默认为 `con::vector<stack_type>`
+      * * - `vector_based_stack`: 底层容器类型，默认为 `standard_con::vector<stack_type>`
       *   - 需支持 `push_back()`、`pop_back()`、`back()`、`size()`、`empty()` 等操作
 
       * 成员变量:
@@ -77,7 +77,7 @@ namespace stack_adapter
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename stack_type, typename vector_based_stack = con::vector<stack_type>>
+  template <typename stack_type, typename vector_based_stack = standard_con::vector<stack_type>>
   class stack
   {
   private:
@@ -160,7 +160,7 @@ namespace stack_adapter
     stack() = default;
   };
 }
-namespace con
+namespace standard_con
 {
   using stack_adapter::stack;
 }

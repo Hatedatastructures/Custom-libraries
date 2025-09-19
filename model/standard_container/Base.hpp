@@ -25,7 +25,7 @@ namespace base_container
       *
       * * - `container_imitate_function_visit`: 访问器类型，用于从值中提取键（如从键值对中获取键）
       *
-      * * - `container_imitate_function`: 比较器类型，默认为 `con::imitation_functions::less<rb_tree_type_key>`
+      * * - `container_imitate_function`: 比较器类型，默认为 `standard_con::imitation_functions::less<rb_tree_type_key>`
       *    定义键的大小关系，返回 `true` 表示左操作数小于右操作数
 
 
@@ -112,7 +112,7 @@ namespace base_container
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
   template <typename rb_tree_type_key, typename rb_tree_type_value, typename container_imitate_function_visit,
-            typename container_imitate_function = con::less<rb_tree_type_key>>
+            typename container_imitate_function = standard_con::less<rb_tree_type_key>>
   class red_black_tree
   {
   private:
@@ -406,7 +406,7 @@ namespace base_container
       }
       else
       {
-        con::stack<container_node *> resource_cleanup_stack;
+        standard_con::stack<container_node *> resource_cleanup_stack;
         resource_cleanup_stack.push(clear_node_ptr);
         while (!resource_cleanup_stack.empty())
         {
@@ -432,7 +432,7 @@ namespace base_container
       {
         return;
       }
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       while (intermediate_traversal_node != nullptr || !interior_stack.empty())
       {
         while (intermediate_traversal_node != nullptr)
@@ -455,7 +455,7 @@ namespace base_container
         return;
       }
       container_node *reference_node = preamble_traversal_node;
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       interior_stack.push(reference_node);
       while (!interior_stack.empty())
       {
@@ -495,7 +495,7 @@ namespace base_container
         return size;
       }
       container_node *reference_node = _root;
-      con::stack<container_node *> interior_stack;
+      standard_con::stack<container_node *> interior_stack;
       interior_stack.push(reference_node);
       while (!interior_stack.empty())
       {
@@ -522,7 +522,7 @@ namespace base_container
     using reverse_iterator = rb_tree_reverse_iterator<iterator>;
     using const_reverse_iterator = rb_tree_reverse_iterator<const_iterator>;
 
-    using return_pair_value = con::pair<iterator, bool>;
+    using return_pair_value = standard_con::pair<iterator, bool>;
     red_black_tree()
     {
       _root = nullptr;
@@ -553,7 +553,7 @@ namespace base_container
       else
       {
         // 使用单栈，存储源节点和目标父节点（均为一级指针）
-        con::stack<con::pair<container_node *, container_node *>> stack;
+        standard_con::stack<standard_con::pair<container_node *, container_node *>> stack;
 
         // 创建根节点
         _root = new container_node(rb_tree_data._root->_data);
@@ -563,11 +563,11 @@ namespace base_container
         // 初始化栈，将根节点的子节点压入（注意：这里父节点是 _ROOT，一级指针）
         if (rb_tree_data._root->_right != nullptr)
         {
-          stack.push(con::pair<container_node *, container_node *>(rb_tree_data._root->_right, _root));
+          stack.push(standard_con::pair<container_node *, container_node *>(rb_tree_data._root->_right, _root));
         }
         if (rb_tree_data._root->_left != nullptr)
         {
-          stack.push(con::pair<container_node *, container_node *>(rb_tree_data._root->_left, _root));
+          stack.push(standard_con::pair<container_node *, container_node *>(rb_tree_data._root->_left, _root));
         }
 
         // 遍历并复制剩余节点
@@ -603,11 +603,11 @@ namespace base_container
           // 处理子节点（注意：压栈时父节点是 new_node，一级指针）
           if (first_node->_right != nullptr)
           {
-            stack.push(con::pair<container_node *, container_node *>(first_node->_right, new_structure_node));
+            stack.push(standard_con::pair<container_node *, container_node *>(first_node->_right, new_structure_node));
           }
           if (first_node->_left != nullptr)
           {
-            stack.push(con::pair<container_node *, container_node *>(first_node->_left, new_structure_node));
+            stack.push(standard_con::pair<container_node *, container_node *>(first_node->_left, new_structure_node));
           }
         }
       }
@@ -621,9 +621,9 @@ namespace base_container
       else
       {
         clear(_root);
-        con::algorithm::swap(rb_tree_data._root, _root);
-        con::algorithm::swap(rb_tree_data.element, element);
-        con::algorithm::swap(rb_tree_data.function_policy, function_policy);
+        standard_con::algorithm::swap(rb_tree_data._root, _root);
+        standard_con::algorithm::swap(rb_tree_data.element, element);
+        standard_con::algorithm::swap(rb_tree_data.function_policy, function_policy);
         return *this;
       }
     }
@@ -715,7 +715,7 @@ namespace base_container
               if (reference_node == parent_node->_right)
               {
                 left_revolve(parent_node);
-                con::algorithm::swap(reference_node, parent_node);
+                standard_con::algorithm::swap(reference_node, parent_node);
                 // reference_node = parent_node;
                 // 折线调整，交换位置调整为情况2
               }
@@ -744,7 +744,7 @@ namespace base_container
               if (reference_node == parent_node->_left)
               {
                 right_revolve(parent_node);
-                con::algorithm::swap(reference_node, parent_node);
+                standard_con::algorithm::swap(reference_node, parent_node);
                 // reference_node = parent_node;
                 // 交换指针转换为单旋
               }
@@ -830,7 +830,7 @@ namespace base_container
               if (reference_node == parent_node->_right)
               {
                 left_revolve(parent_node);
-                con::algorithm::swap(reference_node, parent_node);
+                standard_con::algorithm::swap(reference_node, parent_node);
                 // reference_node = parent_node;
                 // 折线调整，交换位置调整为情况2
               }
@@ -859,7 +859,7 @@ namespace base_container
               if (reference_node == parent_node->_left)
               {
                 right_revolve(parent_node);
-                con::algorithm::swap(reference_node, parent_node);
+                standard_con::algorithm::swap(reference_node, parent_node);
                 // reference_node = parent_node;
                 // 交换指针转换为单旋
               }
@@ -1116,8 +1116,8 @@ namespace base_container
           delete_color = right_subtree_smallest_node->_color;
 
           // 交换数据 AND 交换颜色
-          con::algorithm::swap(right_subtree_smallest_node->_data, reference_node->_data);
-          con::algorithm::swap(right_subtree_smallest_node->_color, reference_node->_color);
+          standard_con::algorithm::swap(right_subtree_smallest_node->_data, reference_node->_data);
+          standard_con::algorithm::swap(right_subtree_smallest_node->_color, reference_node->_color);
 
           // 然后正确地把后继节点的位置接到它父节点上：
           if (smallest_parent_node->_left == right_subtree_smallest_node)
@@ -1277,7 +1277,7 @@ namespace base_container
       *
       * * - `container_imitate_function`: 仿函数类型，用于从值中提取键（如从键值对中获取键用于比较）
       *
-      * * - `hash_function`: 哈希函数类型，默认为 `con::imitation_functions::hash_imitation_functions`
+      * * - `hash_function`: 哈希函数类型，默认为 `scl::imitation_functions::hash_imitation_functions`
       *   用于计算值的哈希值，决定元素在哈希桶中的位置
 
       * 迭代器相关方法:
@@ -1354,7 +1354,7 @@ namespace base_container
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
   template <typename hash_table_type_key, typename hash_table_type_value, typename container_imitate_function,
-            typename hash_function = con::hash_imitation_functions>
+            typename hash_function = standard_con::hash_imitation_functions>
   class hash_table
   {
     class hash_table_node
@@ -1389,7 +1389,7 @@ namespace base_container
 
     uint64_t hash_capacity; // 哈希表容量
 
-    con::vector<container_node *> vector_hash_table; // 哈希表
+    standard_con::vector<container_node *> vector_hash_table; // 哈希表
 
     hash_function hash_function_object; // 哈希函数
 
@@ -1624,7 +1624,7 @@ namespace base_container
         // 扩容
         uint64_t new_container_capacity = (hash_capacity == 0 && vector_hash_table.empty()) ? 10 : hash_capacity * 2;
         // 新容量
-        con::vector<container_node *> new_vector_hash_table;
+        standard_con::vector<container_node *> new_vector_hash_table;
         new_vector_hash_table.resize(new_container_capacity, nullptr);
         uint64_t new_size = 0;
         // 重新映射,按照插入链表顺序
@@ -1728,7 +1728,7 @@ namespace base_container
         // 扩容
         uint64_t new_container_capacity = (hash_capacity == 0 && vector_hash_table.empty()) ? 10 : hash_capacity * 2;
         // 新容量
-        con::vector<container_node *> new_vector_hash_table;
+        standard_con::vector<container_node *> new_vector_hash_table;
         new_vector_hash_table.resize(new_container_capacity, nullptr);
         uint64_t new_size = 0;
         // 重新映射,按照插入链表顺序
@@ -1906,7 +1906,7 @@ namespace base_container
   /**
    * @brief 位集合（BitSet）类实现
    *
-   * 这是一个自定义的位集合类，使用`con::vector<int>`存储位数据，
+   * 这是一个自定义的位集合类，使用`standard_con::vector<int>`存储位数据，
    *
    * 每个int（通常32位）可以存储32个布尔值（0或1）。
    *
@@ -1928,7 +1928,7 @@ namespace base_container
    */
   class bit_set
   {
-    con::vector<int> vector_bit_set;
+    standard_con::vector<int> vector_bit_set;
     uint64_t _size;
 
   public:
@@ -1998,7 +1998,7 @@ namespace base_container
     }
   };
 }
-namespace con
+namespace standard_con
 {
   using base_container::bit_set;
   using base_container::hash_table;

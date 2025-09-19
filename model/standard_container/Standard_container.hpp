@@ -14,3 +14,8 @@
 #include "Tree.hpp"
 #include "Vector.hpp"
 #include "Hash.hpp"
+
+namespace wan
+{
+  namespace scl = standard_con;
+}

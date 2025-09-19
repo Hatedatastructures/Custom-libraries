@@ -21,7 +21,7 @@ namespace bloom_filter_container
    *
    * * - `bloom_filter_type_value`: 布隆过滤器中存储的元素类型
    *
-   * * - `bloom_filter_hash_functor`: 哈希函数对象类型，默认为 `con::algorithm::hash_algorithm::hash_function<bloom_filter_type_value>`
+   * * - `bloom_filter_hash_functor`: 哈希函数对象类型，默认为 `standard_con::algorithm::hash_algorithm::hash_function<bloom_filter_type_value>`
    *
    *   - 需提供三种哈希函数（`hash_sdmmhash`、`hash_djbhash`、`hash_pjwhash`），用于将元素映射到位集合的不同位置
    *
@@ -33,11 +33,11 @@ namespace bloom_filter_container
    *
    * - 适用于对误判率不敏感，追求空间效率的场景
    */
-  template <typename bloom_filter_type_value, typename bloom_filter_hash_functor = con::hash_function<bloom_filter_type_value>>
+  template <typename bloom_filter_type_value, typename bloom_filter_hash_functor = standard_con::hash_function<bloom_filter_type_value>>
   class bloom_filter
   {
     bloom_filter_hash_functor hash_functions_object;
-    using bit_set = con::bit_set;
+    using bit_set = standard_con::bit_set;
     bit_set instance_bit_set;
     uint64_t _capacity;
 
@@ -85,7 +85,7 @@ namespace bloom_filter_container
     // 布隆过滤器只支持插入和查找，不支持删除
   };
 }
-namespace con
+namespace standard_con
 {
   using bloom_filter_container::bloom_filter;
 }

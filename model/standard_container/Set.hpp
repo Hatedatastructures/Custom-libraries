@@ -15,7 +15,7 @@ namespace set_container
    *
    * * - `set_type`: 集合中元素的类型，既是存储的数据也是排序的键
    *
-   * * - `comparators`: 元素的比较器类型，默认为 `con::imitation_functions::less<set_type>`
+   * * - `comparators`: 元素的比较器类型，默认为 `standard_con::imitation_functions::less<set_type>`
    *
    *   - 定义元素的排序规则，返回 `true` 表示左操作数小于右操作数，决定元素的排列顺序
    *
@@ -30,9 +30,9 @@ namespace set_container
    *
    * * - `const_reverse_iterator`: 常量反向迭代器，按逆序遍历不可修改的元素
    *
-   * * - `set_iterator`: 插入操作返回类型，为 `con::pair<iterator, bool>`，其中 `iterator` 指向插入位置（或已有元素），`bool` 表示是否插入成功
+   * * - `set_iterator`: 插入操作返回类型，为 `standard_con::pair<iterator, bool>`，其中 `iterator` 指向插入位置（或已有元素），`bool` 表示是否插入成功
    */
-  template <typename set_type, typename comparators = con::less<set_type>>
+  template <typename set_type, typename comparators = standard_con::less<set_type>>
   class tree_set
   {
     using key_val_type = set_type; // comparators 用户自定义比较器，用于比较两个元素的大小，方便存储
@@ -43,7 +43,7 @@ namespace set_container
         return key_value;
       }
     };
-    using instance_rb = con::red_black_tree<set_type, key_val_type, key_val, comparators>;
+    using instance_rb = standard_con::red_black_tree<set_type, key_val_type, key_val, comparators>;
     instance_rb instance_tree_set;
 
   public:
@@ -52,7 +52,7 @@ namespace set_container
     using reverse_iterator = typename instance_rb::reverse_iterator;
     using const_reverse_iterator = typename instance_rb::const_reverse_iterator;
 
-    using set_iterator = con::pair<iterator, bool>;
+    using set_iterator = standard_con::pair<iterator, bool>;
     tree_set &operator=(const tree_set &set_data)
     {
       if (this != &set_data)
@@ -151,7 +151,7 @@ namespace set_container
    *
    * * - `set_type_val`: 集合中存储的元素类型，既是数据也是哈希映射的键
    *
-   * * - `external_hash_functions`: 外部哈希函数类型，默认为 `con::imitation_functions::hash_imitation_functions`
+   * * - `external_hash_functions`: 外部哈希函数类型，默认为 `standard_con::imitation_functions::hash_imitation_functions`
    *
    *   - 用于计算元素的哈希值，影响元素在哈希表中的映射位置，可自定义以减少冲突
    *
@@ -162,7 +162,7 @@ namespace set_container
    *
    * * - `const_iterator`: 常量正向迭代器，指向不可修改的元素
    */
-  template <typename set_type_val, typename external_hash_functions = con::hash_imitation_functions>
+  template <typename set_type_val, typename external_hash_functions = standard_con::hash_imitation_functions>
   class hash_set
   {
     using key_val_type = set_type_val;
@@ -185,7 +185,7 @@ namespace set_container
         return key_value;
       }
     };
-    using hash_table = con::hash_table<set_type_val, key_val_type, key_val, inbuilt_set_hash_functor>;
+    using hash_table = standard_con::hash_table<set_type_val, key_val_type, key_val, inbuilt_set_hash_functor>;
     hash_table instance_hash_set;
 
   public:
@@ -267,7 +267,7 @@ namespace set_container
     }
   };
 }
-namespace con
+namespace standard_con
 {
   using set_container::hash_set;
   using set_container::tree_set;

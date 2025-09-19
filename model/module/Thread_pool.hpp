@@ -1635,15 +1635,16 @@ namespace internals::structure_t
 
 } //  structure_t
 
-namespace pool
-{
- using namespace internals::structure_t;
-}
-namespace con
+namespace wan
 {
   using internals::structure_t::make_thread_pool;
   using internals::structure_t::make_lightweight_pool;
   using internals::structure_t::make_performance_pool;
 
   using internals::structure_t::thread_pool;
+
+  namespace pol
+  {
+  using namespace internals::structure_t;
+  }
 }

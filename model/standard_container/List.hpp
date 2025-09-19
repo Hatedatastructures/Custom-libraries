@@ -361,7 +361,7 @@ namespace list_container
     }
     void swap(list_container::list<list_type> &swap_target) noexcept
     {
-      con::algorithm::swap(_head, swap_target._head);
+      standard_con::algorithm::swap(_head, swap_target._head);
     }
     [[nodiscard]] iterator begin() noexcept
     {
@@ -650,7 +650,7 @@ namespace list_container
     return list_ostream;
   }
 }
-namespace con
+namespace standard_con
 {
   using list_container::list;
 }

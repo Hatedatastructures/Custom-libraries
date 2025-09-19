@@ -20,7 +20,7 @@
 #include "Concurrent_unordered_multiset.hpp"
 
 
-namespace con
+namespace wan
 {
   /**
  * @namespace thread_pool::concurrent_containers

@@ -11,13 +11,13 @@ namespace queue_adapter
 
   *   - 自定义队列容器适配器，遵循 FIFO（先进先出）原则
 
-  *   - 基于底层容器实现（默认为 `con::list`），提供队列的标准操作接口
+  *   - 基于底层容器实现（默认为 `standard_con::list`），提供队列的标准操作接口
 
    * 模板参数:
 
    * * - `queue_type`: 队列中存储的元素类型
    *
-   * * - `list_based_queue`: 底层容器类型，默认为 `con::list<queue_type>`
+   * * - `list_based_queue`: 底层容器类型，默认为 `standard_con::list<queue_type>`
    *
    *   - 需支持 `push_back()`、`pop_front()`、`front()`、`back()`、`size()`、`empty()` 等操作
 
@@ -73,7 +73,7 @@ namespace queue_adapter
 
    * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
 */
-  template <typename queue_type, typename list_based_queue = con::list<queue_type>>
+  template <typename queue_type, typename list_based_queue = standard_con::list<queue_type>>
   class queue
   {
     list_based_queue list_object;
@@ -169,10 +169,10 @@ namespace queue_adapter
 
       * * - `priority_queue_type`: 队列中存储的元素类型
       *
-      * * - `container_imitate_function`: 比较器类型，默认为 `con::imitation_functions::less<priority_queue_type>`
+      * * - `container_imitate_function`: 比较器类型，默认为 `standard_con::imitation_functions::less<priority_queue_type>`
       *      用于定义元素优先级，返回 `true` 表示左操作数优先级低于右操作数，默认为大顶堆（优先级高的元素值大），可通过传入 `greater` 改为小顶堆
       *
-      * * - `vector_based_priority_queue`: 底层容器类型，默认为 `con::vector<priority_queue_type>`
+      * * - `vector_based_priority_queue`: 底层容器类型，默认为 `standard_con::vector<priority_queue_type>`
       *
       * * *   - 需支持随机访问、尾部插入删除等操作
 
@@ -234,8 +234,8 @@ namespace queue_adapter
 
       * 详细请参考 https://github.com/Hatedatastructures/Custom-libraries/blob/main/template_container.md
   */
-  template <typename priority_queue_type, typename container_imitate_function = con::less<priority_queue_type>,
-            typename vector_based_priority_queue = con::vector<priority_queue_type>>
+  template <typename priority_queue_type, typename container_imitate_function = standard_con::less<priority_queue_type>,
+            typename vector_based_priority_queue = standard_con::vector<priority_queue_type>>
   class priority_queue
   {
     // 创建容器对象
@@ -251,7 +251,7 @@ namespace queue_adapter
       {
         if (function_policy(vector_container_object[adjust_upwards_parent], vector_container_object[adjust_upwards_child]))
         {
-          con::algorithm::swap(vector_container_object[adjust_upwards_parent], vector_container_object[adjust_upwards_child]);
+          standard_con::algorithm::swap(vector_container_object[adjust_upwards_parent], vector_container_object[adjust_upwards_child]);
           adjust_upwards_child = adjust_upwards_parent;
           adjust_upwards_parent = (adjust_upwards_child - 1) / 2;
         }
@@ -277,7 +277,7 @@ namespace queue_adapter
         if (function_policy(vector_container_object[adjust_downwards_parent], vector_container_object[adjust_downwards_child]))
         {
           // 建大堆把小的换下去，建小堆把大的换下去
-          con::algorithm::swap(vector_container_object[adjust_downwards_parent], vector_container_object[adjust_downwards_child]);
+          standard_con::algorithm::swap(vector_container_object[adjust_downwards_parent], vector_container_object[adjust_downwards_child]);
 
           // 换完之后如果是大堆，则父亲节点是较大的值，需要更新孩子节点继续向下找比孩子节点大的值，如果有继续交换
           adjust_downwards_parent = adjust_downwards_child;
@@ -314,7 +314,7 @@ namespace queue_adapter
     }
     void pop()
     {
-      con::algorithm::swap(vector_container_object[0], vector_container_object[vector_container_object.size() - static_cast<uint64_t>(1)]);
+      standard_con::algorithm::swap(vector_container_object[0], vector_container_object[vector_container_object.size() - static_cast<uint64_t>(1)]);
       vector_container_object.pop_back();
       priority_queue_adjust_downwards();
     }
@@ -368,7 +368,7 @@ namespace queue_adapter
     }
   };
 }
-namespace con
+namespace standard_con
 {
   using queue_adapter::priority_queue;
   using queue_adapter::queue;

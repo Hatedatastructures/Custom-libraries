@@ -17,7 +17,7 @@ namespace map_container
    *
    * * - `map_type_v`: 值（value）的类型，与键关联的数据
    *
-   * * - `comparators`: 键的比较器类型，默认为 `con::imitation_functions::less<map_type_k>`
+   * * - `comparators`: 键的比较器类型，默认为 `standard_con::imitation_functions::less<map_type_k>`
    *
    *   - 定义键的排序规则，返回 `true` 表示左操作数小于右操作数，决定键的排列顺序
    *
@@ -32,12 +32,12 @@ namespace map_container
    *
    * * - `const_reverse_iterator`: 常量反向迭代器，按逆序遍历不可修改的键值对
    *
-   * * - `map_iterator`: 插入操作返回类型，为 `con::pair<iterator, bool>`，其中 `iterator` 指向插入位置（或已有键的位置），`bool` 表示是否插入成功
+   * * - `map_iterator`: 插入操作返回类型，为 `standard_con::pair<iterator, bool>`，其中 `iterator` 指向插入位置（或已有键的位置），`bool` 表示是否插入成功
    */
-  template <typename map_type_k, typename map_type_v, typename comparators = con::less<map_type_k>>
+  template <typename map_type_k, typename map_type_v, typename comparators = standard_con::less<map_type_k>>
   class tree_map
   {
-    using key_val_type = con::pair<map_type_k, map_type_v>;
+    using key_val_type = standard_con::pair<map_type_k, map_type_v>;
     struct key_val
     {
       const map_type_k &operator()(const key_val_type &key_value)
@@ -45,7 +45,7 @@ namespace map_container
         return key_value.first;
       }
     };
-    using instance_rb = con::red_black_tree<map_type_k, key_val_type, key_val, comparators>;
+    using instance_rb = standard_con::red_black_tree<map_type_k, key_val_type, key_val, comparators>;
     instance_rb instance_tree_map;
 
   public:
@@ -54,7 +54,7 @@ namespace map_container
     using reverse_iterator = typename instance_rb::reverse_iterator;
     using const_reverse_iterator = typename instance_rb::const_reverse_iterator;
 
-    using map_iterator = con::pair<iterator, bool>;
+    using map_iterator = standard_con::pair<iterator, bool>;
     ~tree_map() = default;
     tree_map &operator=(const tree_map &tree_map_data)
     {
@@ -156,10 +156,10 @@ namespace map_container
    *
    * * - `hash_map_type_value`: 值（value）的类型，与键关联的数据
    *
-   * * - `first_external_hash_functions`: 键的哈希函数类型，默认为 `con::imitation_functions::hash_imitation_functions`
+   * * - `first_external_hash_functions`: 键的哈希函数类型，默认为 `standard_con::imitation_functions::hash_imitation_functions`
    *   - 用于计算键的哈希值，影响键在哈希表中的映射位置
    *
-   * * - `second_external_hash_functions`: 值的哈希函数类型，默认为 `con::imitation_functions::hash_imitation_functions`
+   * * - `second_external_hash_functions`: 值的哈希函数类型，默认为 `standard_con::imitation_functions::hash_imitation_functions`
    *   - 用于计算值的哈希值，与键的哈希值组合生成最终哈希结果，减少冲突
    *
    * 迭代器类型:
@@ -170,11 +170,11 @@ namespace map_container
    * * - `const_iterator`: 常量正向迭代器，指向不可修改的键值对
    */
   template <typename hash_map_type_key, typename hash_map_type_value,
-            typename first_external_hash_functions = con::hash_imitation_functions,
-            typename second_external_hash_functions = con::hash_imitation_functions> // 两个对应的hash函数
+            typename first_external_hash_functions = standard_con::hash_imitation_functions,
+            typename second_external_hash_functions = standard_con::hash_imitation_functions> // 两个对应的hash函数
   class hash_map
   {
-    using key_val_type = con::pair<hash_map_type_key, hash_map_type_value>;
+    using key_val_type = standard_con::pair<hash_map_type_key, hash_map_type_value>;
     struct key_val
     {
       const hash_map_type_key &operator()(const key_val_type &key_value)
@@ -198,7 +198,7 @@ namespace map_container
         return (first_hash_value + second_hash_value);
       }
     };
-    using hash_table = con::hash_table<hash_map_type_key, key_val_type, key_val, inbuilt_map_hash_functor>;
+    using hash_table = standard_con::hash_table<hash_map_type_key, key_val_type, key_val, inbuilt_map_hash_functor>;
     hash_table instance_hash_map;
 
   public:
@@ -285,7 +285,7 @@ namespace map_container
     }
   };
 }
-namespace con
+namespace standard_con
 {
   using map_container::hash_map;
   using map_container::tree_map;

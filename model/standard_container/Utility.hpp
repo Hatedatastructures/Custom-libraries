@@ -194,7 +194,7 @@ namespace practicality
     return pair<make_pair_t, make_pair_k>(_first, _second);
   }
 }
-namespace con
+namespace standard_con
 {
   using practicality::make_pair;
   using practicality::pair;

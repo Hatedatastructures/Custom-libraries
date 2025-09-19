@@ -71,7 +71,7 @@ namespace custom_exception
     fault &operator=(fault &&) = delete;
   };
 }
-namespace con
+namespace standard_con
 {
   using namespace custom_exception;
 }

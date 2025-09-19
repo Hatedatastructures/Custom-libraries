@@ -104,7 +104,7 @@ namespace imitation_functions
     }
   };
 }
-namespace con
+namespace standard_con
 {
   using imitation_functions::greater;
   using imitation_functions::less;

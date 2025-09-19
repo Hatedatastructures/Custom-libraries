@@ -1,7 +1,7 @@
 #pragma once
 #include "Exception.hpp"
 #include "Imitate.hpp"
-namespace con
+namespace standard_con
 {
   /*
   * @brief  #### `algorithm` 算法命名空间
@@ -14,11 +14,9 @@ namespace con
 
   *   - `hash_algorithm`: 哈希算法命名空间，提供多种哈希算法实现
   */
-  namespace algorithm
-  {
-  }
+  namespace algorithm {}
 }
-namespace con::algorithm
+namespace standard_con::algorithm
 {
   /*
    * @brief  #### `copy` 函数模板
@@ -160,7 +158,7 @@ namespace con::algorithm
 
       * * - `noexcept`: 保证不抛出异常（前提是类型的拷贝构造和赋值操作不抛异常）
 
-      * * - 复杂度: 常数时间 O(1)
+      * * - 复杂度: 常数时间 `O(1)`
 
       * * - 操作: 通过临时变量中转，完成 `a` 和 `b` 的值交换
 

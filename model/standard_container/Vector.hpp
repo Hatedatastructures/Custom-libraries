@@ -277,9 +277,9 @@ namespace vector_container
     }
     void swap(vector<vector_type> &vector_data) noexcept
     {
-      con::algorithm::swap(_data_pointer, vector_data._data_pointer);
-      con::algorithm::swap(_size_pointer, vector_data._size_pointer);
-      con::algorithm::swap(_capacity_pointer, vector_data._capacity_pointer);
+      standard_con::algorithm::swap(_data_pointer, vector_data._data_pointer);
+      standard_con::algorithm::swap(_size_pointer, vector_data._size_pointer);
+      standard_con::algorithm::swap(_capacity_pointer, vector_data._capacity_pointer);
     }
     iterator erase(iterator delete_position) noexcept
     {
@@ -480,7 +480,7 @@ namespace vector_container
     return vector_ostream;
   }
 }
-namespace con
+namespace standard_con
 {
   using vector_container::vector;
 }

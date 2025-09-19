@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 #include "Exception.hpp"
-namespace con
+namespace standard_con
 {
   /*
   * @brief  #### `pointer`智能指针命名空间
@@ -21,7 +21,7 @@ namespace con
   }
 }
 
-namespace con::pointer
+namespace standard_con::pointer
 {
   /*
    * @brief  #### `smart_ptr` 类
