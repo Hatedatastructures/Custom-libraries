@@ -1,5 +1,5 @@
 #pragma once
-#include "String.hpp"
+#include "simulate_string.hpp"
 namespace hash
 {
   /*

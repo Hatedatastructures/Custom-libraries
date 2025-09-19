@@ -1,7 +1,7 @@
 #pragma once
-#include "Algorithm.hpp"
-#include "Base.hpp"
-#include "Imitate.hpp"
+#include "simulate_algorithm.hpp"
+#include "simulate_base.hpp"
+#include "simulate_imitate.hpp"
 namespace bloom_filter_container
 {
   /**

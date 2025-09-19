@@ -1,6 +1,6 @@
 #pragma once
-#include "Exception.hpp"
-#include "Imitate.hpp"
+#include "simulate_exception.hpp"
+#include "simulate_imitate.hpp"
 namespace standard_con
 {
   /*

@@ -1,9 +1,9 @@
 #pragma once
-#include "List.hpp"
-#include "Vector.hpp"
-#include "Algorithm.hpp"
-#include "Exception.hpp"
-#include "Imitate.hpp"
+#include "simulate_list.hpp"
+#include "simulate_vector.hpp"
+#include "simulate_algorithm.hpp"
+#include "simulate_exception.hpp"
+#include "simulate_imitate.hpp"
 namespace queue_adapter
 {
   /*

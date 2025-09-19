@@ -1,9 +1,9 @@
 #pragma once
-#include "Unit.hpp"
-#include "Integration.hpp"
-#include "Rank.hpp"
-#include "Worker.hpp"
-#include "Scheduling.hpp"
+#include "unit.hpp"
+#include "integration.hpp"
+#include "rank.hpp"
+#include "worker.hpp"
+#include "scheduling.hpp"
 #include <iostream>
 
 namespace internals

@@ -1,8 +1,8 @@
 #pragma once
-#include "Stack.hpp"
-#include "Algorithm.hpp"
-#include "Utility.hpp"
-#include "Exception.hpp"
+#include "simulate_stack.hpp"
+#include "simulate_algorithm.hpp"
+#include "simulate_utility.hpp"
+#include "simulate_exception.hpp"
 namespace tree_container
 {
   /*

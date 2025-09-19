@@ -1,11 +1,11 @@
 #pragma once
-#include "Stack.hpp"
-#include "Vector.hpp"
-#include "Algorithm.hpp"
-#include "Utility.hpp"
-#include "Exception.hpp"
-#include "Imitate.hpp"
-#include "Hash.hpp"
+#include "simulate_stack.hpp"
+#include "simulate_vector.hpp"
+#include "simulate_algorithm.hpp"
+#include "simulate_utility.hpp"
+#include "simulate_exception.hpp"
+#include "simulate_imitate.hpp"
+#include "simulate_hash.hpp"
 namespace base_container
 {
   /*

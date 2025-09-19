@@ -1,7 +1,7 @@
 #pragma once
-#include "Unit.hpp"
-#include "Rank.hpp"
-#include "Worker.hpp"
+#include "unit.hpp"
+#include "rank.hpp"
+#include "worker.hpp"
 #include <memory>
 #include <vector>
 #include <unordered_map>

@@ -1,7 +1,7 @@
 #pragma once
-#include "Unit.hpp"
-#include "Rank.hpp"
-#include "Integration.hpp"
+#include "unit.hpp"
+#include "rank.hpp"
+#include "integration.hpp"
 #include <thread>
 #include <string>
 #include <atomic>

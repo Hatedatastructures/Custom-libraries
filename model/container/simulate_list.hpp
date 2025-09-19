@@ -1,6 +1,6 @@
 #pragma once
-#include "Exception.hpp"
-#include "Algorithm.hpp"
+#include "simulate_exception.hpp"
+#include "simulate_algorithm.hpp"
 namespace list_container
 {
   /*
