@@ -1645,6 +1645,6 @@ namespace wan
 
   namespace pol
   {
-  using namespace internals::structure_t;
+    using namespace internals::structure_t;
   }
 }
