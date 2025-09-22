@@ -234,10 +234,58 @@
 //   system("pause");
 //   return 0;
 // }
-#include "encryption.hpp"
+// #include "encryption.hpp"
 
+// int main()
+// {
+//   std::string value("hello,worsld!");
+//   std::cout << encryption::CyclicRedundancyCheck32(value) << std::endl;
+// }
+
+// #include <boost/asio.hpp>
+// #include <iostream>
+
+// int main()
+// {
+//   boost::asio::io_context io_context;
+//   // 创建解析器对象
+//   boost::asio::ip::tcp::resolver resolver(io_context);
+//   std::string hostname = "www.X.com";
+//   std::string service = "http"; // 或直接使用端口号字符串 "80"
+
+//   try
+//   {
+//     boost::asio::ip::tcp::resolver::results_type endpoints = resolver.resolve(hostname, service);
+//     std::cout << "IP addresses for " << hostname << " are:" << std::endl;
+//     // 遍历所有解析结果
+//     for (const auto &endpoint : endpoints)
+//     {
+//       // endpoint.endpoint().address() 获取解析出的IP地址
+//       std::cout << endpoint.endpoint().address() << std::endl;
+//     }
+//   }
+//   catch (boost::system::system_error &e)
+//   {
+//     // 解析失败，处理异常
+//     std::cerr << "Error: " << e.what() << std::endl;
+//   }
+
+//   return 0;
+// }
+#include <iostream>
+#include "agreement.hpp"
 int main()
 {
-  std::string value("hello,worsld!");
-  std::cout << encryption::CyclicRedundancyCheck32(value) << std::endl;
+  agreement::request request;
+  request.headers["Content-Type"] = "application/json";
+  request.path = "{\"name\":\"test\"}";
+  request.string_stream = "这个是请求体";
+  std::string request_str = request.to_string();
+
+  agreement::request re_v;
+  re_v.from_string(request_str);
+  
+  std::cout << re_v.to_string() << std::endl;
+  std::cout << request_str << std::endl;
+  return 0;
 }

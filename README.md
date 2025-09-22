@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![C++](https://img.shields.io/badge/C%2B%2B-17%2B-blue.svg)](https://en.cppreference.com/w/cpp/17) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![C++](https://img.shields.io/badge/C%2B%2B-20%2B-blue.svg)](https://en.cppreference.com/w/cpp/17) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
 </div>
 

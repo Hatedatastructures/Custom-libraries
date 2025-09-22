@@ -11,74 +11,170 @@
 #include <boost/beast/http.hpp>
 namespace agreement
 {
-  static constexpr std::uint64_t request_header_size = 12;
-  class request_header
+  class request
   {
   public:
-    std::uint32_t magic  = packet_identifier;
-    std::uint8_t version = current_version;
-    std::uint8_t status = 0;      // 请求端填 0
-    std::uint8_t cmd = 0;         // 命令字
-    std::uint8_t flags = 0;       // 扩展位
-    std::uint32_t body_len = 0;   // 负载长度
-    std::uint32_t detection = 0;  // 前 12 字节 CRC
+    std::string method;                                   // 请求方法（如"GET"、"POST"）
+    std::string path;                                     // 请求路径（如"/api/data"）
+    std::unordered_map<std::string, std::string> headers; // 头部字段
+    std::string string_stream;                            // 消息体
 
+    /**
+     * 序列化：将对象转换为string（格式：方法 路径\r\n头部键: 值\r\n...\r\n\r\n消息体）
+     */
     std::string to_string() const
     {
-      std::string output_str(request_header_size, 0);
-      std::memcpy(output_str.data(), this, request_header_size);
-      return output_str;
+      std::stringstream ss;
+      ss << method << " " << path << "\r\n";
+      for (const auto &[key, value] : headers)
+      {
+        ss << key << ": " << value << "\r\n";
+      }
+      ss << "\r\n";
+      ss << string_stream;
+      return ss.str();
     }
 
-    bool to_request_heafer(const std::string &data, const std::uint64_t len)
+    /**
+     * 反序列化：从string恢复对象（解析string中的数据到成员变量）
+     * @param data 输入的字符串（需符合序列化格式）
+     * @return 解析成功返回true，失败返回false
+     */
+    bool from_string(const std::string &data)
     {
-      if (len < request_header_size)
+      std::istringstream ss(data);
+      std::string line;
+
+      if (!std::getline(ss, line))
         return false;
-      std::memcpy(this, data.data(), request_header_size);
-      if(!verification(data))
+      if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+      std::istringstream req_line_ss(line);
+      if (!(req_line_ss >> method >> path))
         return false;
-      if(magic != packet_identifier|| version != current_version || status != 0 )
-        return false;
-      return true; 
+      headers.clear();
+      while (std::getline(ss, line))
+      {
+        if (!line.empty() && line.back() == '\r')
+          line.pop_back();
+        if (line.empty())
+          break;
+        size_t colon_pos = line.find(':');
+        if (colon_pos == std::string::npos)
+          return false;
+        std::string key = line.substr(0, colon_pos);
+        size_t value_pos = colon_pos + 1;
+        while (value_pos < line.size() && line[value_pos] == ' ')
+          value_pos++;
+        std::string value = line.substr(value_pos);
+        headers[key] = value;
+      }
+      std::stringstream body_ss;
+      body_ss << ss.rdbuf();
+      string_stream = body_ss.str();
+
+      return true;
     }
-  private:
-    bool verification(const std::string &data)
+  }; // end request
+
+  class response
+  {
+  public:
+    std::uint32_t status_code = 200;                      // 状态码（如200、404）
+    std::string status_msg;                               // 状态描述（如"OK"、"Not Found"）
+    std::unordered_map<std::string, std::string> headers; // 头部字段
+    std::string body;                                     // 消息体
+
+    /**
+     * 序列化：将对象转换为string（格式：状态码 描述\r\n头部键: 值\r\n...\r\n\r\n消息体）
+     */
+    std::string to_string() const
     {
-      if (len < request_header_size)
-        return false;
-      size_t copy_len = std::min(request_header_size, data.size());
-      std::memcpy(this, data.data(), copy_len);
-      return encryption::CyclicRedundancyCheck32(data.data(),request_header_size) == detection;
+      std::stringstream ss;
+      // 写入状态行
+      ss << status_code << " " << status_msg << "\r\n";
+      // 写入头部
+      for (const auto &[key, value] : headers)
+      {
+        ss << key << ": " << value << "\r\n";
+      }
+      // 头部与消息体分隔符
+      ss << "\r\n";
+      // 写入消息体
+      ss << body;
+      return ss.str();
     }
-  }; //end request_header
+
+    /**
+     * 反序列化：从string恢复对象
+     * @param data 输入的字符串（需符合序列化格式）
+     * @return 解析成功返回true，失败返回false
+     */
+    bool from_string(const std::string &data)
+    {
+      std::istringstream ss(data);
+      std::string line;
+
+      if (!std::getline(ss, line))
+        return false;
+      if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+      std::istringstream status_line_ss(line);
+      if (!(status_line_ss >> status_code))
+        return false;
+      std::getline(status_line_ss, status_msg);
+      status_msg = status_msg.substr(status_msg.find_first_not_of(" "));
+      headers.clear();
+      while (std::getline(ss, line))
+      {
+        if (!line.empty() && line.back() == '\r')
+          line.pop_back();
+        if (line.empty())
+          break;
+        size_t colon_pos = line.find(':');
+        if (colon_pos == std::string::npos)
+          return false;
+        std::string key = line.substr(0, colon_pos);
+        size_t value_pos = colon_pos + 1;
+        while (value_pos < line.size() && line[value_pos] == ' ')
+          value_pos++;
+        std::string value = line.substr(value_pos);
+        headers[key] = value;
+      }
+      std::stringstream body_ss;
+      body_ss << ss.rdbuf();
+      body = body_ss.str();
+      return true;
+    }
+  };
 
 } // end agreement
 
-namespace ip
-{
-  class underground_agreement
-  {
-    virtual underground_agreement() = 0;
-    // virtual void send_agreement(agreement::internal_agreement agreement) = 0;
-    virtual void connect(const std::string &ip, uint16_t port, ConnectCallback callback) = 0;
-    virtual bool bind(uint16_t port) = 0;
-    virtual bool send(const std::string &danetwork_packetta) = 0;
-    virtual void set_receive_callback(ReceiveCallback callback) = 0;
-    virtual void set_disconnect_callback(DisconnectCallback callback) = 0;
+// namespace ip
+// {
+//   class underground_agreement
+//   {
+//     virtual underground_agreement() = 0;
+//     // virtual void send_agreement(agreement::internal_agreement agreement) = 0;
+//     virtual void connect(const std::string &ip, uint16_t port, ConnectCallback callback) = 0;
+//     virtual bool bind(uint16_t port) = 0;
+//     virtual bool send(const std::string &danetwork_packetta) = 0;
+//     virtual void set_receive_callback(ReceiveCallback callback) = 0;
+//     virtual void set_disconnect_callback(DisconnectCallback callback) = 0;
 
-    // 关闭连接
-    virtual void close() = 0;
-  };
-  class udp : public underground_agreement
-  {
+//     // 关闭连接
+//     virtual void close() = 0;
+//   };
+//   class udp : public underground_agreement
+//   {
+//     boost::asio::ip::udp::socket socket;
+//   }; // end underground_agreement
+//   class tcp : public underground_agreement
+//   {
+//     boost::asio::ip::tcp::acceptor acceptor;
+//   }; // end tcp
+//   class http : public underground_agreement
+//   {
 
-  }; // end underground_agreement
-  class tcp : public underground_agreement
-  {
-
-  }; // end tcp
-  class http : public underground_agreement
-  {
-
-  }; // http
-} // end ip
+//   }; // http
+// } // end ip
