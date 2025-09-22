@@ -867,7 +867,7 @@ namespace encryption
     return out;
   }
 
-  static std::uint32_t CyclicRedundancyCheck32(const std::string &data,const std::uint64_t length)
+  static std::uint32_t CyclicRedundancyCheck32(const std::string &data,const std::uint64_t length = 16ULL)
   {
     static constexpr std::uint32_t mapping_table[256] = 
     {

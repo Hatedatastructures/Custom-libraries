@@ -239,7 +239,9 @@
 // int main()
 // {
 //   std::string value("hello,worsld!");
-//   std::cout << encryption::CyclicRedundancyCheck32(value) << std::endl;
+//   std::cout << encryption::CyclicRedundancyCheck32(value,19) << std::endl;
+//   std::cout << value << std::endl;
+//   return 0;
 // }
 
 // #include <boost/asio.hpp>
@@ -272,20 +274,41 @@
 
 //   return 0;
 // }
-#include <iostream>
-#include "agreement.hpp"
-int main()
-{
-  agreement::request request;
-  request.headers["Content-Type"] = "application/json";
-  request.path = "{\"name\":\"test\"}";
-  request.string_stream = "这个是请求体";
-  std::string request_str = request.to_string();
+// #include <iostream>
+// #include "agreement.hpp"
+// int main()
+// {
+//   agreement::request request;
+//   request.headers["Content-Type"] = "application/json";
+//   request.path = "{\"name\":\"test\"}";
+//   request.streaming_message_body = "这个是请求体";
+//   std::string request_str = request.to_string();
 
-  agreement::request re_v;
-  re_v.from_string(request_str);
-  
-  std::cout << re_v.to_string() << std::endl;
-  std::cout << request_str << std::endl;
-  return 0;
-}
+//   agreement::request re_v;
+//   re_v.from_string(request_str);
+
+//   std::cout << re_v.to_string() << std::endl;
+//   std::cout << request_str << std::endl;
+//   return 0;
+// }
+
+// #include "agreement.hpp"
+// int main()
+// {
+//   agreement::request_header header;
+//   header[std::string("Content-Type")] = "application/json";
+//   std::cout << header[std::string("Content-Type")] << std::endl;
+//   return 0;
+// }
+// #include "agreement.hpp"
+// int main()
+// {
+//   std::unordered_map<int, std::string> m;
+//   auto [it, inserted] = m.try_emplace(42, "answer");
+
+//   if (inserted)
+//     std::cout << "inserted: " << it->second << '\n';
+//   else
+//     std::cout << "already existed: " << it->second << '\n';
+//   return 0;
+// }
