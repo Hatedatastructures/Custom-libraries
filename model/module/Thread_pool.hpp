@@ -16,7 +16,12 @@ namespace internals::structure_t
   using namespace internals::structure_r;
   using namespace internals::structure_u;
   using namespace internals::structure_w;
+  
   using safety_scheduler_pointer = std::unique_ptr<scheduler_ordinary>;
+  /**
+   * @brief 可动态调整的线程池框架
+   * @note 支持动态调整线程数量，支持任务优先级，支持任务取消，支持任务超时，支持任务统计，支持任务监控，支持性能分析。
+   */
   class thread_pool
   {
   private:

@@ -1,255 +1,451 @@
 #pragma once
-#include "processing.hpp"
-#include "encryption.hpp"
-#include <iostream>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
-#include <string>
-#include <string>
-#include <format>
-#include <json/json.h>
 #include <algorithm>
-#include <boost/asio.hpp>
-#include <boost/beast/http.hpp>
+#include <charconv>
+#include <cctype>
+#include <format> 
+#include <cstdint>
+#include <utility>
+#include <json/json.h>
+#include "encryption.hpp"
+#include "processing.hpp"
 namespace agreement
 {
   class request_header
   {
+  private:
+    void assignment_logic(const request_header &other)
+    {
+      method = other.method;
+      verification_code = other.verification_code;
+      headers_string_len = other.headers_string_len;
+      headers = other.headers;
+    }
+    void assignment_logic(request_header &&other)
+    {
+      method = std::move(other.method);
+      verification_code = other.verification_code;
+      headers_string_len = other.headers_string_len;
+      headers = std::move(other.headers);
+    }
+
+  protected:
+    /**
+     * @brief 序列化 headers 的实现
+     * @warning 必须保证 headers 中的 key 是有序的，否则校验码计算会不一致
+     */
+    virtual void serialize_headers_to_string(std::string &out) const
+    {
+      // 先把哈希表的key映射到vector中 保证每次序列化顺序一致,保证校验码计算的准确性
+      std::vector<const std::string *> keys;
+      keys.reserve(headers.size());
+      for (const auto &kv : headers)
+        keys.push_back(&kv.first);
+      std::sort(keys.begin(), keys.end(), [](const std::string *a, const std::string *b){ return *a < *b; });
+
+      // 把键值追加到string中
+      for (const std::string *key_ptr : keys)
+      {
+        const std::string &key = *key_ptr;
+        const std::string &value = headers.at(key);
+        out.append(key);
+        out.append(": ");
+        out.append(value);
+        out.append("\r\n");
+      }
+    }
+
   public:
-    std::string method; // 请求方法（如"GET"、"POST"）
-    std::uint32_t verification_code; // 校验码
-    std::uint64_t headers_string_len; // 头部字段字节
-    std::unordered_map<std::string, std::string> headers; // 头部字段
+    std::string method;                                   // 请求方法
+    std::uint32_t verification_code = 0;                  // 校验码
+    std::uint64_t headers_string_len = 0;                 // 头部字段字节长度（用于 CRC）
+    std::unordered_map<std::string, std::string> headers; // 头部字段容器
 
-    request_header() {headers.reserve(12);}
+    request_header() { headers.reserve(12); }
 
+    request_header(const request_header &other) { assignment_logic(other); }
+    request_header(request_header &&other) { assignment_logic(std::forward<request_header>(other)); }
+
+    request_header &operator=(const request_header &other)
+    {
+      if (&other != this)
+        assignment_logic(other);
+      return *this;
+    }
+    request_header &operator=(request_header &&other)
+    {
+      if (&other != this)
+        assignment_logic(std::forward<request_header>(other));
+      return *this;
+    }
+
+    /**
+     * @brief 将请求头序列化为字符串（方法行 + headers + 空行）
+     * @note  `std::format` 风格，但 `headers` 使用 `append` 减少中间分配
+     */
     std::string to_string() const
     {
-      std::string out = std::format("{} {}\r\n", method, verification_code);
-      for (const auto &[key, value] : headers)
-      {
-        out += std::format("{}: {}\r\n", key, value);
-      }
-      out += "\r\n";
+      // 估算输出容量，尽量减少 reallocation
+      std::uint64_t estimate_size = static_cast<std::uint64_t>(method.size()) + 32 + static_cast<std::uint64_t>(headers.size()) * 32;
+      std::string out;
+      out.reserve(static_cast<std::size_t>(estimate_size + 16));
+
+      out += std::format("{} {}\r\n", method, verification_code);
+      serialize_headers_to_string(out);
+      out.append("\r\n");
       return out;
     }
+
     std::uint32_t calculation()
     {
-      verification_code = encryption::CyclicRedundancyCheck32(to_string(),headers_string_len);
+      verification_code = encryption::CyclicRedundancyCheck32(to_string(), headers_string_len);
       return verification_code;
     }
     bool verification() const
     {
-      return verification_code == encryption::CyclicRedundancyCheck32(to_string(),headers_string_len);
+      return verification_code == encryption::CyclicRedundancyCheck32(to_string(), headers_string_len);
     }
-    bool from_string(const std::string &request_header_string)
+
+    // 兼容接口：接受 std::string 引用（内部转为 string_view 处理）
+    bool from_string(const std::string &request_string)
     {
-      std::stringstream temporary_handling(request_header_string);
-      std::string line;
-      if(!std::getline(temporary_handling, line))
+      std::string_view header_view(request_string.data(), request_string.size());
+      return from_string(header_view);
+    }
+
+    /**
+     * @brief 高效解析接口：接受 header 字符串片段（不包含 `body`），使用 `std::string_view` 零拷贝解析
+     * @param header_view 只包含头部（直到 `\r\n\r\n` 前）的一段 `std::string_view`
+     * @return 解析成功返回 true，格式错误或解析失败返回 false
+     * @note 相比于json在网络中的解析和序列化，这个方法比之快3以上
+     */
+    bool from_string(std::string_view header_view)
+    {
+      if (header_view.empty())
         return false;
-      if(!line.empty() && line.back() == '\r')
-        line.pop_back();
-      std::stringstream first_line_stream(line);
-      if(!(first_line_stream >> method >> verification_code)) 
-        return false;
+
       headers.clear();
-      while (std::getline(temporary_handling, line)) 
+      headers.reserve(12); 
+
+      const char *raw_data = header_view.data();
+      std::uint64_t header_total_length = static_cast<std::uint64_t>(header_view.size());
+      std::uint64_t parse_position = 0;
+
+      // 查找第一行结束符 '\n'
+      std::uint64_t first_line_newline_pos = static_cast<std::uint64_t>(header_view.find('\n', parse_position));
+      if (first_line_newline_pos == std::string_view::npos)
+        return false;
+
+      // 计算第一行实际结束（去掉可能的 '\r'）
+      std::uint64_t first_line_end_pos = first_line_newline_pos;
+      if (first_line_end_pos > 0 && raw_data[first_line_end_pos - 1] == '\r')
+        --first_line_end_pos;
+
+      // 提取第一行内容并解析 method 与 verification_code
+      std::string_view first_line_view(raw_data + 0, static_cast<std::size_t>(first_line_end_pos));
+
+      // 解析 method（第一个 token）
+      std::uint64_t idx = 0;
+      while (idx < first_line_view.size() && first_line_view[idx] != ' ' && first_line_view[idx] != '\t')
+        ++idx;
+      if (idx == 0 || idx >= first_line_view.size())
+        return false;
+      method.assign(first_line_view.data(), static_cast<std::size_t>(idx));
+
+      // 跳过空白到 verification_code 开始
+      std::uint64_t code_start_index = idx;
+      while (code_start_index < first_line_view.size() && (first_line_view[code_start_index] == ' ' || first_line_view[code_start_index] == '\t'))
+        ++code_start_index;
+      if (code_start_index >= first_line_view.size())
+        return false;
+
+      // 找到 verification_code 结束
+      std::uint64_t code_end_index = code_start_index;
+      while (code_end_index < first_line_view.size() && first_line_view[code_end_index] != ' ' && first_line_view[code_end_index] != '\t')
+        ++code_end_index;
+      std::string_view code_subview(first_line_view.data() + code_start_index, static_cast<std::size_t>(code_end_index - code_start_index));
+
+      // 使用 from_chars 解析整数
       {
-        if (!line.empty() && line.back() == '\r')
-          line.pop_back();
-        if (line.empty())
-          break;
-        size_t colon_pos = line.find(':');
-        if (colon_pos == std::string::npos) 
+        auto parse_result = std::from_chars(code_subview.data(), code_subview.data() + code_subview.size(), verification_code);
+        if (parse_result.ec != std::errc() || parse_result.ptr != code_subview.data() + code_subview.size())
           return false;
-        std::string key = line.substr(0, colon_pos);
-        size_t value_start = colon_pos + 1;
-        while (value_start < line.size() && line[value_start] == ' ') 
-          value_start++;
-        std::string value = line.substr(value_start);
-        headers[key] = value;
       }
-      headers_string_len = to_string().size();
+
+      parse_position = first_line_newline_pos + 1;
+      if (parse_position > header_total_length)
+        return false;
+
+      while (parse_position < header_total_length)
+      {
+        // 查找本行结尾 '\n'
+        std::uint64_t line_newline_pos = static_cast<std::uint64_t>(header_view.find('\n', parse_position));
+        std::uint64_t line_end_pos = (line_newline_pos == std::string_view::npos) ? header_total_length : line_newline_pos;
+        std::uint64_t line_start_pos = parse_position;
+        std::uint64_t raw_line_length = (line_end_pos > line_start_pos) ? (line_end_pos - line_start_pos) : 0;
+
+        // 去掉尾部可能的 '\r'
+        if (raw_line_length > 0 && raw_data[line_start_pos + raw_line_length - 1] == '\r')
+          --raw_line_length;
+
+        if (raw_line_length == 0)
+          break;
+
+        std::string_view line_view(raw_data + line_start_pos, static_cast<std::size_t>(raw_line_length));
+        std::uint64_t colon_pos_in_line = static_cast<std::uint64_t>(line_view.find(':'));
+        if (colon_pos_in_line == std::string_view::npos)
+          return false;
+
+        std::string_view raw_key_view = line_view.substr(0, static_cast<std::size_t>(colon_pos_in_line));
+        raw_key_view = detail::rtrim_right(raw_key_view);
+        if (raw_key_view.empty())
+          return false;
+
+        std::string_view raw_value_view = line_view.substr(static_cast<std::size_t>(colon_pos_in_line + 1));
+        raw_value_view = detail::trim_both_ends(raw_value_view);
+
+        std::string key_string(raw_key_view.data(), raw_key_view.size());
+        std::string value_string(raw_value_view.data(), raw_value_view.size());
+        headers.emplace(std::move(key_string), std::move(value_string));
+
+        if (line_newline_pos == std::string_view::npos)
+        {
+          parse_position = header_total_length;
+          break;
+        }
+        parse_position = line_newline_pos + 1;
+      }
+      headers_string_len = static_cast<std::uint64_t>(to_string().size());
       return true;
     }
-    std::string& operator[](const std::string &key)
+
+    std::string &operator[](const std::string &key)     { return headers[key];      }
+    const std::string &at(const std::string &key) const { return headers.at(key); }
+  }; // request_header
+
+  template <class request_header_t = request_header>
+  class request
+  {
+  public:
+    request_header_t information;
+    std::string streaming_message_body;
+
+    request() = default;
+
+    request(const request_header_t &info, const std::string &body)
+    : information(info), streaming_message_body(body) {}
+
+    std::string to_string() const
     {
-      auto it = headers.find(key);
-      if (it != headers.end())
+      std::string header_str = information.to_string();
+      std::string out;
+      out.reserve(header_str.size() + streaming_message_body.size());
+      out.append(header_str);
+      out.append(streaming_message_body);
+      return out;
+    }
+
+    bool from_string(const std::string &request_string)
+    {
+      std::size_t header_boundary_pos = request_string.find("\r\n\r\n");
+      if (header_boundary_pos == std::string::npos)
+        return false;
+      std::string_view header_view(request_string.data(), header_boundary_pos);
+      if (!information.from_string(header_view))
+        return false;
+
+      if (!information.verification())
+        return false;
+
+      streaming_message_body.assign(request_string.data() + header_boundary_pos + 4, request_string.size() - (header_boundary_pos + 4));
+      return true;
+    }
+  }; // request
+
+  class response_header
+  {
+  protected:
+    virtual void serialize_headers_to_string(std::string &out) const
+    {
+      std::vector<const std::string *> keys;
+      keys.reserve(headers.size());
+      for (const auto &kv : headers)
+        keys.push_back(&kv.first);
+      std::sort(keys.begin(), keys.end(), [](const std::string *a, const std::string *b){ return *a < *b; });
+      for (const std::string *kp : keys)
       {
-        return it->second;
+        const std::string &key = *kp;
+        const std::string &value = headers.at(key);
+        out.append(key);
+        out.append(": ");
+        out.append(value);
+        out.append("\r\n");
       }
-      auto [create_iterator, create_logo] = headers.try_emplace(key, std::string());
-      return create_iterator->second;
     }
-    const std::string& at(const std::string& key) const
+
+  public:
+    std::string status_msg;
+    std::uint16_t status_code = 200;
+    std::uint32_t verification_code = 0;
+    std::uint32_t headers_string_len = 0;
+    std::unordered_map<std::string, std::string> headers;
+
+    response_header() { headers.reserve(12); }
+
+    // 序列化（状态行 + headers + 空行）
+    std::string to_string() const
     {
-      auto it = headers.find(key);
-      if (it == headers.end()) throw std::out_of_range("key not found");
-      return it->second;
+      std::uint64_t estimate_size = 32 + static_cast<std::uint64_t>(status_msg.size()) + static_cast<std::uint64_t>(headers.size()) * 32;
+      std::string out;
+      out.reserve(static_cast<std::size_t>(estimate_size));
+
+      out += std::format("{} {} {}\r\n", status_code, status_msg, verification_code);
+      serialize_headers_to_string(out);
+      out.append("\r\n");
+      return out;
     }
-  };
-  // template <class request_header_t = request_header>
-  // class request
-  // {
-  // public:
-  //   request_header_t header;
-  //   std::string streaming_message_body;                   // 消息体
 
-  //   //序列化：将对象转换为string（格式：方法 头部键: 值\r\n 消息体）
-  //   std::string to_string() const
-  //   {
-  //     std::stringstream ss;
-  //     ss << method << " " << path << "\r\n";
-  //     for (const auto &[key, value] : headers)
-  //     {
-  //       ss << key << ": " << value << "\r\n";
-  //     }
-  //     ss << "\r\n";
-  //     ss << streaming_message_body;
-  //     return ss.str();
-  //   }
+    bool from_string(const std::string &response_string)
+    {
+      std::string_view header_view(response_string.data(), response_string.size());
+      return from_string(header_view);
+    }
 
-  //   /**
-  //    * 反序列化：从string恢复对象（解析string中的数据到成员变量）
-  //    * @param data 输入的字符串（需符合序列化格式）
-  //    * @return 解析成功返回true，失败返回false
-  //    */
-  //   bool from_string(const std::string &data)
-  //   {
-  //     std::istringstream ss(data);
-  //     std::string line;
+    bool from_string(std::string_view header_view)
+    {
+      if (header_view.empty())
+        return false;
+      headers.clear();
+      headers.reserve(12);
 
-  //     if (!std::getline(ss, line))
-  //       return false;
-  //     if (!line.empty() && line.back() == '\r')
-  //       line.pop_back();
-  //     std::istringstream req_line_ss(line);
-  //     if (!(req_line_ss >> method >> path))
-  //       return false;
-  //     headers.clear();
-  //     while (std::getline(ss, line))
-  //     {
-  //       if (!line.empty() && line.back() == '\r')
-  //         line.pop_back();
-  //       if (line.empty())
-  //         break;
-  //       size_t colon_pos = line.find(':');
-  //       if (colon_pos == std::string::npos)
-  //         return false;
-  //       std::string key = line.substr(0, colon_pos);
-  //       size_t value_pos = colon_pos + 1;
-  //       while (value_pos < line.size() && line[value_pos] == ' ')
-  //         value_pos++;
-  //       std::string value = line.substr(value_pos);
-  //       headers[key] = value;
-  //     }
-  //     std::stringstream body_ss;
-  //     body_ss << ss.rdbuf();
-  //     streaming_message_body = body_ss.str();
+      const char *raw_data = header_view.data();
+      std::uint64_t header_total_length = static_cast<std::uint64_t>(header_view.size());
+      std::uint64_t parse_position = 0;
 
-  //     return true;
-  //   }
-  // }; // end request
+      // 解析第一行（状态行）
+      std::uint64_t first_line_newline_pos = static_cast<std::uint64_t>(header_view.find('\n', parse_position));
+      if (first_line_newline_pos == std::string_view::npos)
+        return false;
 
+      std::uint64_t first_line_end_pos = first_line_newline_pos;
+      if (first_line_end_pos > 0 && raw_data[first_line_end_pos - 1] == '\r')
+        --first_line_end_pos;
+
+      std::string_view first_line_view(raw_data + 0, static_cast<std::size_t>(first_line_end_pos));
+
+      std::uint64_t idx = 0;
+      while (idx < first_line_view.size() && !std::isspace(static_cast<unsigned char>(first_line_view[idx])))
+        ++idx;
+      if (idx == 0 || idx >= first_line_view.size())
+        return false;
+
+      unsigned int tmp_status_code = 0;
+      {
+        auto r = std::from_chars(first_line_view.data(), first_line_view.data() + idx, tmp_status_code);
+        if (r.ec != std::errc())
+          return false;
+      }
+      status_code = static_cast<std::uint16_t>(tmp_status_code);
+
+      // 解析 status_msg（下一个 token）
+      std::uint64_t msg_start = idx;
+      while (msg_start < first_line_view.size() && std::isspace(static_cast<unsigned char>(first_line_view[msg_start])))
+        ++msg_start;
+      if (msg_start >= first_line_view.size())
+        return false;
+
+      std::uint64_t msg_end = msg_start;
+      while (msg_end < first_line_view.size() && !std::isspace(static_cast<unsigned char>(first_line_view[msg_end])))
+        ++msg_end;
+      status_msg.assign(first_line_view.data() + msg_start, static_cast<std::size_t>(msg_end - msg_start));
+
+      // 解析 verification_code（剩余部分）
+      std::uint64_t code_start = msg_end;
+      while (code_start < first_line_view.size() && std::isspace(static_cast<unsigned char>(first_line_view[code_start])))
+        ++code_start;
+      if (code_start >= first_line_view.size())
+        return false;
+      {
+        auto r = std::from_chars(first_line_view.data() + code_start,first_line_view.data() + first_line_view.size(),
+        verification_code);
+        if (r.ec != std::errc())
+          return false;
+      }
+
+      // 移动到 headers 开始
+      parse_position = first_line_newline_pos + 1;
+
+      // 解析 headers 行（与 request_header 类似）
+      while (parse_position < header_total_length)
+      {
+        std::uint64_t line_newline_pos = static_cast<std::uint64_t>(header_view.find('\n', parse_position));
+        std::uint64_t line_end_pos = (line_newline_pos == std::string_view::npos) ? header_total_length : line_newline_pos;
+        std::uint64_t line_start_pos = parse_position;
+        std::uint64_t line_length = (line_end_pos > line_start_pos) ? (line_end_pos - line_start_pos) : 0;
+
+        if (line_length > 0 && raw_data[line_start_pos + line_length - 1] == '\r')
+          --line_length;
+        if (line_length == 0)
+          break;
+
+        std::string_view line_view(raw_data + line_start_pos, static_cast<std::size_t>(line_length));
+        std::uint64_t colon_pos = static_cast<std::uint64_t>(line_view.find(':'));
+        if (colon_pos == std::string_view::npos)
+          return false;
+
+        std::string_view key_view = line_view.substr(0, static_cast<std::size_t>(colon_pos));
+        key_view = detail::rtrim_right(key_view);
+        if (key_view.empty())
+          return false;
+
+        std::string_view value_view = line_view.substr(static_cast<std::size_t>(colon_pos + 1));
+        value_view = detail::trim_both_ends(value_view);
+
+        headers.emplace(std::string(key_view.data(), key_view.size()),std::string(value_view.data(), value_view.size()));
+
+        if (line_newline_pos == std::string_view::npos)
+          break;
+        parse_position = line_newline_pos + 1;
+      }
+      headers_string_len = static_cast<std::uint32_t>(to_string().size());
+      return true;
+    }
+  }; // response_header
+
+  template <class response_header_t = response_header>
   class response
   {
   public:
-    std::uint32_t status_code = 200;                      // 状态码（如200、404）
-    std::string status_msg;                               // 状态描述（如"OK"、"Not Found"）
-    std::unordered_map<std::string, std::string> headers; // 头部字段
-    std::string body;                                     // 消息体
+    response_header_t information;
+    std::string streaming_message_body;
 
-    /**
-     * 序列化：将对象转换为string（格式：状态码 描述\r\n头部键: 值\r\n...\r\n\r\n消息体）
-     */
     std::string to_string() const
     {
-      std::stringstream ss;
-      // 写入状态行
-      ss << status_code << " " << status_msg << "\r\n";
-      // 写入头部
-      for (const auto &[key, value] : headers)
-      {
-        ss << key << ": " << value << "\r\n";
-      }
-      // 头部与消息体分隔符
-      ss << "\r\n";
-      // 写入消息体
-      ss << body;
-      return ss.str();
+      std::string header_str = information.to_string();
+      std::string out;
+      out.reserve(header_str.size() + streaming_message_body.size());
+      out.append(header_str);
+      out.append(streaming_message_body);
+      return out;
     }
 
-    /**
-     * 反序列化：从string恢复对象
-     * @param data 输入的字符串（需符合序列化格式）
-     * @return 解析成功返回true，失败返回false
-     */
     bool from_string(const std::string &data)
     {
-      std::istringstream ss(data);
-      std::string line;
-
-      if (!std::getline(ss, line))
+      std::size_t header_end_pos = data.find("\r\n\r\n");
+      if (header_end_pos == std::string::npos)
         return false;
-      if (!line.empty() && line.back() == '\r')
-        line.pop_back();
-      std::istringstream status_line_ss(line);
-      if (!(status_line_ss >> status_code))
+      std::string_view header_view(data.data(), header_end_pos);
+      if (!information.from_string(header_view))
         return false;
-      std::getline(status_line_ss, status_msg);
-      status_msg = status_msg.substr(status_msg.find_first_not_of(" "));
-      headers.clear();
-      while (std::getline(ss, line))
-      {
-        if (!line.empty() && line.back() == '\r')
-          line.pop_back();
-        if (line.empty())
-          break;
-        size_t colon_pos = line.find(':');
-        if (colon_pos == std::string::npos)
-          return false;
-        std::string key = line.substr(0, colon_pos);
-        size_t value_pos = colon_pos + 1;
-        while (value_pos < line.size() && line[value_pos] == ' ')
-          value_pos++;
-        std::string value = line.substr(value_pos);
-        headers[key] = value;
-      }
-      std::stringstream body_ss;
-      body_ss << ss.rdbuf();
-      body = body_ss.str();
+      streaming_message_body.assign(data.data() + header_end_pos + 4, data.size() - (header_end_pos + 4));
       return true;
     }
+  }; // response
+  class json
+  {
+
   };
-
-} // end agreement
-
-// namespace ip
-// {
-//   class underground_agreement
-//   {
-//     virtual underground_agreement() = 0;
-//     // virtual void send_agreement(agreement::internal_agreement agreement) = 0;
-//     virtual void connect(const std::string &ip, uint16_t port, ConnectCallback callback) = 0;
-//     virtual bool bind(uint16_t port) = 0;
-//     virtual bool send(const std::string &danetwork_packetta) = 0;
-//     virtual void set_receive_callback(ReceiveCallback callback) = 0;
-//     virtual void set_disconnect_callback(DisconnectCallback callback) = 0;
-
-//     // 关闭连接
-//     virtual void close() = 0;
-//   };
-//   class udp : public underground_agreement
-//   {
-//     boost::asio::ip::udp::socket socket;
-//   }; // end underground_agreement
-//   class tcp : public underground_agreement
-//   {
-//     boost::asio::ip::tcp::acceptor acceptor;
-//   }; // end tcp
-//   class http : public underground_agreement
-//   {
-
-//   }; // http
-// } // end ip
+} // namespace agreement

@@ -312,3 +312,13 @@
 //     std::cout << "already existed: " << it->second << '\n';
 //   return 0;
 // }
+#include "agreement.hpp"
+int main()
+{
+    agreement::request request;
+    request.headers["Content-Type"] = "application/json";
+    request.streaming_message_body = "这个是请求体";
+    std::string request_str = request.to_string();
+    std::cout << request_str << std::endl;
+    return 0;
+}
