@@ -312,13 +312,57 @@
 //     std::cout << "already existed: " << it->second << '\n';
 //   return 0;
 // }
+// #include "agreement.hpp"
+// int main()
+// {
+//     agreement::request request;
+//     request.headers["Content-Type"] = "application/json";
+//     request.streaming_message_body = "这个是请求体";
+//     std::string request_str = request.to_string();
+//     std::cout << request_str << std::endl;
+//     return 0;
+// }
+// #include <json/json.h>
+// #include <iostream>
+// int main()
+// {
+//     Json::Value root;
+//     Json::Value array;
+//     Json::Value array2;
+//     array2.append("1");
+//     array2.append("2");
+//     array2.append(10ULL);
+//     array.append(array2);
+//     array.append("1");
+//     array.append("2");
+//     array.append(8ULL);
+//     root["array"] = array;
+//     root["name"] = "test";
+//     root["age"] = 20;
+//     std::cout << root.toStyledString() << std::endl;
+//     return 0;
+// }
+// #include "boost/json.hpp"
+// #include <iostream>
+// int main()
+// {
+//     boost::json::object obj;
+//     obj["wang"] = "123";
+//     obj["age"] = 18;
+//     obj["array"] = boost::json::array{1, 2, 3};
+//     std::cout << boost::json::serialize(obj) << std::endl;
+//     return 0;
+// }
+
 #include "agreement.hpp"
 int main()
 {
     agreement::request request;
-    request.headers["Content-Type"] = "application/json";
+    request.information.headers["Content-Type"] = "application/json";
     request.streaming_message_body = "这个是请求体";
     std::string request_str = request.to_string();
+    auto v = agreement::conversion_json(request);
+    std::cout << boost::json::serialize(v) << std::endl;
     std::cout << request_str << std::endl;
     return 0;
 }

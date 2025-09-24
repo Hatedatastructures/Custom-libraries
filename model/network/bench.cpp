@@ -602,7 +602,7 @@ struct BenchConfig
   int loops = 1000000;
   int num_headers = 12;
   int value_len = 35;
-  int repeats = 1000;            // 重复多少次取 median/mean
+  int repeats = 5;            // 重复多少次取 median/mean
   std::string which = "both"; // both / baseline / opt
   std::string method = "REQ";
 };

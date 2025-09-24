@@ -7,19 +7,19 @@
 
 namespace framework
 {
-  class tcp_server
+  class stream_gateway
   {
   private:
     wan::thread_pool thread_pool;
     boost::asio::io_context io_context;
   };
-  class udp_server
+  class datagram_gateway
   {
 
   };
-  class http_server
+  class application_host
   {
   private:
-    tcp_server tcp_server;
+    stream_gateway stream_gateway;
   };
 }
