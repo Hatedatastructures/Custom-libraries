@@ -72,6 +72,110 @@ namespace agreement
       }
       return m;
     }
+
+    // 从`JSON`对象中获取字符串值
+    inline bool string_from_json(const boost::json::object &obj, const std::string &key, std::string &out)
+    {
+      if (auto it = obj.if_contains(key); it && it->is_string())
+      {
+        out = it->as_string().c_str();
+        return true;
+      }
+      return false;
+    }
+
+    // 从`JSON`对象中获取无符号32位整数值
+    inline bool uint32_from_json(const boost::json::object &obj, const std::string &key, std::uint32_t &out)
+    {
+      if (auto it = obj.if_contains(key))
+      {
+        if (it->is_uint64())
+        {
+          out = static_cast<std::uint32_t>(it->as_uint64());
+          return true;
+        }
+        else if (it->is_int64())
+        {
+          out = static_cast<std::uint32_t>(it->as_int64());
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 从`JSON`对象中获取无符号64位整数值
+    inline bool uint64_from_json(const boost::json::object &obj, const std::string &key, std::uint64_t &out)
+    {
+      if (auto it = obj.if_contains(key))
+      {
+        if (it->is_uint64())
+        {
+          out = it->as_uint64();
+          return true;
+        }
+        else if (it->is_int64())
+        {
+          out = static_cast<std::uint64_t>(it->as_int64());
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 从`JSON`对象中获取16位无符号整数值
+    inline bool uint16_from_json(const boost::json::object &obj, const std::string &key, std::uint16_t &out)
+    {
+      if (auto it = obj.if_contains(key))
+      {
+        if (it->is_uint64())
+        {
+          out = static_cast<std::uint16_t>(it->as_uint64());
+          return true;
+        }
+        else if (it->is_int64())
+        {
+          out = static_cast<std::uint16_t>(it->as_int64());
+          return true;
+        }
+      }
+      return false;
+    }
+
+    //  验证`JSON`值是否为对象类型
+    inline bool validate_json_object(const boost::json::value &v, const std::string &type_name, std::string *err)
+    {
+      if (!v.is_object())
+      {
+        if (err)
+          *err = type_name + ": json is not object";
+        return false;
+      }
+      return true;
+    }
+
+    // 检查`JSON`对象中是否包含必需的字段
+    inline bool check_required_field(const boost::json::object &obj, const std::string &key, 
+    const std::string &type_name, const std::string &field_name, std::string *err)
+    {
+      if (!obj.if_contains(key))
+      {
+        if (err)
+          *err = type_name + ": missing " + field_name;
+        return false;
+      }
+      return true;
+    }
+
+    // 从`JSON`对象中提取headers映射
+    inline bool headers_from_json(const boost::json::object &obj, std::unordered_map<std::string, std::string> &headers)
+    {
+      if (auto it = obj.if_contains("headers"); it && it->is_object())
+      {
+        headers = json_object_to_map(it->as_object());
+        return true;
+      }
+      return false;
+    }
     
   }
 } // namespace agreement::agreement_detail_processing

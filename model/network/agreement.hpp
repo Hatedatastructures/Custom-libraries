@@ -470,7 +470,7 @@ namespace agreement
    * @param h request_header 实例
    * @return boost::json::value 转换后的 JSON 值
    */
-  inline boost::json::value conversion_json(const request_header &h)
+  inline boost::json::value to_json(const request_header &h)
   {
     boost::json::object obj;
     obj["method"] = h.method;
@@ -479,59 +479,47 @@ namespace agreement
     obj["headers"] = agreement_detail_processing::map_to_json_object(h.headers);
     return boost::json::value(std::move(obj));
   }
-  template <typename header_t>
-  inline boost::json::value conversion_json(const request<header_t> &r)
+
+  inline boost::json::value to_json(const response_header &h)
   {
     boost::json::object obj;
-    obj["information"] = conversion_json(r.information); 
+    obj["status_msg"] = h.status_msg;
+    obj["status_code"] = static_cast<uint64_t>(h.status_code);
+    obj["verification_code"] = static_cast<uint64_t>(h.verification_code);
+    obj["headers_string_len"] = static_cast<uint64_t>(h.headers_string_len);
+    obj["headers"] = agreement_detail_processing::map_to_json_object(h.headers);
+    return boost::json::value(std::move(obj));
+  }
+  template <typename header_t>
+  inline boost::json::value to_json(const request<header_t> &r)
+  {
+    boost::json::object obj;
+    obj["information"] = to_json(r.information); 
     obj["streaming_message_body"] = r.streaming_message_body;
     return boost::json::value(std::move(obj));
   }
   template <typename header_t>
-  inline boost::json::value conversion_json(const response<header_t> &r)
+  inline boost::json::value to_json(const response<header_t> &r)
   {
     boost::json::object obj;
-    obj["information"] = conversion_json(r.information); 
+    obj["information"] = to_json(r.information); 
     obj["streaming_message_body"] = r.streaming_message_body;
     return boost::json::value(std::move(obj));
   }
-  /**
-   * @brief 从 `JSON` 值转换为 `request_header`
-   * @param v JSON 值
-   * @param out 输出参数，转换后的 request_header
-   * @param err 可选参数，转换失败时的错误信息
-   * @return `true` 转换成功
-   * @return `false` 转换失败
-   */
+
   inline bool from_json(const boost::json::value &v, request_header &out, std::string *err = nullptr)
   {
     try
     {
-      if (!v.is_object())
-      {
-        if (err)
-          *err = "request_header: json is not object";
+      if (!agreement_detail_processing::validate_json_object(v, "request_header", err))
         return false;
-      }
+      
       const auto &o = v.as_object();
-      if (o.if_contains("method") && o.at("method").is_string())
-        out.method = o.at("method").as_string().c_str();
-      if (o.if_contains("verification_code"))
-      {
-        if (o.at("verification_code").is_uint64())
-          out.verification_code = static_cast<uint32_t>(o.at("verification_code").as_uint64());
-        else if (o.at("verification_code").is_int64())
-          out.verification_code = static_cast<uint32_t>(o.at("verification_code").as_int64());
-      }
-      if (o.if_contains("headers_string_len"))
-      {
-        if (o.at("headers_string_len").is_uint64())
-          out.headers_string_len = o.at("headers_string_len").as_uint64();
-        else if (o.at("headers_string_len").is_int64())
-          out.headers_string_len = static_cast<uint64_t>(o.at("headers_string_len").as_int64());
-      }
-      if (o.if_contains("headers") && o.at("headers").is_object())
-        out.headers = agreement_detail_processing::json_object_to_map(o.at("headers").as_object());
+      agreement_detail_processing::string_from_json(o, "method", out.method);
+      agreement_detail_processing::uint32_from_json(o, "verification_code", out.verification_code);
+      agreement_detail_processing::uint64_from_json(o, "headers_string_len", out.headers_string_len);
+      agreement_detail_processing::headers_from_json(o, out.headers);
+      
       return true;
     }
     catch (const std::exception &ex)
@@ -541,50 +529,20 @@ namespace agreement
       return false;
     }
   }
-  /**
-   * @brief 从 `JSON` 值转换为 `response_header`
-   * @param v JSON 值
-   * @param out 输出参数，转换后的 response_header
-   * @param err 可选参数，转换失败时的错误信息
-   * @return `true` 转换成功
-   * @return `false` 转换失败
-   */
   inline bool from_json(const boost::json::value &v, response_header &out, std::string *err = nullptr)
   {
     try
     {
-      if (!v.is_object())
-      {
-        if (err)
-          *err = "response_header: json is not object";
+      if (!agreement_detail_processing::validate_json_object(v, "response_header", err))
         return false;
-      }
+      
       const auto &o = v.as_object();
-      if (o.if_contains("status_msg") && o.at("status_msg").is_string())
-        out.status_msg = o.at("status_msg").as_string().c_str();
-      if (o.if_contains("status_code"))
-      {
-        if (o.at("status_code").is_uint64())
-          out.status_code = static_cast<uint16_t>(o.at("status_code").as_uint64());
-        else if (o.at("status_code").is_int64())
-          out.status_code = static_cast<uint16_t>(o.at("status_code").as_int64());
-      }
-      if (o.if_contains("verification_code"))
-      {
-        if (o.at("verification_code").is_uint64())
-          out.verification_code = static_cast<uint32_t>(o.at("verification_code").as_uint64());
-        else if (o.at("verification_code").is_int64())
-          out.verification_code = static_cast<uint32_t>(o.at("verification_code").as_int64());
-      }
-      if (o.if_contains("headers_string_len"))
-      {
-        if (o.at("headers_string_len").is_uint64())
-          out.headers_string_len = static_cast<uint32_t>(o.at("headers_string_len").as_uint64());
-        else if (o.at("headers_string_len").is_int64())
-          out.headers_string_len = static_cast<uint32_t>(o.at("headers_string_len").as_int64());
-      }
-      if (o.if_contains("headers") && o.at("headers").is_object())
-        out.headers = agreement_detail_processing::json_object_to_map(o.at("headers").as_object());
+      agreement_detail_processing::string_from_json(o, "status_msg", out.status_msg);
+      agreement_detail_processing::uint16_from_json(o, "status_code", out.status_code);
+      agreement_detail_processing::uint32_from_json(o, "verification_code", out.verification_code);
+      agreement_detail_processing::uint32_from_json(o, "headers_string_len", out.headers_string_len);
+      agreement_detail_processing::headers_from_json(o, out.headers);
+      
       return true;
     }
     catch (const std::exception &ex)
@@ -599,26 +557,14 @@ namespace agreement
   {
     try
     {
-      if (!v.is_object())
-      {
-        if (err)
-          *err = "request: json is not object";
+      if (!agreement_detail_processing::validate_json_object(v, "request", err))
         return false;
-      }
       const auto &o = v.as_object();
-      if (o.if_contains("information"))
-      {
-        if (!from_json(o.at("information"), out.information, err))
-          return false; 
-      }
-      else
-      {
-        if (err)
-          *err = "request: missing information";
+      if (!agreement_detail_processing::check_required_field(o, "information", "request", "information", err))
         return false;
-      }
-      if (o.if_contains("streaming_message_body") && o.at("streaming_message_body").is_string())
-        out.streaming_message_body = o.at("streaming_message_body").as_string().c_str();
+      if (!from_json(o.at("information"), out.information, err))
+        return false;
+      agreement_detail_processing::string_from_json(o, "streaming_message_body", out.streaming_message_body);
       return true;
     }
     catch (const std::exception &ex)
@@ -634,26 +580,14 @@ namespace agreement
   {
     try
     {
-      if (!v.is_object())
-      {
-        if (err)
-          *err = "response: json is not object";
+      if (!agreement_detail_processing::validate_json_object(v, "response", err))
         return false;
-      }
       const auto &o = v.as_object();
-      if (o.if_contains("information"))
-      {
-        if (!from_json(o.at("information"), out.information, err))
-          return false; // requires from_json for header_t
-      }
-      else
-      {
-        if (err)
-          *err = "response: missing information";
+      if (!agreement_detail_processing::check_required_field(o, "information", "response", "information", err))
         return false;
-      }
-      if (o.if_contains("streaming_message_body") && o.at("streaming_message_body").is_string())
-        out.streaming_message_body = o.at("streaming_message_body").as_string().c_str();
+      if (!from_json(o.at("information"), out.information, err))
+        return false;
+      agreement_detail_processing::string_from_json(o, "streaming_message_body", out.streaming_message_body);
       return true;
     }
     catch (const std::exception &ex)
