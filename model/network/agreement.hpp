@@ -235,7 +235,7 @@ namespace agreement
   /**
    * @brief 请求类
    * @details 包含请求头和请求体
-   * @note 模板参数 request_header_t 为请求头类型，默认使用 request_header
+   * @note 模板参数 `request_header_t` 为请求头类型，默认使用 `request_header`
    */
   template <class request_header_t = request_header>
   class request
