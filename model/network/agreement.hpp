@@ -127,7 +127,7 @@ namespace agreement
      * @brief 高效解析接口：接受 header 字符串片段（不包含 `body`），使用 `std::string_view` 零拷贝解析
      * @param header_view 只包含头部（直到 `\r\n\r\n` 前）的一段 `std::string_view`
      * @return 解析成功返回 true，格式错误或解析失败返回 false
-     * @note 相比于json在网络中的解析和序列化，这个方法比之快3以上
+     * @note 相比于json在网络中的解析和序列化，这个方法比之快3倍以上
      */
     bool from_string(std::string_view header_view)
     {
@@ -467,8 +467,8 @@ namespace agreement
 
   /**
    * @brief 将 `request_header` 转换为 `JSON` 值
-   * @param h request_header 实例
-   * @return boost::json::value 转换后的 JSON 值
+   * @param h `request_header` 实例
+   * @return `boost::json::value` 转换后的 `JSON` 值
    */
   inline boost::json::value to_json(const request_header &h)
   {

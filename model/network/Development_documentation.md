@@ -1,0 +1,3 @@
+class conversation 分离函数实现
+修复异步容器问题
+测试可行性

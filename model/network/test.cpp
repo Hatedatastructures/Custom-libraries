@@ -354,20 +354,28 @@
 //     return 0;
 // }
 
-#include "agreement.hpp"
+// #include "agreement.hpp"
+// int main()
+// {
+//   agreement::request request;
+//   request.information.headers["Content-Type"] = "application/json";
+//   request.streaming_message_body = "这个是请求体";
+//   std::string request_str = request.to_string();
+//   auto v = agreement::to_json(request);
+//   std::cout << boost::json::serialize(v) << std::endl;
+//   auto string_val = boost::json::serialize(v);
+//   std::cout << request_str << std::endl;
+//   agreement::request re_v;
+//   std::string erro;
+//   agreement::from_json(v, re_v, &erro);
+//   std::cout << boost::json::serialize(agreement::to_json(re_v)) << std::endl;
+//   return 0;
+// }
+#include "conversation.hpp"
 int main()
 {
-  agreement::request request;
-  request.information.headers["Content-Type"] = "application/json";
-  request.streaming_message_body = "这个是请求体";
-  std::string request_str = request.to_string();
-  auto v = agreement::to_json(request);
-  std::cout << boost::json::serialize(v) << std::endl;
-  auto string_val = boost::json::serialize(v);
-  std::cout << request_str << std::endl;
-  agreement::request re_v;
-  std::string erro;
-  agreement::from_json(v, re_v, &erro);
-  std::cout << boost::json::serialize(agreement::to_json(re_v)) << std::endl;
+  conversation_management::conversation conversation("127.0.0.1", 8080);
+  auto ip_value = conversation.remote_ip();
+  std::cout << ip_value << std::endl;
   return 0;
 }
