@@ -5,6 +5,7 @@
 #include <functional>
 #include "agreement.hpp"
 
+
 namespace message_packaging
 {
   enum class message_direction : std::uint8_t 
@@ -104,6 +105,53 @@ namespace message_packaging
   }; // response_packaging
 } // namespace message_packaging
 
+/**
+ * @brief 序列化/反序列化 traits 类
+ * @tparam other_t 要序列化/反序列化的类型
+ */
+template <typename other_t>
+class serialization_traits
+{
+public:
+  /**
+   * @brief 序列化
+   * @param value 待序列化的值
+   * @return `std::string` 序列化后的字符串
+   */
+  static std::string serialize(other_t& value) = delete;
+  /**
+   * @brief 反序列化数据
+   * @param data 待反序列化的
+   * @return `std::string` 反序列化后的字符串
+   */
+  static std::string deserialize(other_t& data) = delete;
+};
+
+template <>
+class serialization_traits<std::string>
+{
+public:
+  static std::string serialize(std::string& value)  {return value;}
+  static std::string deserialize(std::string& data) {return data;}
+};
+
+template <>
+class serialization_traits<message_packaging::general_packaging>
+{
+public:
+  static std::string serialize(message_packaging::general_packaging& value)  
+  {
+    return value.serialize();
+  }
+  static std::string deserialize(message_packaging::general_packaging& data) 
+  {
+    std::string value;
+    if(data.deserialize(value))
+      return value;
+    return "";
+  }
+};
+
 namespace message_function_utility
 {
   //处理conversation类的类型自动转换函数钩子，方便直接进行发送数据
@@ -113,7 +161,6 @@ namespace conversation_management
 {
   using function_type = std::function<void(boost::asio::ip::tcp::socket &)>;
 
-  using transmission_protocol = message_packaging::general_packaging;
   using transmission_callback = std::function<void(boost::system::error_code, std::uint64_t)>;
 
   class conversation
@@ -138,31 +185,15 @@ namespace conversation_management
         return 0;
       return boost::asio::write(this->_socket, boost::asio::buffer(transmission_value));
     }
-    std::uint64_t internal_transmission(transmission_protocol& transmission_value)
-    {
-      return internal_transmission(transmission_value.serialize());
-    }
-    std::uint64_t internal_transmission(boost::json::value& transmission_value)
-    {
-      return internal_transmission(boost::json::serialize(transmission_value));
-    }
 
-    std::uint64_t internal_transmission_async(std::string& transmission_value, transmission_callback callback)
+    std::uint64_t internal_transmission_async(const std::string& transmission_value, transmission_callback callback)
     {
       if(!socket_status() || transmission_value.empty())
         return 0;
       if(!callback)
-        return boost::asio::async_write(this->_socket, boost::asio::buffer(transmission_value));
+        boost::asio::async_write(this->_socket, boost::asio::buffer(transmission_value));
       else
-        return boost::asio::async_write(this->_socket, boost::asio::buffer(transmission_value), callback);
-    }
-    std::uint64_t internal_transmission_async(transmission_protocol& transmission_value, transmission_callback callback)
-    {
-      return internal_transmission_async(transmission_value.serialize(), callback);
-    }
-    std::uint64_t internal_transmission_async(boost::json::value& transmission_value, transmission_callback callback)
-    {
-      return internal_transmission_async(boost::json::serialize(transmission_value), callback);
+        boost::asio::async_write(this->_socket, boost::asio::buffer(transmission_value), callback);
     }
 
     std::uint64_t internal_acceptance(std::string& transmission_value)
@@ -171,26 +202,13 @@ namespace conversation_management
         return 0;
       return boost::asio::read(this->_socket, boost::asio::buffer(transmission_value));
     }
-    std::uint64_t internal_acceptance(transmission_protocol& transmission_value)
-    {
-      return internal_acceptance(transmission_value.serialize());
-    }
-    std::uint64_t internal_acceptance(boost::json::value& transmission_value)
-    {
-      return internal_acceptance(boost::json::serialize(transmission_value));
-    }
+
   public:
-    conversation(boost::asio::ip::tcp::socket socket) : _start_time(std::chrono::system_clock::now()) 
+    conversation(boost::asio::ip::tcp::socket&& socket) 
+    :_socket(std::move(socket)), _start_time(std::chrono::system_clock::now()) 
     {
-      this->_socket = std::move(socket);
-      this->_port = socket.remote_endpoint().port();
-      this->_ip = socket.remote_endpoint().address().to_string();
-    }
-    conversation(const std::string& ip, std::uint16_t port) : _start_time(std::chrono::system_clock::now()) 
-    {
-      this->_ip = ip;
-      this->_port = port;
-      this->_socket = boost::asio::ip::tcp::socket(this->_socket.get_executor());
+      this->_port = _socket.remote_endpoint().port();
+      this->_ip = _socket.remote_endpoint().address().to_string();
     }
     /**
      * @brief 同步传输数据
@@ -201,7 +219,7 @@ namespace conversation_management
     template <typename transmission_data_type>
     std::uint64_t transmission(transmission_data_type& transmission_value)
     {
-      return internal_transmission(transmission_value);
+      return internal_transmission(serialization_traits<transmission_data_type>::serialize(transmission_value));
     }
     /**
      * @brief 异步传输数据
@@ -213,7 +231,7 @@ namespace conversation_management
     template <typename transmission_data_type>
     std::uint64_t transmission_async(transmission_data_type& transmission_value, transmission_callback callback)
     {
-      return internal_transmission_async(transmission_value, callback);
+      return internal_transmission_async(serialization_traits<transmission_data_type>::serialize(transmission_value), callback);
     }
     /**
      * @brief 同步接收数据
@@ -224,7 +242,7 @@ namespace conversation_management
     template <typename transmission_data_type>
     std::uint64_t acceptance(transmission_data_type& transmission_value)
     {
-      return internal_acceptance(transmission_value);
+      return internal_acceptance(serialization_traits<transmission_data_type>::deserialize(transmission_value));
     }
     std::string remote_ip() const
     {

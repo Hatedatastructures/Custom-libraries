@@ -374,7 +374,13 @@
 #include "conversation.hpp"
 int main()
 {
-  conversation_management::conversation conversation("127.0.0.1", 8080);
+  boost::asio::io_context io;
+  boost::asio::ip::tcp::socket socket(io);
+  // boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("124.71.136.228"),static_cast<std::uint16_t>(6779));
+  socket.connect(endpoint); // 连接到服务器地址
+  conversation_management::conversation conversation(std::move(socket));
+  std::string value ("hello world,来自客户端的消息");
+  conversation.transmission(value);
   auto ip_value = conversation.remote_ip();
   std::cout << ip_value << std::endl;
   return 0;
