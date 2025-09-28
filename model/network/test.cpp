@@ -385,6 +385,7 @@
 //   std::cout << ip_value << std::endl;
 //   return 0;
 // }
+
 #include "conversation.hpp"
 #include <iostream>
 #include <thread>
@@ -415,17 +416,21 @@ int main()
   };
   auto receive_function = [&conversation]()
   {
-    while(true)
+    while (true)
     {
       std::string received_value;
-      auto bytes_received = [](boost::system::error_code ec, std::size_t bytes_transferred)
-      {
-        if(!ec)
-          std::cout << "异步接收数据成功，字节数: " << bytes_transferred << std::endl;
-        else
-          std::cout << "异步接收数据失败，错误信息: " << ec.message() << std::endl;
-      };
-      conversation.acceptance_async(received_value, bytes_received);
+      // auto bytes_received = [receive_function](boost::system::error_code ec, std::size_t bytes_transferred)
+      // {
+      //   if(ec)
+      //     std::cout << "异步接收数据失败，错误信息: " << ec.message() << std::endl;
+      //   receive_function();
+      // };
+      // if(conversation.acceptance_async(received_value, bytes_received))
+      // {
+      //   std::cout << "接收数据: " << received_value << std::endl;
+      // }
+      conversation.acceptance(received_value);
+      std::cout << "接收数据: " << received_value << std::endl;
     }
   };
   send_thread = std::jthread(send_function);

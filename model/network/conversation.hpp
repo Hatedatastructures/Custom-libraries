@@ -127,7 +127,7 @@ public:
    * @param value 待序列化的值
    * @return `std::string` 序列化后的字符串
    */
-  static std::string serialize(other_t& value) = delete;
+  static std::string serialize(const other_t& value) = delete;
   /***
    * @brief 反序列化数据
    * @param data 待反序列化的数据
@@ -141,7 +141,7 @@ template <>
 class serialization_traits<std::string>
 {
 public:
-  static std::string serialize(std::string& value)  {return value;}
+  static std::string serialize(const std::string& value)  {return value;}
   static bool deserialize(std::string& data, std::string& value)  { value = data; return true;}
 };
 
@@ -149,7 +149,7 @@ template <>
 class serialization_traits<message_packaging::general_packaging>
 {
 public:
-  static std::string serialize(message_packaging::general_packaging& value)  
+  static std::string serialize(const message_packaging::general_packaging& value)  
   {
     return value.serialize();
   }
@@ -164,7 +164,7 @@ class serialization_traits<polymorphism_t,std::enable_if_t<std::is_base_of_v<mes
 {
 public:
   // 调用派生类的serialize()（多态生效）
-  static std::string serialize(polymorphism_t& value)  
+  static std::string serialize(const polymorphism_t& value)  
   {
     return value.serialize();
   }
@@ -229,14 +229,16 @@ namespace conversation_management
     {
       if(!socket_status())
         return 0;
-      return boost::asio::read(this->_socket, boost::asio::buffer(received_value));
+      return boost::asio::read(this->_socket, boost::asio::dynamic_buffer(received_value));
     }
 
     bool do_acceptance_async(std::string& received_value, transmission_callback callback)
     {
       if(!socket_status() || !callback)
         return false;
-      boost::asio::async_read(this->_socket, boost::asio::buffer(received_value), callback);
+      boost::asio::async_read(this->_socket, boost::asio::dynamic_buffer(received_value), callback);
+      if(received_value.empty())
+        return false;
       return true;
     }
   public:
@@ -304,7 +306,7 @@ namespace conversation_management
         std::string received_value;
         std::uint64_t acceptance_string_len = do_acceptance(received_value);
         if(acceptance_string_len > 0)
-          serialization_traits<transmission_data_type>::deserialize(acceptance_string_len,transmission_value);
+          serialization_traits<transmission_data_type>::deserialize(received_value,transmission_value);
         return acceptance_string_len;
       }
       catch(const std::exception& e)
@@ -319,18 +321,26 @@ namespace conversation_management
      * @tparam transmission_data_type 接收数据的类型
      * @param transmission_value 接收数据
      * @param callback 接收完成回调函数
-     * @return `std::uint64_t` 接收数据的字节数
+     * @return `bool` 是否正常打开连接
      */
     template <typename transmission_data_type>
     bool acceptance_async(transmission_data_type& transmission_value, transmission_callback callback)
     {
       try
       {
-        std::string received_value;
-        bool acceptance_value = do_acceptance_async(received_value,callback);
-        if(acceptance_value)
-          serialization_traits<transmission_data_type>::deserialize(received_value,transmission_value);
-        return acceptance_value;
+        auto received_value = std::make_shared<std::string>();
+        auto wrapped_callback = [callback,received_value,&transmission_value](boost::system::error_code ec, std::size_t len)
+        {
+          if(!ec)
+            serialization_traits<transmission_data_type>::deserialize(*received_value,transmission_value);
+          callback(ec, len);
+        };
+        return do_acceptance_async(*received_value, wrapped_callback);
+        // std::string received_value;
+        // bool acceptance_value = do_acceptance_async(received_value,callback);
+        // if(acceptance_value)
+        //   serialization_traits<transmission_data_type>::deserialize(received_value,transmission_value);
+        // return acceptance_value;
       }
       catch(const std::exception& e)
       {
