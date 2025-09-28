@@ -371,17 +371,66 @@
 //   std::cout << boost::json::serialize(agreement::to_json(re_v)) << std::endl;
 //   return 0;
 // }
+// #include "conversation.hpp"
+// int main()
+// {
+//   boost::asio::io_context io;
+//   boost::asio::ip::tcp::socket socket(io);
+//   boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("124.71.136.228"),static_cast<std::uint16_t>(6779));
+//   socket.connect(endpoint); // 连接到服务器地址
+//   conversation_management::conversation conversation(std::move(socket));
+//   std::string value ("hello world,来自客户端的消息");
+//   std::cout << conversation.transmission(value) << std::endl;
+//   auto ip_value = conversation.remote_ip();
+//   std::cout << ip_value << std::endl;
+//   return 0;
+// }
 #include "conversation.hpp"
+#include <iostream>
+#include <thread>
 int main()
 {
   boost::asio::io_context io;
   boost::asio::ip::tcp::socket socket(io);
-  // boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("124.71.136.228"),static_cast<std::uint16_t>(6779));
+  boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("124.71.136.228"), static_cast<std::uint16_t>(6779));
   socket.connect(endpoint); // 连接到服务器地址
   conversation_management::conversation conversation(std::move(socket));
-  std::string value ("hello world,来自客户端的消息");
-  conversation.transmission(value);
-  auto ip_value = conversation.remote_ip();
-  std::cout << ip_value << std::endl;
+  std::jthread receive_thread; std::jthread send_thread;
+
+  auto send_function = [&conversation]() 
+  {
+    while (true)
+    {
+      agreement::request header;
+      header.information.method = "回复";
+      header.information.headers["Content-Type"] = "application/json";
+      header.information["Custom-Header"] = "CustomValue";
+      std::cout << "请输入发送的消息内容: ";
+      std::getline(std::cin, header.streaming_message_body);
+      if(header.streaming_message_body == "exit")
+        break;
+      message_packaging::request_packaging request(header);
+      conversation.transmission(request);
+    }
+  };
+  auto receive_function = [&conversation]()
+  {
+    while(true)
+    {
+      std::string received_value;
+      auto bytes_received = [](boost::system::error_code ec, std::size_t bytes_transferred)
+      {
+        if(!ec)
+          std::cout << "异步接收数据成功，字节数: " << bytes_transferred << std::endl;
+        else
+          std::cout << "异步接收数据失败，错误信息: " << ec.message() << std::endl;
+      };
+      conversation.acceptance_async(received_value, bytes_received);
+    }
+  };
+  send_thread = std::jthread(send_function);
+  receive_thread = std::jthread(receive_function);
+  send_thread.join();
+  receive_thread.join();
   return 0;
 }
