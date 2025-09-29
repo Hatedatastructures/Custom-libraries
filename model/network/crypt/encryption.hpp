@@ -262,8 +262,8 @@ namespace encryption
 
   // ---------- 哈希辅助 ----------
   /**
-   * @brief 提供常用哈希函数（MD5, SHA256）。仅作为辅助工具。
-   * @note MD5 被认为对抗碰撞攻击不再安全，不应用于安全签名场景，仅用于兼容或校验场合。
+   * @brief 提供常用哈希函数（`MD5`, `SHA256`）。仅作为辅助工具。
+   * @note `MD5` 被认为对抗碰撞攻击不再安全，不应用于安全签名场景，仅用于兼容或校验场合。
    */
   class umbrage_hash
   {
@@ -271,18 +271,18 @@ namespace encryption
     /**
      * @brief 计算 MD5 摘要并返回 hex 字符串
      * @param data 输入数据
-     * @return 32 字节 hex 字符串
+     * @return 32 字节 `hex` 字符串
      * @note 性质：散列（非加密）
-     * @note 安全性：MD5 不再推荐用于安全目的（碰撞弱），仅用于兼容性或非安全校验。
+     * @note 安全性：`MD5` 不再推荐用于安全目的（碰撞弱），仅用于兼容性或非安全校验。
      */
     static std::string MD5(const std::string &data);
 
     /**
      * @brief 计算 SHA256 摘要并返回 hex 字符串
      * @param data 输入数据
-     * @return 64 字节 hex 字符串
+     * @return 64 字节 `hex` 字符串
      * @note 性质：散列（非加密）
-     * @note 安全性：SHA256 目前被广泛接受为安全散列函数。
+     * @note 安全性：`SHA256` 目前被广泛接受为安全散列函数。
      */
     static std::string SHA256(const std::string &data);
   };
@@ -850,7 +850,6 @@ namespace encryption
     }
   }
 
-  // 实现: umbrage_hash
   std::string umbrage_hash::MD5(const std::string &data)
   {
     std::string out;
@@ -867,7 +866,7 @@ namespace encryption
     return out;
   }
 
-  static std::uint32_t CyclicRedundancyCheck32(const std::string &data,const std::uint64_t length = 16ULL)
+  static std::uint32_t CRC32(const std::string &data,const std::uint64_t length = 16ULL)
   {
     static constexpr std::uint32_t mapping_table[256] = 
     {

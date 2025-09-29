@@ -239,7 +239,7 @@
 // int main()
 // {
 //   std::string value("hello,worsld!");
-//   std::cout << encryption::CyclicRedundancyCheck32(value,19) << std::endl;
+//   std::cout << encryption::CRC32(value,19) << std::endl;
 //   std::cout << value << std::endl;
 //   return 0;
 // }
