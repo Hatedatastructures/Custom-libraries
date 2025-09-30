@@ -358,97 +358,88 @@
 
 //   };
 // } // namespace conversation_management
-bool protocol::request_header::from_string(std::string_view data)
+bool protocol::response_header::from_string(std::string_view data)
 {
   if (data.empty())
     return false;
   _headers.clear();
+  std::size_t pos = 0;
 
-  // 辅助函数：从字符串视图解析数值
-  auto parse_num = [](std::string_view sv, auto &out)
-  {
-    return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
-  };
-
-  // 辅助函数：修剪字符串首尾空格
-  auto trim = [](std::string_view &sv)
-  {
-    while (!sv.empty() && std::isspace(sv.front()))
-      sv.remove_prefix(1);
-    while (!sv.empty() && std::isspace(sv.back()))
-      sv.remove_suffix(1);
-  };
-
-  // 解析请求行
-  std::size_t pos = 0, data_size = data.size();
-  std::size_t line_end = data.find("\r\n", pos);
-  if (line_end == std::string_view::npos)
+  if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
     return false;
-
-  std::string_view req_line = data.substr(pos, line_end - pos);
-  std::vector<std::string_view> parts;
-  for (std::size_t i = 0, start = 0; i <= req_line.size(); ++i)
+  else
   {
-    if (i == req_line.size() || req_line[i] == ' ')
+    std::vector<std::string_view> parts;
+    for (std::size_t i = pos, s = pos; i <= le; ++i)
     {
-      if (i > start)
-        parts.push_back(req_line.substr(start, i - start));
-      start = i + 1;
-    }
-  }
-  if (parts.size() < 6)
-    return false;
-
-  // 解析请求行字段
-  _method = std::string(parts[0]);
-  _target = std::string(parts[1]);
-  if (!parse_num(parts[2], _version))
-    return false;
-
-  std::uint8_t checksum_type_val;
-  if (!parse_num(parts[3], checksum_type_val))
-    return false;
-  _checksum_type = static_cast<checksum_type>(checksum_type_val);
-
-  if (!parse_num(parts[4], _checksum_value))
-    return false;
-  if (!parse_num(parts[5], _content_length))
-    return false;
-
-  // 解析头部字段
-  for (pos = line_end + 2; pos < data_size; pos = line_end + 2)
-  {
-    if ((line_end = data.find("\r\n", pos)) == std::string_view::npos)
-      break;
-    std::string_view line = data.substr(pos, line_end - pos);
-    if (line.empty())
-      break;
-
-    std::size_t colon_pos = line.find(':');
-    if (colon_pos == std::string_view::npos)
-      continue;
-
-    std::string_view key = line.substr(0, colon_pos);
-    std::string_view val = line.substr(colon_pos + 1);
-    trim(key);
-    trim(val);
-
-    std::string key_str(key), val_str(val);
-    if (key_str == "User-Agent")
-    {
-      _user_agent = val_str;
-    }
-    else if (key_str == "Timestamp")
-    {
-      std::int64_t ts;
-      if (parse_num(val_str, ts))
-      {
-        _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
+      if (i == le || data[i] == ' ')
+      { 
+        if (i > s)
+          parts.push_back(data.substr(s, i - s));
+        s = i + 1;
       }
     }
+    if (parts.size() < 6)
+      return false;
+
+    auto parse = [](std::string_view sv, auto &out)
+    {
+      return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
+    };
+
+ 
+    if (!parse(parts[0], _version) || !parse(parts[1], _status_code))
+      return false;
+    _status_message = std::string(parts[2]);
+    std::uint8_t ctype_val;
+    if (!parse(parts[3], ctype_val) || !parse(parts[4], _checksum_value) ||
+        !parse(parts[5], _content_length))
+      return false;
+    _checksum_type = static_cast<checksum_type>(ctype_val);
+    pos = le + 2;
+  }
+
+
+  auto trim = [](std::string_view &sv)
+  {
+    const auto start = sv.find_first_not_of(" \t");
+    if (start == std::string_view::npos)
+    {
+      sv = "";
+      return;
+    }
+    const auto end = sv.find_last_not_of(" \t");
+    sv = sv.substr(start, end - start + 1);
+  };
+
+  for (; pos < data.size(); pos = le + 2)
+  {
+    if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
+      break;
     else
     {
-      _headers[key_str] = val_str;
+      std::string_view line = data.substr(pos, le - pos);
+      if (line.empty())
+        break;
+
+      if (const auto colon = line.find(':'); colon != std::string_view::npos)
+      {
+        std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
+        trim(k);
+        trim(v);
+
+        std::string key(k), val(v);
+        if (key == "Server")
+          _server = val;
+        else if (key == "Timestamp")
+        {
+          std::int64_t ts;
+          if (parse(val, ts))
+            _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
+        }
+        else
+          _headers[key] = val;
+      }
     }
   }
 

@@ -101,10 +101,13 @@ namespace protocol::auxiliary
 
     // 清空所有头部字段
     void clear_headers() noexcept { _headers.clear(); }
+
     // 移除头部字段
     bool remove_header(const std::string &key) { return _headers.erase(key) > 0; }
-    // 设置头部字段 key value 
+
+    // 设置头部字段 `key` `value`
     void set_header(const std::string &key, const std::string &value) { _headers[key] = value; }
+
     //  获取所有头部字段
     const std::unordered_map<std::string, std::string> &get_headers() const noexcept { return _headers; }
     /**

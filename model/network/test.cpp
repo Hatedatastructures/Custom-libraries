@@ -386,56 +386,70 @@
 //   return 0;
 // }
 
-#include "conversation.hpp"
+// #include "conversation.hpp"
+// #include <iostream>
+// #include <thread>
+// int main()
+// {
+//   boost::asio::io_context io;
+//   boost::asio::ip::tcp::socket socket(io);
+//   boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("124.71.136.228"), static_cast<std::uint16_t>(6779));
+//   socket.connect(endpoint); // 连接到服务器地址
+//   conversation_management::conversation conversation(std::move(socket));
+//   std::jthread receive_thread; std::jthread send_thread;
+
+//   auto send_function = [&conversation]() 
+//   {
+//     while (true)
+//     {
+//       agreement::request header;
+//       header.information.method = "回复";
+//       header.information.headers["Content-Type"] = "application/json";
+//       header.information["Custom-Header"] = "CustomValue";
+//       std::cout << "请输入发送的消息内容: ";
+//       std::getline(std::cin, header.streaming_message_body);
+//       if(header.streaming_message_body == "exit")
+//         break;
+//       message_packaging::request_packaging request(header);
+//       conversation.transmission(request);
+//     }
+//   };
+//   auto receive_function = [&conversation]()
+//   {
+//     while (true)
+//     {
+//       std::string received_value;
+//       // auto bytes_received = [receive_function](boost::system::error_code ec, std::size_t bytes_transferred)
+//       // {
+//       //   if(ec)
+//       //     std::cout << "异步接收数据失败，错误信息: " << ec.message() << std::endl;
+//       //   receive_function();
+//       // };
+//       // if(conversation.acceptance_async(received_value, bytes_received))
+//       // {
+//       //   std::cout << "接收数据: " << received_value << std::endl;
+//       // }
+//       conversation.acceptance(received_value);
+//       std::cout << "接收数据: " << received_value << std::endl;
+//     }
+//   };
+//   send_thread = std::jthread(send_function);
+//   receive_thread = std::jthread(receive_function);
+//   send_thread.join();
+//   receive_thread.join();
+//   return 0;
+// }
+// #include "agreement.hpp"
 #include <iostream>
 #include <thread>
+#include <memory>
+#include "agreement/protocol.hpp"
 int main()
 {
-  boost::asio::io_context io;
-  boost::asio::ip::tcp::socket socket(io);
-  boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("124.71.136.228"), static_cast<std::uint16_t>(6779));
-  socket.connect(endpoint); // 连接到服务器地址
-  conversation_management::conversation conversation(std::move(socket));
-  std::jthread receive_thread; std::jthread send_thread;
-
-  auto send_function = [&conversation]() 
-  {
-    while (true)
-    {
-      agreement::request header;
-      header.information.method = "回复";
-      header.information.headers["Content-Type"] = "application/json";
-      header.information["Custom-Header"] = "CustomValue";
-      std::cout << "请输入发送的消息内容: ";
-      std::getline(std::cin, header.streaming_message_body);
-      if(header.streaming_message_body == "exit")
-        break;
-      message_packaging::request_packaging request(header);
-      conversation.transmission(request);
-    }
-  };
-  auto receive_function = [&conversation]()
-  {
-    while (true)
-    {
-      std::string received_value;
-      // auto bytes_received = [receive_function](boost::system::error_code ec, std::size_t bytes_transferred)
-      // {
-      //   if(ec)
-      //     std::cout << "异步接收数据失败，错误信息: " << ec.message() << std::endl;
-      //   receive_function();
-      // };
-      // if(conversation.acceptance_async(received_value, bytes_received))
-      // {
-      //   std::cout << "接收数据: " << received_value << std::endl;
-      // }
-      conversation.acceptance(received_value);
-      std::cout << "接收数据: " << received_value << std::endl;
-    }
-  };
-  send_thread = std::jthread(send_function);
-  receive_thread = std::jthread(receive_function);
-  send_thread.join();
-  receive_thread.join();
+  protocol::request request;
+  request.header().set_header("Content-Type", "application/json");
+  auto value = request.header().get_header("Content-Type").value().data();
+  request.set_message("这个是请求体");
+  std::cout << request.to_string() << std::endl;
   return 0;
 }
