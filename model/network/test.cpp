@@ -451,5 +451,11 @@ int main()
   auto value = request.header().get_header("Content-Type").value().data();
   request.set_message("这个是请求体");
   std::cout << request.to_string() << std::endl;
+
+  protocol::response response;
+  response.header().set_header("Content-Type", "application/json");
+  response.set_message("这个是响应体");
+  response.set_status_code(200);
+  std::cout << response.to_string() << std::endl;
   return 0;
 }

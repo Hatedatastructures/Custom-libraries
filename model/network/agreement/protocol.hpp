@@ -484,7 +484,277 @@ namespace protocol
     }
 
   public:
+    response() = default;
+
+    explicit response(const header_t &header) : _header(header) {}
+
+    response(const header_t &header, const std::string &body)
+    : _header(header), _message(body) {}
+
+    response(const header_t &header, std::string &&body)
+    : _header(header), _message(std::move(body)) {}
+
+    // 便利构造函数（用于快速创建响应）
+    response(std::uint16_t status_code, const std::string &status_message, const std::string &body = "")
+    : _message(body)
+    {
+      if constexpr (std::is_same_v<header_t, response_header>)
+      {
+        _header.set_status_code(status_code);
+        _header.set_status_message(status_message);
+      }
+    }
+    response(const response &other)
+    : _header(other._header), _message(other._message) {}
+
+    response(response &&other) noexcept
+    : _header(std::move(other._header)), _message(std::move(other._message)), _cached_full(std::move(other._cached_full)), _full_cache_valid(other._full_cache_valid)
+    {
+      other._full_cache_valid = false;
+    }
+
+    response &operator=(const response &other)
+    {
+      if (this != &other)
+      {
+        _header = other._header;
+        _message = other._message;
+        _invalidate_cache();
+      }
+      return *this;
+    }
+
+    response &operator=(response &&other) noexcept
+    {
+      if (this != &other)
+      {
+        _header = std::move(other._header);
+        _message = std::move(other._message);
+        _cached_full = std::move(other._cached_full);
+        _full_cache_valid = other._full_cache_valid;
+        other._full_cache_valid = false;
+      }
+      return *this;
+    }
+    const header_t &header() const noexcept { return _header; }
+
+    header_t &header() noexcept
+    {
+      _invalidate_cache();
+      return _header;
+    }
+
+    const std::string &body() const noexcept { return _message; }
+
+    void set_message(const std::string &body)
+    {
+      _message = body;
+      _invalidate_cache();
+    }
+
+    void set_message(std::string &&body)
+    {
+      _message = std::move(body);
+      _invalidate_cache();
+    }
+
+    // 便利方法（仅适用于 response_header ） 如果类型不符合 则忽略函数
+
+    template <typename current_header_t = header_t>
+    std::enable_if_t<std::is_same_v<current_header_t, response_header>, std::uint16_t>
+    get_status_code() const noexcept
+    {
+      return _header.get_status_code();
+    }
+
+    template <typename current_header_t = header_t>
+    std::enable_if_t<std::is_same_v<current_header_t, response_header>, void>
+    set_status_code(std::uint16_t code)
+    {
+      _header.set_status_code(code);
+      _invalidate_cache();
+    }
+
+    template <typename current_header_t = header_t>
+    std::enable_if_t<std::is_same_v<current_header_t, response_header>, const std::string &>
+    get_status_message() const noexcept
+    {
+      return _header.get_status_message();
+    }
+
+    template <typename current_header_t = header_t>
+    std::enable_if_t<std::is_same_v<current_header_t, response_header>, void>
+    set_status_message(const std::string &message)
+    {
+      _header.set_status_message(message);
+      _invalidate_cache();
+    }
+
+    const std::string &to_string() const
+    {
+      if (!_full_cache_valid)
+      {
+        // 先计算并设置校验值
+        const_cast<header_t &>(_header).calculate_and_set_checksum(_message);
+
+        _cached_full = _header.to_string() + _message;
+        _full_cache_valid = true;
+      }
+      return _cached_full;
+    }
+
+    /**
+     * @brief 从字符串反序列化
+     * @param data 完整的响应字符串
+     * @return 是否成功
+     */
+    bool from_string(std::string_view data)
+    {
+      // 查找头部结束标志
+      std::size_t header_end = data.find("\r\n\r\n");
+      if (header_end == std::string_view::npos)
+        return false;
+
+      // 解析头部
+      std::string_view header_data = data.substr(0, header_end + 2); // 包含最后的\r\n
+      if (!_header.from_string(header_data))
+        return false;
+
+      // 提取body
+      std::size_t body_start = header_end + 4; // 跳过 "\r\n\r\n"
+      if (body_start < data.size())
+        _message = std::string(data.substr(body_start));
+      else
+        _message.clear();
+      _invalidate_cache();
+      // 验证数据完整性
+      return _header.verify_integrity(_message);
+    }
+
+    json to_json() const
+    {
+      json json_object;
+      json_object.set("header", _header.to_json().to_string());
+      json_object.set("body", _message);
+      return json_object;
+    }
+    /**
+     * @brief 从JSON反序列化
+     * @param json_object JSON对象
+     * @return 是否成功
+     */
+    bool from_json(const json &json_object)
+    {
+      try
+      {
+        std::string header_json_str = json_object.get<std::string>("header", "");
+        if (!header_json_str.empty())
+        {
+          json header_json(header_json_str);
+          if (!_header.from_json(header_json))
+            return false;
+        }
+        _message = json_object.get<std::string>("body", "");
+        _invalidate_cache();
+        return true;
+      }
+      catch (...)
+      {
+        return false;
+      }
+    }
+
+    /**
+     * @brief 验证响应完整性
+     * @return 验证是否通过
+     */
+    bool verify_integrity() const
+    {
+      return _header.verify_integrity(_message);
+    }
+    /**
+     * @brief 获取响应大小（字节）
+     * @return 响应大小
+     */
+    std::uint64_t size() const
+    {
+      return to_string().size();
+    }
+    /**
+     * @brief 检查是否为空响应
+     * @return 是否为空
+     */
+    bool empty() const noexcept
+    {
+      return _message.empty();
+    }
+
+    bool operator==(const response &other) const noexcept
+    {
+      return _header.to_string() == other._header.to_string() && _message == other._message;
+    }
+
+    bool operator!=(const response &other) const noexcept
+    {
+      return !(*this == other);
+    }
+
+    static response create_success(const std::string &body = "", const std::string &server = "")
+    {
+      response resp(200, "OK", body);
+      if constexpr (std::is_same_v<header_t, response_header>)
+      {
+        if (!server.empty())
+          resp._header.set_server(server);
+      }
+      return resp;
+    }
+    static response create_error(std::uint16_t code, const std::string &message, const std::string &body = "")
+    {
+      return response(code, message, body);
+    }
+
+    static response create_not_found(const std::string &body = "not found")
+    {
+      return response(404, "not found", body);
+    }
+
+    static response create_internal_error(const std::string &body = "internal server error")
+    {
+      return response(500, "internal server error", body);
+    }
   }; // end class response
+  class json
+  {
+  private:
+    boost::json::value _value;                 // JSON值
+    mutable std::string _cached_json;          // 缓存的JSON字符串
+    mutable bool _string_cache_valid = false;  // 字符串缓存是否有效
+
+  private:
+    /**
+     * @brief 无效化字符串缓存
+     */
+    void _invalidate_cache() const
+    {
+      _string_cache_valid = false;
+    }
+  public:
+
+    bool operator==(const json &other) const noexcept
+    {
+      return _value == other._value;
+    }
+
+    bool operator!=(const json &other) const noexcept
+    {
+      return !(*this == other);
+    }
+  };
+  namespace conversion
+  {
+
+  } // end namespace conversion
 } // end namespace protocol
 
 
