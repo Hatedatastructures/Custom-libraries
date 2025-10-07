@@ -1,10 +1,10 @@
 #pragma once
 #include <string>
 #include <boost/json.hpp>
+#include "./json.hpp"
 #include "../crypt/encryption.hpp"
 namespace protocol
 {
-  class json;
   namespace auxiliary {}
 } // end namespace protocol
 
