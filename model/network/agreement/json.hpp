@@ -114,48 +114,22 @@ namespace protocol
     }
 
     /**
-     * @brief 类型安全的值获取
-     * @tparam current_header_t 目标类型
+     * @brief 简化的类型安全值获取（支持任意类型）
+     * @tparam T 目标类型（支持所有boost::json::value_to支持的类型）
      * @param key 键名
-     * @param default_value 默认值
-     * @return 获取的值或默认值
+     * @param default_value 转换失败时的默认值
+     * @return 从JSON中获取的值或默认值
      */
-    template <typename current_header_t>
-    current_header_t get(const std::string &key, const current_header_t &default_value = current_header_t{}) const noexcept
+    template <typename T>
+    T get(const std::string &key, const T &default_value = T{}) const noexcept
     {
       try
       {
-        if (!_value.is_object())
+        // 确保JSON是对象类型且包含指定键
+        if (!_value.is_object() || !_value.as_object().contains(key))
           return default_value;
-
-        const auto &obj = _value.as_object();
-        auto it = obj.find(key);
-        if (it == obj.end())
-          return default_value;
-
-        if constexpr (std::is_same_v<current_header_t, std::string>)
-        {
-          if (it->value().is_string())
-            return std::string(it->value().as_string());
-        }
-        else if constexpr (std::is_integral_v<current_header_t>)
-        {
-          if (it->value().is_int64())
-            return static_cast<current_header_t>(it->value().as_int64());
-          if (it->value().is_uint64())
-            return static_cast<current_header_t>(it->value().as_uint64());
-        }
-        else if constexpr (std::is_floating_point_v<current_header_t>)
-        {
-          if (it->value().is_double())
-            return static_cast<current_header_t>(it->value().as_double());
-        }
-        else if constexpr (std::is_same_v<current_header_t, bool>)
-        {
-          if (it->value().is_bool())
-            return it->value().as_bool();
-        }
-        return default_value;
+        // 利用boost::json::value_to转换为目标类型（支持任意类型）
+        return boost::json::value_to<T>(_value.as_object().at(key));
       }
       catch (...)
       {
@@ -164,45 +138,28 @@ namespace protocol
     }
 
     /**
-     * @brief 类型安全的值设置
-     * @tparam current_header_t 值类型
+     * @brief 简化的类型安全值设置（支持任意类型）
+     * @tparam T 值类型（支持所有boost::json::value_from支持的类型）
      * @param key 键名
-     * @param value 值
+     * @param value 要设置的值（任意类型）
      */
-    template <typename current_header_t>
-    void set(const std::string &key, const current_header_t &value)
+    template <typename T>
+    void set(const std::string &key, const T &value)
     {
-      if (!_value.is_object())
-        _value = boost::json::object{};
+      try
+      {
+        // 确保JSON是对象类型
+        if (!_value.is_object())
+          _value = boost::json::object{};
 
-      auto &obj = _value.as_object();
-
-      if constexpr (std::is_same_v<current_header_t, std::string>)
-      {
-        obj[key] = value;
+        // 利用boost::json::value_from将任意类型转换为boost::json::value
+        _value.as_object()[key] = boost::json::value_from(value);
+        _invalidate_cache();
       }
-      else if constexpr (std::is_integral_v<current_header_t>)
+      catch (...)
       {
-        if constexpr (std::is_signed_v<current_header_t>)
-          obj[key] = static_cast<std::int64_t>(value);
-        else
-          obj[key] = static_cast<std::uint64_t>(value);
+        // 转换失败时可根据需求处理（此处忽略，保持原逻辑）
       }
-      else if constexpr (std::is_floating_point_v<current_header_t>)
-      {
-        obj[key] = static_cast<double>(value);
-      }
-      else if constexpr (std::is_same_v<current_header_t, bool>)
-      {
-        obj[key] = value;
-      }
-      else
-      {
-        // 对于其他类型，尝试转换为字符串
-        obj[key] = std::to_string(value);
-      }
-
-      _invalidate_cache();
     }
 
     /**
