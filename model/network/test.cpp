@@ -440,15 +440,17 @@
 //   return 0;
 // }
 // #include "agreement.hpp"
+
 #include <iostream>
 #include <thread>
 #include <memory>
 #include "agreement/protocol.hpp"
+
 int main()
 {
   protocol::request request;
   request.header().set_header("Content-Type", "application/json");
-  auto value = request.header().get_header("Content-Type").value().data();
+  // auto value = request.header().get_header("Content-Type").value().data();
   request.set_message("这个是请求体");
   std::cout << request.to_string() << std::endl;
 

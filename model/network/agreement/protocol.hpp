@@ -22,12 +22,12 @@ namespace protocol
    * @brief 协议头约束
    * @details 定义了协议头的基础接口，要求实现序列化、反序列化、校验和计算等功能
    */
-  template <typename request_header_t>
-  concept header_constraint = requires(request_header_t header,std::string_view data,const json& json_object,std::string_view content) 
+  template <class header_t>
+  concept header_constraint = requires(header_t header,std::string_view data,const protocol::json& json_object,std::string_view content) 
   {
     { header.to_string() } -> std::same_as<std::string>;
     { header.from_string(data) } -> std::same_as<bool>;
-    { header.to_json() } -> std::same_as<json>;
+    { header.to_json() } -> std::same_as<protocol::json>;
     { header.from_json(json_object) } -> std::same_as<bool>;
     { header.verify_integrity(content) } -> std::same_as<bool>;
     { header.calculate_and_set_checksum(content) } -> std::same_as<std::uint32_t>;
@@ -119,9 +119,9 @@ namespace protocol
      * @brief 转换为JSON
      * @return JSON对象
      */
-    json to_json() const override
+    protocol::json to_json() const override
     {
-      json json_object = protocol_header::to_json();
+      protocol::json json_object = protocol_header::to_json();
       json_object.set("method", _method);
       json_object.set("target", _target);
       json_object.set("user_agent", _user_agent);
@@ -136,7 +136,7 @@ namespace protocol
      * @param json_object `JSON`对象
      * @return 是否成功
      */
-    bool from_json(const json &json_object) override
+    bool from_json(const protocol::json &json_object) override
     {
       if (!protocol_header::from_json(json_object))
         return false;
@@ -229,9 +229,9 @@ namespace protocol
      * @brief 转换为JSON
      * @return JSON对象
      */
-    json to_json() const override
+    protocol::json to_json() const override
     {
-      json json_object = protocol_header::to_json();
+      protocol::json json_object = protocol_header::to_json();
       json_object.set("status_code", _status_code);
       json_object.set("status_message", _status_message);
       json_object.set("server", _server);
@@ -239,7 +239,7 @@ namespace protocol
       json_object.set("timestamp", timestamp_ms);
       return json_object;
     }
-    bool from_json(const json &json_object) override
+    bool from_json(const protocol::json &json_object) override
     {
       if (!protocol_header::from_json(json_object))
         return false;
@@ -388,9 +388,9 @@ namespace protocol
      * @brief 转换为JSON
      * @return JSON对象
      */
-    json to_json() const
+    protocol::json to_json() const
     {
-      json json_object;
+      protocol::json json_object;
       json_object.set("header", _header.to_json().to_string());
       json_object.set("body", _message);
       return json_object;
@@ -400,14 +400,14 @@ namespace protocol
      * @param json_object JSON对象
      * @return 是否成功
      */
-    bool from_json(const json &json_object)
+    bool from_json(const protocol::json &json_object)
     {
       try
       {
         std::string header_json_str = json_object.get<std::string>("header", "");
         if (!header_json_str.empty())
         {
-          json header_json(header_json_str);
+          protocol::json header_json(header_json_str);
           if (!_header.from_json(header_json))
             return false;
         }
@@ -629,9 +629,9 @@ namespace protocol
       return _header.verify_integrity(_message);
     }
 
-    json to_json() const
+    protocol::json to_json() const
     {
-      json json_object;
+      protocol::json json_object;
       json_object.set("header", _header.to_json().to_string());
       json_object.set("body", _message);
       return json_object;
@@ -641,14 +641,14 @@ namespace protocol
      * @param json_object JSON对象
      * @return 是否成功
      */
-    bool from_json(const json &json_object)
+    bool from_json(const protocol::json &json_object)
     {
       try
       {
         std::string header_json_str = json_object.get<std::string>("header", "");
         if (!header_json_str.empty())
         {
-          json header_json(header_json_str);
+          protocol::json header_json(header_json_str);
           if (!_header.from_json(header_json))
             return false;
         }
@@ -736,6 +736,11 @@ bool protocol::request_header::from_string(std::string_view data)
   _headers.clear();
   std::size_t pos = 0;
 
+  auto parse = [](std::string_view sv, auto &out)
+  {
+    return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
+  };
+
   if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
     return false;
   else
@@ -752,11 +757,6 @@ bool protocol::request_header::from_string(std::string_view data)
     }
     if (parts.size() < 6)
       return false;
-
-    auto parse = [](std::string_view sv, auto &out)
-    {
-      return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
-    };
     _method = std::string(parts[0]);
     _target = std::string(parts[1]);
     std::uint8_t ctype_val;
@@ -779,34 +779,35 @@ bool protocol::request_header::from_string(std::string_view data)
     sv = sv.substr(start, end - start + 1);
   };
 
-  for (; pos < data.size(); pos = le + 2)
+  for (; pos < data.size();)
   {
-    if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
+    const auto next_le = data.find("\r\n", pos);
+    if (next_le == std::string_view::npos)
       break;
-    else
+    
+    std::string_view line = data.substr(pos, next_le - pos);
+    pos = next_le + 2;
+    
+    if (line.empty())
+      break;
+
+    if (const auto colon = line.find(':'); colon != std::string_view::npos)
     {
-      std::string_view line = data.substr(pos, le - pos);
-      if (line.empty())
-        break;
+      std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
+      trim(k);
+      trim(v);
 
-      if (const auto colon = line.find(':'); colon != std::string_view::npos)
+      std::string key(k), val(v);
+      if (key == "User-Agent")
+        _user_agent = val;
+      else if (key == "Timestamp")
       {
-        std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
-        trim(k);
-        trim(v);
-
-        std::string key(k), val(v);
-        if (key == "User-Agent")
-          _user_agent = val;
-        else if (key == "Timestamp")
-        {
-          std::int64_t ts;
-          if (parse(val, ts))
-            _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
-        }
-        else
-          _headers[key] = val;
+        std::int64_t ts;
+        if (parse(val, ts))
+          _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
       }
+      else
+        _headers[key] = val;
     }
   }
   return true;
@@ -818,6 +819,11 @@ bool protocol::response_header::from_string(std::string_view data)
     return false;
   _headers.clear();
   std::size_t pos = 0;
+
+  auto parse = [](std::string_view sv, auto &out)
+  {
+    return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
+  };
 
   if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
     return false;
@@ -836,11 +842,6 @@ bool protocol::response_header::from_string(std::string_view data)
     if (parts.size() < 6)
       return false;
 
-    auto parse = [](std::string_view sv, auto &out)
-    {
-      return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
-    };
-
     if (!parse(parts[0], _version) || !parse(parts[1], _status_code))
       return false;
     _status_message = std::string(parts[2]);
@@ -848,7 +849,7 @@ bool protocol::response_header::from_string(std::string_view data)
     if (!parse(parts[3], ctype_val) || !parse(parts[4], _checksum_value) ||
         !parse(parts[5], _content_length))
       return false;
-    _checksum_type = static_cast<checksum_type>(ctype_val);
+    _checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
     pos = le + 2;
   }
 
@@ -864,34 +865,35 @@ bool protocol::response_header::from_string(std::string_view data)
     sv = sv.substr(start, end - start + 1);
   };
 
-  for (; pos < data.size(); pos = le + 2)
+  for (; pos < data.size();)
   {
-    if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
+    const auto next_le = data.find("\r\n", pos);
+    if (next_le == std::string_view::npos)
       break;
-    else
+    
+    std::string_view line = data.substr(pos, next_le - pos);
+    pos = next_le + 2;
+    
+    if (line.empty())
+      break;
+
+    if (const auto colon = line.find(':'); colon != std::string_view::npos)
     {
-      std::string_view line = data.substr(pos, le - pos);
-      if (line.empty())
-        break;
+      std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
+      trim(k);
+      trim(v);
 
-      if (const auto colon = line.find(':'); colon != std::string_view::npos)
+      std::string key(k), val(v);
+      if (key == "Server")
+        _server = val;
+      else if (key == "Timestamp")
       {
-        std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
-        trim(k);
-        trim(v);
-
-        std::string key(k), val(v);
-        if (key == "Server")
-          _server = val;
-        else if (key == "Timestamp")
-        {
-          std::int64_t ts;
-          if (parse(val, ts))
-            _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
-        }
-        else
-          _headers[key] = val;
+        std::int64_t ts;
+        if (parse(val, ts))
+          _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
       }
+      else
+        _headers[key] = val;
     }
   }
   return true;

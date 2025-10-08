@@ -163,9 +163,9 @@ namespace protocol::auxiliary
      * @brief 转换为`JSON`
      * @return `JSON`对象
      */
-    virtual json to_json() const
+    virtual protocol::json to_json() const
     {
-      json json_object;
+      protocol::json json_object;
       json_object.set("protocol_type", static_cast<std::uint8_t>(_protocol_type));
       json_object.set("checksum_type", static_cast<std::uint8_t>(_checksum_type));
       json_object.set("checksum_value", _checksum_value);
@@ -182,7 +182,7 @@ namespace protocol::auxiliary
      * @param json_object `JSON`对象
      * @return 是否成功
      */
-    virtual bool from_json(const json &json_object)
+    virtual bool from_json(const protocol::json &json_object)
     {
       try
       {
