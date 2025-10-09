@@ -3,6 +3,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <chrono>
 #include <concepts> //模板约束
 #include <algorithm>
 #include <charconv>
@@ -356,7 +357,12 @@ namespace protocol
       { // `calculate_and_set_checksum` 作用： 计算消息体校验码并设置校验码
         const_cast<header_t &>(_header).calculate_and_set_checksum(_message);
 
-        _cached_full = _header.to_string() + _message;
+        // 优化字符串拼接性能，预分配内存避免多次重新分配
+        const auto& header_str = _header.to_string();
+        _cached_full.clear();
+        _cached_full.reserve(header_str.size() + _message.size());
+        _cached_full.append(header_str);
+        _cached_full.append(_message);
         _full_cache_valid = true;
       }
       return _cached_full;
@@ -391,7 +397,7 @@ namespace protocol
     protocol::json to_json() const
     {
       protocol::json json_object;
-      json_object.set("header", _header.to_json().to_string());
+      json_object.set("header", _header.to_json().value());
       json_object.set("body", _message);
       return json_object;
     }
@@ -595,7 +601,12 @@ namespace protocol
         // 先计算并设置校验值
         const_cast<header_t &>(_header).calculate_and_set_checksum(_message);
 
-        _cached_full = _header.to_string() + _message;
+        // 优化字符串拼接性能，预分配内存避免多次重新分配
+        const auto& header_str = _header.to_string();
+        _cached_full.clear();
+        _cached_full.reserve(header_str.size() + _message.size());
+        _cached_full.append(header_str);
+        _cached_full.append(_message);
         _full_cache_valid = true;
       }
       return _cached_full;
@@ -632,7 +643,7 @@ namespace protocol
     protocol::json to_json() const
     {
       protocol::json json_object;
-      json_object.set("header", _header.to_json().to_string());
+      json_object.set("header", _header.to_json().value());
       json_object.set("body", _message);
       return json_object;
     }
@@ -731,170 +742,327 @@ namespace protocol
 
 bool protocol::request_header::from_string(std::string_view data)
 {
-  if (data.empty())
+  // 边界检查：确保数据不为空且有最小长度
+  if (data.empty() || data.size() < 10) // 最小合理长度检查
     return false;
-  _headers.clear();
+    
+  // 异常安全：使用RAII清理，只在成功时提交更改
+  std::unordered_map<std::string, std::string> temp_headers;
+  std::string temp_method, temp_target, temp_user_agent;
+  std::uint32_t temp_version = 0, temp_checksum_value = 0, temp_content_length = 0;
+  auxiliary::checksum_type temp_checksum_type = auxiliary::checksum_type::CRC32;
+  std::chrono::system_clock::time_point temp_timestamp;
+  
   std::size_t pos = 0;
 
-  auto parse = [](std::string_view sv, auto &out)
+  // 安全的解析函数，添加边界检查
+  auto safe_parse = [](std::string_view sv, auto &out) -> bool
   {
-    return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
+    if (sv.empty() || sv.size() > 20) // 防止过长的数字字符串
+      return false;
+    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), out);
+    return result.ec == std::errc{} && result.ptr == sv.data() + sv.size();
   };
 
-  if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
+  // 查找第一行结束位置，添加边界检查
+  const auto le = data.find("\r\n", pos);
+  if (le == std::string_view::npos || le >= data.size() - 1)
     return false;
-  else
+    
+  // 解析第一行（请求行）
+  std::vector<std::string_view> parts;
+  parts.reserve(8); // 预分配空间避免重复分配
+  
+  for (std::size_t i = pos, s = pos; i <= le; ++i)
   {
-    std::vector<std::string_view> parts;
-    for (std::size_t i = pos, s = pos; i <= le; ++i)
+    if (i == le || data[i] == ' ')
     {
-      if (i == le || data[i] == ' ')
-      {
-        if (i > s)
-          parts.push_back(data.substr(s, i - s));
-        s = i + 1;
-      }
+      if (i > s && parts.size() < 10) // 限制parts数量防止内存攻击
+        parts.push_back(data.substr(s, i - s));
+      s = i + 1;
     }
-    if (parts.size() < 6)
-      return false;
-    _method = std::string(parts[0]);
-    _target = std::string(parts[1]);
-    std::uint8_t ctype_val;
-    if (!parse(parts[2], _version) || !parse(parts[3], ctype_val) ||!parse(parts[4], _checksum_value) 
-        || !parse(parts[5], _content_length))
-      return false;
-    _checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
-    pos = le + 2;
   }
+  
+  // 严格检查parts数量
+  if (parts.size() != 6)
+    return false;
+    
+  // 验证方法和目标不为空且长度合理
+  if (parts[0].empty() || parts[0].size() > 10 || 
+      parts[1].empty() || parts[1].size() > 2048)
+    return false;
+    
+  temp_method = std::string(parts[0]);
+  temp_target = std::string(parts[1]);
+  
+  std::uint8_t ctype_val;
+  if (!safe_parse(parts[2], temp_version) || !safe_parse(parts[3], ctype_val) ||
+      !safe_parse(parts[4], temp_checksum_value) || !safe_parse(parts[5], temp_content_length))
+    return false;
+    
+  // 验证枚举值的有效性
+  if (ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
+    return false;
+    
+  temp_checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
+  pos = le + 2;
 
-  auto trim = [](std::string_view &sv)
+  // 安全的trim函数，添加边界检查
+  auto safe_trim = [](std::string_view &sv) -> bool
   {
+    if (sv.size() > 8192) // 防止过长的字符串
+      return false;
+      
     const auto start = sv.find_first_not_of(" \t");
     if (start == std::string_view::npos)
     {
       sv = "";
-      return;
+      return true;
     }
     const auto end = sv.find_last_not_of(" \t");
     sv = sv.substr(start, end - start + 1);
+    return true;
   };
 
-  for (; pos < data.size();)
+  // 解析头部字段，添加循环计数器防止无限循环
+  std::size_t header_count = 0;
+  const std::size_t max_headers = 100; // 限制头部数量
+  
+  while (pos < data.size() && header_count < max_headers)
   {
     const auto next_le = data.find("\r\n", pos);
     if (next_le == std::string_view::npos)
       break;
     
+    // 防止行过长
+    if (next_le - pos > 8192)
+      return false;
+      
     std::string_view line = data.substr(pos, next_le - pos);
     pos = next_le + 2;
     
     if (line.empty())
       break;
 
-    if (const auto colon = line.find(':'); colon != std::string_view::npos)
+    const auto colon = line.find(':');
+    if (colon != std::string_view::npos && colon > 0 && colon < line.size() - 1)
     {
-      std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
-      trim(k);
-      trim(v);
+      std::string_view k = line.substr(0, colon);
+      std::string_view v = line.substr(colon + 1);
+      
+      if (!safe_trim(k) || !safe_trim(v))
+        return false;
+        
+      // 验证键值对的有效性
+      if (k.empty() || k.size() > 256 || v.size() > 8192)
+        return false;
 
       std::string key(k), val(v);
+      
       if (key == "User-Agent")
-        _user_agent = val;
+      {
+        if (val.size() > 512) // 限制User-Agent长度
+          return false;
+        temp_user_agent = val;
+      }
       else if (key == "Timestamp")
       {
         std::int64_t ts;
-        if (parse(val, ts))
-          _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
+        if (safe_parse(v, ts))
+        {
+          // 验证时间戳的合理性（不能是负数或过大）
+          if (ts < 0 || ts > std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + 86400000) // 不能超过当前时间+1天
+            return false;
+          temp_timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
+        }
       }
       else
-        _headers[key] = val;
+      {
+        if (temp_headers.size() >= max_headers - 10) // 为特殊头部预留空间
+          return false;
+        temp_headers[key] = val;
+      }
     }
+    ++header_count;
   }
+  
+  // 所有解析成功，提交更改（异常安全）
+  _headers = std::move(temp_headers);
+  _method = std::move(temp_method);
+  _target = std::move(temp_target);
+  _user_agent = std::move(temp_user_agent);
+  _version = temp_version;
+  _checksum_value = temp_checksum_value;
+  _content_length = temp_content_length;
+  _checksum_type = temp_checksum_type;
+  _timestamp = temp_timestamp;
+  
   return true;
 }
 
 bool protocol::response_header::from_string(std::string_view data)
 {
-  if (data.empty())
+  // 边界检查：确保数据不为空且有最小长度
+  if (data.empty() || data.size() < 10)
     return false;
-  _headers.clear();
+    
+  // 异常安全：使用RAII清理，只在成功时提交更改
+  std::unordered_map<std::string, std::string> temp_headers;
+  std::string temp_status_message, temp_server;
+  std::uint32_t temp_version = 0, temp_status_code = 0, temp_checksum_value = 0, temp_content_length = 0;
+  auxiliary::checksum_type temp_checksum_type = auxiliary::checksum_type::CRC32;
+  std::chrono::system_clock::time_point temp_timestamp;
+  
   std::size_t pos = 0;
 
-  auto parse = [](std::string_view sv, auto &out)
+  // 安全的解析函数，添加边界检查
+  auto safe_parse = [](std::string_view sv, auto &out) -> bool
   {
-    return std::from_chars(sv.data(), sv.data() + sv.size(), out).ec == std::errc{};
+    if (sv.empty() || sv.size() > 20)
+      return false;
+    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), out);
+    return result.ec == std::errc{} && result.ptr == sv.data() + sv.size();
   };
 
-  if (const auto le = data.find("\r\n", pos); le == std::string_view::npos)
+  // 查找第一行结束位置，添加边界检查
+  const auto le = data.find("\r\n", pos);
+  if (le == std::string_view::npos || le >= data.size() - 1)
     return false;
-  else
+    
+  // 解析状态行
+  std::vector<std::string_view> parts;
+  parts.reserve(8);
+  
+  for (std::size_t i = pos, s = pos; i <= le; ++i)
   {
-    std::vector<std::string_view> parts;
-    for (std::size_t i = pos, s = pos; i <= le; ++i)
-    {
-      if (i == le || data[i] == ' ')
-      { 
-        if (i > s)
-          parts.push_back(data.substr(s, i - s));
-        s = i + 1;
-      }
+    if (i == le || data[i] == ' ')
+    { 
+      if (i > s && parts.size() < 10)
+        parts.push_back(data.substr(s, i - s));
+      s = i + 1;
     }
-    if (parts.size() < 6)
-      return false;
-
-    if (!parse(parts[0], _version) || !parse(parts[1], _status_code))
-      return false;
-    _status_message = std::string(parts[2]);
-    std::uint8_t ctype_val;
-    if (!parse(parts[3], ctype_val) || !parse(parts[4], _checksum_value) ||
-        !parse(parts[5], _content_length))
-      return false;
-    _checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
-    pos = le + 2;
   }
+  
+  // 严格检查parts数量
+  if (parts.size() != 6)
+    return false;
 
-  auto trim = [](std::string_view &sv)
-  { // 空白修剪
+  if (!safe_parse(parts[0], temp_version) || !safe_parse(parts[1], temp_status_code))
+    return false;
+    
+  // 验证状态码的合理性
+  if (temp_status_code < 100 || temp_status_code > 599)
+    return false;
+    
+  // 验证状态消息长度
+  if (parts[2].empty() || parts[2].size() > 256)
+    return false;
+    
+  temp_status_message = std::string(parts[2]);
+  
+  std::uint8_t ctype_val;
+  if (!safe_parse(parts[3], ctype_val) || !safe_parse(parts[4], temp_checksum_value) ||
+      !safe_parse(parts[5], temp_content_length))
+    return false;
+    
+  // 验证枚举值的有效性
+  if (ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
+    return false;
+    
+  temp_checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
+  pos = le + 2;
+
+  // 安全的trim函数，添加边界检查
+  auto safe_trim = [](std::string_view &sv) -> bool
+  {
+    if (sv.size() > 8192)
+      return false;
+      
     const auto start = sv.find_first_not_of(" \t");
     if (start == std::string_view::npos)
     { 
       sv = "";
-      return;
+      return true;
     }
     const auto end = sv.find_last_not_of(" \t");
     sv = sv.substr(start, end - start + 1);
+    return true;
   };
 
-  for (; pos < data.size();)
+  // 解析头部字段，添加循环计数器防止无限循环
+  std::size_t header_count = 0;
+  const std::size_t max_headers = 100;
+  
+  while (pos < data.size() && header_count < max_headers)
   {
     const auto next_le = data.find("\r\n", pos);
     if (next_le == std::string_view::npos)
       break;
     
+    // 防止行过长
+    if (next_le - pos > 8192)
+      return false;
+      
     std::string_view line = data.substr(pos, next_le - pos);
     pos = next_le + 2;
     
     if (line.empty())
       break;
 
-    if (const auto colon = line.find(':'); colon != std::string_view::npos)
+    const auto colon = line.find(':');
+    if (colon != std::string_view::npos && colon > 0 && colon < line.size() - 1)
     {
-      std::string_view k = line.substr(0, colon), v = line.substr(colon + 1);
-      trim(k);
-      trim(v);
+      std::string_view k = line.substr(0, colon);
+      std::string_view v = line.substr(colon + 1);
+      
+      if (!safe_trim(k) || !safe_trim(v))
+        return false;
+        
+      // 验证键值对的有效性
+      if (k.empty() || k.size() > 256 || v.size() > 8192)
+        return false;
 
       std::string key(k), val(v);
+      
       if (key == "Server")
-        _server = val;
+      {
+        if (val.size() > 512)
+          return false;
+        temp_server = val;
+      }
       else if (key == "Timestamp")
       {
         std::int64_t ts;
-        if (parse(val, ts))
-          _timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
+        if (safe_parse(v, ts))
+        {
+          // 验证时间戳的合理性
+          if (ts < 0 || ts > std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() + 86400000)
+            return false;
+          temp_timestamp = std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
+        }
       }
       else
-        _headers[key] = val;
+      {
+        if (temp_headers.size() >= max_headers - 10)
+          return false;
+        temp_headers[key] = val;
+      }
     }
+    ++header_count;
   }
+  
+  // 所有解析成功，提交更改（异常安全）
+  _headers = std::move(temp_headers);
+  _status_message = std::move(temp_status_message);
+  _server = std::move(temp_server);
+  _version = temp_version;
+  _status_code = temp_status_code;
+  _checksum_value = temp_checksum_value;
+  _content_length = temp_content_length;
+  _checksum_type = temp_checksum_type;
+  _timestamp = temp_timestamp;
+  
   return true;
 }

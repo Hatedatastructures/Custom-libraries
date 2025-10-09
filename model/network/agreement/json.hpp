@@ -39,8 +39,12 @@ namespace protocol
       from_string(json_str);
     }
 
-    // 拷贝和移动语义
-    json(const json &other) : _value(other._value) {}
+    // 拷贝和移动语义 - 优化缓存处理
+    json(const json &other) 
+    : _value(other._value), _cached_string(other._cached_string), _string_cache_valid(other._string_cache_valid) 
+    {
+      // 拷贝时保留缓存状态，避免重复序列化
+    }
 
     json(json &&other) noexcept
     : _value(std::move(other._value)), _cached_string(std::move(other._cached_string)), _string_cache_valid(other._string_cache_valid)
@@ -53,7 +57,9 @@ namespace protocol
       if (this != &other)
       {
         _value = other._value;
-        _invalidate_cache();
+        _cached_string = other._cached_string;
+        _string_cache_valid = other._string_cache_valid;
+        // 拷贝赋值时保留缓存状态，避免重复序列化
       }
       return *this;
     }
@@ -91,13 +97,23 @@ namespace protocol
     /**
      * @brief 转换为字符串
      * @return JSON字符串表示
+     * @details 提供异常安全保证，序列化失败时返回空字符串
      */
-    const std::string &to_string() const
+    const std::string &to_string() const noexcept
     {
       if (!_string_cache_valid)
       {
-        _cached_string = boost::json::serialize(_value);
-        _string_cache_valid = true;
+        try
+        {
+          _cached_string = boost::json::serialize(_value);
+          _string_cache_valid = true;
+        }
+        catch (...)
+        {
+          // 序列化失败时返回空字符串，保持缓存无效状态
+          _cached_string = "";
+          // 不设置_string_cache_valid = true，下次调用时会重试
+        }
       }
       return _cached_string;
     }

@@ -19,11 +19,16 @@ int main()
   protocol::response resp;
   resp.header().set_status_code(200);
   resp.header().set_status_message("OK");
+  resp.set_message("json test");
   auto request_str = req.to_string();
   std::cout << "request:" << request_str << std::endl;
   auto json_value = resp.to_json().to_string();
+  protocol::response resp2;
+  resp2.from_string(resp.to_string());
+  std::cout << resp2.to_string() << std::endl;
   std::fstream file("response.json", std::ios::out);
-  file << json_value;
+  file << json_value << resp2.to_json().to_string();
+  std::cout << resp2.verify_integrity() << std::endl;
   file.close();
   //
   protocol::json object;

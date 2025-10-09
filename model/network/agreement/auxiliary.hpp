@@ -1,5 +1,10 @@
 #pragma once
 #include <string>
+#include <optional>
+#include <unordered_map>
+#include <chrono>
+#include <cstdint>
+#include <string_view>
 #include <boost/json.hpp>
 #include "./json.hpp"
 #include "../crypt/encryption.hpp"
@@ -199,11 +204,12 @@ namespace protocol::auxiliary
           const auto &obj = value.as_object();
           for (const auto &[key, val] : obj)
           {
-            std::string key_str(key);
-            if (key_str.starts_with("header_") && val.is_string())
+            std::string_view key_view(key);
+            if (key_view.starts_with("header_") && val.is_string())
             {
-              std::string header_key = key_str.substr(7); // 移除"header_"前缀
-              _headers[header_key] = std::string(val.as_string());
+              // 使用string_view避免不必要的字符串拷贝
+              std::string_view header_key_view = key_view.substr(7); // 移除"header_"前缀
+              _headers.emplace(std::string(header_key_view), std::string(val.as_string()));
             }
           }
         }
