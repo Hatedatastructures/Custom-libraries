@@ -131,7 +131,7 @@ namespace protocol
 
     /**
      * @brief 简化的类型安全值获取（支持任意类型）
-     * @tparam T 目标类型（支持所有boost::json::value_to支持的类型）
+     * @tparam T 目标类型（支持所有`boost::json::value_to`支持的类型）
      * @param key 键名
      * @param default_value 转换失败时的默认值
      * @return 从JSON中获取的值或默认值

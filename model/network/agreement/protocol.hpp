@@ -14,7 +14,6 @@
 #include <boost/json.hpp>
 #include "./json.hpp"
 #include "./auxiliary.hpp"
-#include "./conversion.hpp"
 #include "../crypt/encryption.hpp"
 
 namespace protocol
@@ -397,6 +396,7 @@ namespace protocol
     protocol::json to_json() const
     {
       protocol::json json_object;
+      const_cast<header_t &>(_header).calculate_and_set_checksum(_message);
       json_object.set("header", _header.to_json().value());
       json_object.set("body", _message);
       return json_object;
@@ -643,6 +643,7 @@ namespace protocol
     protocol::json to_json() const
     {
       protocol::json json_object;
+      const_cast<header_t &>(_header).calculate_and_set_checksum(_message);
       json_object.set("header", _header.to_json().value());
       json_object.set("body", _message);
       return json_object;
@@ -756,7 +757,7 @@ bool protocol::request_header::from_string(std::string_view data)
   std::size_t pos = 0;
 
   // 安全的解析函数，添加边界检查
-  auto safe_parse = [](std::string_view sv, auto &out) -> bool
+  auto safe_parse = [](std::string_view sv, auto &out) noexcept -> bool
   {
     if (sv.empty() || sv.size() > 20) // 防止过长的数字字符串
       return false;
@@ -800,8 +801,9 @@ bool protocol::request_header::from_string(std::string_view data)
       !safe_parse(parts[4], temp_checksum_value) || !safe_parse(parts[5], temp_content_length))
     return false;
     
-  // 验证枚举值的有效性
-  if (ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
+  // 验证枚举值的有效性（检查上下界）
+  if (ctype_val < static_cast<std::uint8_t>(auxiliary::checksum_type::CRC32) ||
+      ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
     return false;
     
   temp_checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
@@ -910,14 +912,15 @@ bool protocol::response_header::from_string(std::string_view data)
   // 异常安全：使用RAII清理，只在成功时提交更改
   std::unordered_map<std::string, std::string> temp_headers;
   std::string temp_status_message, temp_server;
-  std::uint32_t temp_version = 0, temp_status_code = 0, temp_checksum_value = 0, temp_content_length = 0;
+  std::uint32_t temp_version = 0, temp_checksum_value = 0, temp_content_length = 0;
+  std::uint16_t temp_status_code = 0;
   auxiliary::checksum_type temp_checksum_type = auxiliary::checksum_type::CRC32;
   std::chrono::system_clock::time_point temp_timestamp;
   
   std::size_t pos = 0;
 
   // 安全的解析函数，添加边界检查
-  auto safe_parse = [](std::string_view sv, auto &out) -> bool
+  auto safe_parse = [](std::string_view sv, auto &out) noexcept -> bool
   {
     if (sv.empty() || sv.size() > 20)
       return false;
@@ -966,8 +969,9 @@ bool protocol::response_header::from_string(std::string_view data)
       !safe_parse(parts[5], temp_content_length))
     return false;
     
-  // 验证枚举值的有效性
-  if (ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
+  // 验证枚举值的有效性（检查上下界）
+  if (ctype_val < static_cast<std::uint8_t>(auxiliary::checksum_type::CRC32) ||
+      ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
     return false;
     
   temp_checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
