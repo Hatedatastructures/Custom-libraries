@@ -1,3 +1,8 @@
+/**
+ * @file conversion.hpp
+ * @brief 协议转换定义
+ * @details 提供协议对象与`JSON`之间的互相转换
+ */
 #pragma once
 #include <boost/json.hpp>
 #include "./protocol.hpp"

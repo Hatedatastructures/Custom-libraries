@@ -1,3 +1,8 @@
+/**
+ * @file integration.hpp
+ * @brief 集成工具类定义
+ * @details 提供时间转换、枚举套件等功能
+ */
 #pragma once
 #include <chrono>
 #include <atomic>

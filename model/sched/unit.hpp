@@ -1,3 +1,8 @@
+/**
+ * @file unit.hpp
+ * @brief 任务单元定义
+ * @details 提供任务单元的定义与操作，包括任务的状态管理、优先级设置、超时时间管理等功能
+ */
 #pragma once
 #include <variant>
 #include <atomic>

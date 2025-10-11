@@ -1,3 +1,8 @@
+/**
+ * @file json.hpp
+ * @brief JSON协议定义
+ * @details 提供`JSON`协议对象的定义与操作
+ */
 #pragma once
 #include <boost/json.hpp>
 #include <boost/asio.hpp>

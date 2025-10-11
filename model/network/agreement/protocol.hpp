@@ -1,3 +1,8 @@
+/**
+ * @file protocol.hpp
+ * @brief 协议定义
+ * @details 提供协议头、协议体、协议转换等基础组件
+ */
 #pragma once
 #include <string>
 #include <string_view>

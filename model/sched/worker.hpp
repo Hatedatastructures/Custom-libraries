@@ -1,3 +1,8 @@
+/**
+ * @file worker.hpp
+ * @brief 工作线程定义
+ * @details 提供工作线程的定义与操作，包括线程的创建、销毁、调度等功能
+ */
 #pragma once
 #include "unit.hpp"
 #include "rank.hpp"

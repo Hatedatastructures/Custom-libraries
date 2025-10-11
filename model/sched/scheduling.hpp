@@ -1,3 +1,8 @@
+/**
+ * @file scheduling.hpp
+ * @brief 调度器定义
+ * @details 提供任务队列、工作线程、调度策略等功能
+ */
 #pragma once
 #include "unit.hpp"
 #include "rank.hpp"

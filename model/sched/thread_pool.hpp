@@ -1,3 +1,8 @@
+/**
+ * @file thread_pool.hpp
+ * @brief 线程池定义
+ * @details 提供线程池的定义与操作，包括线程的创建、销毁、调度等功能
+ */
 #pragma once
 #include "unit.hpp"
 #include "integration.hpp"

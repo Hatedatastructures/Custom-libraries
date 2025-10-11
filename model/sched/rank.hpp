@@ -1,3 +1,8 @@
+/**
+ * @file rank.hpp
+ * @brief 任务队列定义
+ * @details 提供任务队列的定义与操作，包括任务的添加、移除、执行等功能
+ */
 #pragma once
 #include "unit.hpp"
 #include "integration.hpp"

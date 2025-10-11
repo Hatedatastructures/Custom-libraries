@@ -1,3 +1,9 @@
+/**
+ * @file auxiliary.hpp
+ * @brief 协议辅助套件定义
+ * @details 提供协议类型、校验类型、协议头等辅助功能
+ */
+
 #pragma once
 #include <string>
 #include <optional>
@@ -8,6 +14,9 @@
 #include <boost/json.hpp>
 #include "./json.hpp"
 #include "../crypt/encryption.hpp"
+
+
+
 namespace protocol
 {
   namespace auxiliary {}
