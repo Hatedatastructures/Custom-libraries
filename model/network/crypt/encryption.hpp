@@ -275,7 +275,7 @@ namespace encryption
      * @note 性质：散列（非加密）
      * @note 安全性：`MD5` 不再推荐用于安全目的（碰撞弱），仅用于兼容性或非安全校验。
      */
-    static std::string MD5(const std::string &data);
+    inline static std::string MD5(const std::string &data);
 
     /**
      * @brief 计算 SHA256 摘要并返回 hex 字符串
@@ -284,7 +284,7 @@ namespace encryption
      * @note 性质：散列（非加密）
      * @note 安全性：`SHA256` 目前被广泛接受为安全散列函数。
      */
-    static std::string SHA256(const std::string &data);
+    inline static std::string SHA256(const std::string &data);
   };
 
   // 实现: arcane_symmetric
@@ -850,7 +850,7 @@ namespace encryption
     }
   }
 
-  std::string umbrage_hash::MD5(const std::string &data)
+  inline std::string umbrage_hash::MD5(const std::string &data)
   {
     std::string out;
     CryptoPP::Weak::MD5 md;
@@ -858,7 +858,7 @@ namespace encryption
     return out;
   }
 
-  std::string umbrage_hash::SHA256(const std::string &data)
+  inline std::string umbrage_hash::SHA256(const std::string &data)
   {
     std::string out;
     CryptoPP::SHA256 sha;
@@ -866,7 +866,7 @@ namespace encryption
     return out;
   }
 
-  static std::uint32_t CRC32(const std::string &data,const std::uint64_t length = 16ULL)
+  inline std::uint32_t CRC32(const std::string &data,const std::uint64_t length = 16ULL)
   {
     static constexpr std::uint32_t mapping_table[256] = 
     {
@@ -912,5 +912,28 @@ namespace encryption
     }
 
     return ~crc_value;
+  }
+
+  inline std::string mix64() noexcept
+  {
+    alignas(64) char buf[64];
+
+    static constexpr char kKey[32] =
+    "\x87\x31\xa2\x4b\xfa\x8f\x63\x27"
+    "\xad\x2e\xeb\x19\x1c\x6b\x93\x0f"
+    "\x4d\x5a\x76\x42\x13\x37\x55\xde"
+    "\xad\xbe\xef\x8a\x24\xbc\xda";
+    std::memcpy(buf, kKey, 32);
+
+    uint64_t ts = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    std::memcpy(buf + 32, &ts, 8);
+
+    uint64_t tsc = __builtin_ia32_rdtsc();
+    std::memcpy(buf + 40, &tsc, 8);
+
+    *reinterpret_cast<uint64_t*>(buf + 48) = 0xDEADBEEFC0FFEEUL;
+    *reinterpret_cast<uint64_t*>(buf + 56) = 0x1234567890ABCDEFUL;
+
+    return std::string(buf, 64); 
   }
 } // end encryption
