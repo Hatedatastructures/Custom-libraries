@@ -6,10 +6,11 @@
 #pragma once
 #include "../sched/thread_pool.hpp"
 #include "../agreement/conversion.hpp"
+#include "./fundamental.hpp"
 
 namespace conversation
 {
-  class session
-  {
-  };
+  // class session
+  // {
+  // };
 } // end namespace conversation
