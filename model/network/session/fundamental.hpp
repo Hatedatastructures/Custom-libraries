@@ -136,131 +136,23 @@ namespace conversation::fundamental
   template <typename protocol_t>
   concept protocol_constraints = requires(protocol_t p,std::string_view str_value)
   {
-    {p.to_string()} -> std::same_as<const std::string&>;
+    {p.to_string()} -> std::convertible_to<std::string>;
     {p.from_string(str_value)} -> std::same_as<bool>;
   };
-
-  template <protocol_constraints request_t = request, protocol_constraints response_t = response>
-  class session;
-
-  /**
-   * @brief 会话事件处理类
-   * @details 提供会话事件的回调函数接口
-   */
-  template <protocol_constraints request_t, protocol_constraints response_t>
-  class session_handling
-  {
-  public:
-    using session_ptr = std::shared_ptr<session<request_t, response_t>>;
-
-    using connection_callback = std::function<void(session_ptr)>;
-    using disconnect_callback = std::function<void(session_ptr, const boost::system::error_code&)>;
-
-    using request_callback = std::function<std::optional<response_t>(session_ptr, const request_t&)>;
-    using request_async_callback = std::function<void(session_ptr, const request_t&, std::function<void(std::optional<response_t>)>)>;
-
-    using response_callback = std::function<void(session_ptr, const response_t&)>;
-    using request_error_callback = std::function<void(session_ptr, const request_t&, const boost::system::error_code&)>;
-
-    using error_callback = std::function<void(session_ptr, const boost::system::error_code&,const std::string&)>;
-    using timeout_callback = std::function<void(session_ptr)>;
-
-  private:
-    connection_callback _connection_callback; // 连接回调
-    disconnect_callback _disconnect_callback; // 断开连接回调
-
-    request_callback _request_callback; // 请求回调
-    request_async_callback _request_async_callback; // 异步请求回调
-
-    response_callback _response_callback; // 响应回调
-    request_error_callback _request_error_callback; // 请求错误回调
-
-    error_callback _error_callback; // 错误回调
-    timeout_callback _timeout_callback; // 超时回调
-  public:
-    session_handling() = default;
-    ~session_handling() = default;
-    /**
-     * @brief 设置连接回调
-     * @param callback 连接回调函数
-     */
-    void set_connection_callback(connection_callback callback)
-    {
-      _connection_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置断开连接回调
-     * @param callback 断开连接回调函数
-     */
-    void set_disconnect_callback(disconnect_callback callback)
-    {
-      _disconnect_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置请求回调
-     * @param callback 请求回调函数
-     */
-    void set_request_callback(request_callback callback)
-    {
-      _request_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置异步请求回调
-     * @param callback 异步请求回调函数
-     */
-    void set_request_async_callback(request_async_callback callback)
-    {
-      _request_async_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置响应回调
-     * @param callback 响应回调函数
-     */
-    void set_response_callback(response_callback callback)
-    {
-      _response_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置请求错误回调
-     * @param callback 请求错误回调函数
-     */
-    void set_request_error_callback(request_error_callback callback)
-    {
-      _request_error_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置错误回调
-     * @param callback 错误回调函数
-     */
-    void set_error_callback(error_callback callback)
-    {
-      _error_callback = std::move(callback);
-    }
-    /**
-     * @brief 设置超时回调
-     * @param callback 超时回调函数
-     */
-    void set_timeout_callback(timeout_callback callback)
-    {
-      _timeout_callback = std::move(callback);
-    }
-  }; // end class session_handling
   /**
    * @brief 会话类
    * @tparam request_t 请求协议类型
    * @tparam response_t 响应协议类型
    * @warning 模板约束采用`protocol_constraints`concept，确保协议类具有`to_string`和`from_string`方法
-   * @note 会话类支持同步和异步请求处理，以及错误处理
+   * @note 会话类支持同步和异步请求处理，以及错误处理机制
    * @details 提供会话管理、状态监控、错误处理等功能
    */
-  template <protocol_constraints request_t, protocol_constraints response_t>
+  template <protocol_constraints request_t = request, protocol_constraints response_t = response>
   class session : public std::enable_shared_from_this<session<request_t, response_t>>
   {
   public:
-    using session_handling_t = session_handling<request_t, response_t>;
-    using session_handling_ptr = std::shared_ptr<session_handling_t>;
-    using session_ptr = std::shared_ptr<session<request_t, response_t>>;
-    session_handling_ptr _session_handling; // 会话处理
+    using session_ptr = std::shared_ptr<session<request_t, response_t>>; // 会话指针类型
+    using reception_processing = std::function<void(session_ptr, std::string_view)>;
   private:
 
     boost::asio::io_context& _io_context; // 引用IO上下文
@@ -269,6 +161,7 @@ namespace conversation::fundamental
 
     boost::asio::ip::tcp::socket _socket; // TCP套接字
     std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> _ssl_socket; // SSL套接字
+    std::unique_ptr<boost::asio::ssl::context> _ssl_context; // SSL上下文（保持生命周期）
 
     session_type _type; // 会话类型
     session_config _config; // 会话配置
@@ -282,6 +175,7 @@ namespace conversation::fundamental
     mutable std::shared_mutex _state_mutex; // 共享互斥锁
 
     std::string _received_data; // 读取缓冲区
+    reception_processing _on_data; // 读取数据回调（字节视图）
   private:
     /**
      * @brief 生成唯一会话`ID`
@@ -297,13 +191,15 @@ namespace conversation::fundamental
      * @return SSL上下文
      * @note 基于会话配置初始化SSL上下文，包括证书验证、密码套件等
      */
-    boost::asio::ssl::context _create_ssl_context()
+    void _init_ssl_context(boost::asio::ssl::context& ssl_context)
     {
-      boost::asio::ssl::context ssl_context(boost::asio::ssl::context::sslv23);
       try
       {
-        ssl_context.set_options(boost::asio::ssl::context::default_workarounds | boost::asio::ssl::context::no_sslv2 
-          | boost::asio::ssl::context::no_sslv3 | boost::asio::ssl::context::single_dh_use);
+        ssl_context.set_options(
+          boost::asio::ssl::context::default_workarounds |
+          boost::asio::ssl::context::no_sslv2 |
+          boost::asio::ssl::context::no_sslv3 |
+          boost::asio::ssl::context::single_dh_use);
         if(_type == session_type::SSL_SERVER)
         {
           if(!_config._ssl_cert_file.empty())
@@ -315,7 +211,6 @@ namespace conversation::fundamental
         {
           ssl_context.set_verify_mode(boost::asio::ssl::verify_peer);
           ssl_context.set_default_verify_paths();
-          
           // 如果提供了客户端证书
           if (!_config._ssl_cert_file.empty())
             ssl_context.use_certificate_chain_file(_config._ssl_cert_file);
@@ -325,8 +220,7 @@ namespace conversation::fundamental
       }
       catch(const std::exception& e)
       {
-        if(_session_handling->_error_callback)
-          _session_handling->_error_callback(this->shared_from_this(),boost::system::error_code(),{e.what()});
+        // SSL 上下文初始化失败时保持静默，交由调用方在连接阶段感知错误
       }
     }
     /**
@@ -343,9 +237,9 @@ namespace conversation::fundamental
      */
     void _start_read()
     {
-      if(_state == session_state::CONNECTED)
+      if(_state != session_state::CONNECTED)
         return ;
-      _received_data.resize(1024);
+      _received_data.resize(static_cast<size_t>(_config._max_buffer_size));
       auto self = this->shared_from_this();
       if(_config._enable_ssl && _ssl_socket)
       {
@@ -380,9 +274,12 @@ namespace conversation::fundamental
       _statistics._bytes_received += bytes_transferred;
       _statistics._messages_received++;
       _statistics.renewal_activity();
-
-      // 处理协议数据
-      _process_protocol_data(_received_data);
+      // 将原始字节视图交给读取回调，由外部进行协议解析与处理
+      if(_on_data && bytes_transferred > 0)
+      {
+        std::string_view view(_received_data.data(), static_cast<size_t>(bytes_transferred));
+        _on_data(this->shared_from_this(), view);
+      }
 
       // 循环调用
       _start_read();
@@ -391,63 +288,7 @@ namespace conversation::fundamental
      * @brief 处理协议数据
      * @param data 数据
      */
-    void _process_protocol_data(std::string data)
-    {
-      try
-      {
-        request_t request;
-        bool parse_success = false;
-        
-        // 使用处理器的数据处理方法
-        if (_session_handling)
-          parse_success = _session_handling->process_data(data, request);
-        else
-          parse_success = request.from_string(data);
-        
-        if (parse_success)
-        {
-          // 验证数据完整性（如果协议支持）
-          if constexpr (requires { request.verify_integrity(); })
-          {
-            if (!request.verify_integrity())
-            {
-              _handle_error(boost::asio::error::invalid_argument);
-              return;
-            }
-          }
-          _process_request(request);
-        }
-        else
-        {
-          // 协议解析失败
-          _handle_error(boost::asio::error::invalid_argument);
-          return;
-        }
-      }
-      catch (const std::exception &e)
-      {
-        _handle_error(boost::asio::error::invalid_argument);
-        return;
-      }
-    }
-    /**
-     * @brief 处理请求
-     * @param request 请求对象
-     */
-    void _process_request(const request_t &request)
-    {
-      if (!_session_handling)
-        return;
-
-      auto self = this->shared_from_this();
-      
-      // 同步处理请求
-      auto response = _session_handling->on_request(self, request);
-      if (response.has_value())
-      { ///                                            问题，响应处理问题
-        send_response(response.value());
-      }
-    }
+    // 协议解析与请求处理已移除，外部通过读取回调自行处理
 
     /**
      * @brief 处理错误
@@ -456,15 +297,11 @@ namespace conversation::fundamental
      */
     void _handle_error(const boost::system::error_code &ec)
     {
+      (void)ec;
       if (_state == session_state::DISCONNECTED || _state == session_state::DISCONNECTING)
         return;
 
       _set_state(session_state::ERROR_STATE);
-
-      if (_session_handling)
-      {
-        _session_handling->on_error(this->shared_from_this(), ec);
-      }
       close();
     }
     /**
@@ -499,8 +336,6 @@ namespace conversation::fundamental
       if (idle_time > _config._heartbeat_interval * 2)
       {
         // 超时，关闭连接
-        if (_session_handling)
-          _session_handling->on_timeout(this->shared_from_this());
         close();
         return;
       }
@@ -514,10 +349,48 @@ namespace conversation::fundamental
     {
       if (_config._enable_ssl)
       {
+        _ssl_context = std::make_unique<boost::asio::ssl::context>(boost::asio::ssl::context::sslv23);
+        _init_ssl_context(*_ssl_context);
+        // 使用已创建的 TCP 套接字构造 SSL 流（保持上下文生命周期）
         _ssl_socket = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>
-        (io_context, _create_ssl_context());
+          (std::move(_socket), *_ssl_context);
       }
     }
+    /**
+     * @brief 基于远程地址与端口的便捷构造（客户端）
+     * @param io_context IO 上下文
+     * @param host 远程主机地址
+     * @param port 远程端口
+     * @param type 会话类型（默认 TCP_CLIENT）
+     * @param config 会话配置
+     * @details
+     *   - 仅初始化远端信息与会话配置，不会发起连接；
+     *   - 适合“先构造、后在适当时机连接”的使用场景；
+     *   - 若启用 `SSL`（`config._enable_ssl=true`），会同步初始化 SSL 上下文与流。
+     * @note
+     *   - 请使用 `async_connect(host, port)` 或同步连接流程启动连接；
+     *   - 构造函数内不会调用 `shared_from_this()`，避免未由 `shared_ptr` 管理时的未定义行为。
+     * @warning
+     *   - 构造后尚未连接，发送接口会返回 `not_connected`；
+     *   - 连接成功后，统计信息与远端地址会在握手完成时更新。
+     */
+    session(boost::asio::io_context &io_context,const std::string &host,std::uint16_t port,
+      session_type type = session_type::TCP_CLIENT,const session_config &config = session_config{})
+      : _io_context(io_context),_timer(io_context),_socket(io_context), _type(type), _config(config),
+        _session_id(_generate_session_id()), _remote_address(host), _remote_port(port)
+    {
+      if (_config._enable_ssl)
+      {
+        _ssl_context = std::make_unique<boost::asio::ssl::context>(boost::asio::ssl::context::sslv23);
+        _init_ssl_context(*_ssl_context);
+        // 使用已创建的 TCP 套接字构造 SSL 流（保持上下文生命周期）
+        _ssl_socket = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>
+          (std::move(_socket), *_ssl_context);
+      }
+    }
+    /**
+     * @brief 服务端的快捷初始化方式
+     */
     session(boost::asio::ip::tcp::socket &&socket,session_type type = session_type::TCP_SERVER,
       const session_config &config = session_config{})
       : _io_context(socket.get_executor().context()),_timer(_io_context), _socket(std::move(socket)),
@@ -533,8 +406,10 @@ namespace conversation::fundamental
 
       if (_config._enable_ssl)
       {
+        _ssl_context = std::make_unique<boost::asio::ssl::context>(boost::asio::ssl::context::sslv23);
+        _init_ssl_context(*_ssl_context);
         _ssl_socket = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>
-        (std::move(_socket), _create_ssl_context());
+          (std::move(_socket), *_ssl_context);
       }
     }
     ~session()
@@ -543,31 +418,15 @@ namespace conversation::fundamental
     }
     session(const session &) = delete;
     session &operator=(const session &) = delete;
-
     /**
-     * @brief 设置事件处理
-     * @param handling 处理类智能指针对象
+     * @brief 设置接受数据操作
+     * @warning 设置该函数需要在会话未连接状态下调用，并且需要自动按照既定状态处理接受的数据
+     * @param handler 读取到字节视图时调用，外部负责协议解析
+     * @note 类型需要符合`std::function<void(session_ptr, std::string_view)>`
      */
-    void set_handling(session_handling_ptr handling)
+    void set_reception_processing(reception_processing handler)
     {
-      _session_handling = handling;
-    }
-    /**
-     * @brief 获取事件处理
-     * @return 处理类智能指针对象
-     */
-    session_handling_ptr get_handling() const
-    {
-      return _session_handling;
-    }
-    /**
-     * @brief 创建并设置事件处理
-     * @return 处理类智能指针对象
-     */
-    session_handling_ptr create_handling()
-    {
-      _session_handling = std::make_shared<session_handling_t>();
-      return _session_handling;
+      _on_data = std::move(handler);
     }
     /**
      * @brief 获取会话`ID`
@@ -635,7 +494,7 @@ namespace conversation::fundamental
      * @warning 回调参数须接受 `boost::system::error_code` 类型参数
      */
     void async_connect(const std::string& host,std::uint16_t port,
-      std::function<void(const boost::system::error_code&)> callback = nullptr)
+        std::function<void(const boost::system::error_code&)> callback = nullptr)
     {
       if (_state != session_state::DISCONNECTED)
       {
@@ -672,8 +531,6 @@ namespace conversation::fundamental
           self->_set_state(session_state::CONNECTED);
           self->_start_read(); // 启动异步读取
           self->_start_heartbeat_timer(); // 启动心跳定时器
-          if(self->_session_handling)
-            self->_session_handling->on_connect();
           if (callback)
             callback(boost::system::error_code());
         };
@@ -692,8 +549,6 @@ namespace conversation::fundamental
         self->_set_state(session_state::CONNECTED);
         self->_start_read(); // 启动异步读取
         self->_start_heartbeat_timer(); // 启动心跳定时器
-        if(self->_session_handling)
-          self->_session_handling->on_connect(self);
         if (callback)
           callback(boost::system::error_code());
       };
@@ -711,13 +566,14 @@ namespace conversation::fundamental
         if(self->_config._enable_ssl && self->_ssl_socket)
           boost::asio::async_connect(self->_ssl_socket->lowest_layer(),results,ssl_connect);
         else
-          boost::asio::async_connect(self->socket,results,tcp_connect);
+          boost::asio::async_connect(self->_socket,results,tcp_connect);
       };
 
       resolver.async_resolve(host,std::to_string(port),asynchronous_function);
     }
     /**
      * @brief 启动会话
+     * @warning 启动后会自动处理数据，包括读取和心跳
      * @note 会话启动后，会自动连接到远程地址
      */
     void start()
@@ -736,8 +592,6 @@ namespace conversation::fundamental
             }
             self->_start_read(); // 启动异步读取
             self->_start_heartbeat_timer(); // 启动心跳定时器
-            if(self->_session_handling)
-              self->_session_handling->on_connect(self);
           };
           _ssl_socket->async_handshake(boost::asio::ssl::stream_base::server,ssl_handshake);
         }
@@ -745,17 +599,42 @@ namespace conversation::fundamental
         {
           _start_read(); // 启动异步读取
           _start_heartbeat_timer(); // 启动心跳定时器
-          if(_session_handling)
-            _session_handling->on_connect(this->shared_from_this());
         }
       }
     }
     /**
-     * @brief 同步发送请求
+     * @brief 同步发送原始字节
+     * @param data 原始字节视图
+     * @return 发送结果错误码（成功为 0）
+     */
+    boost::system::error_code send_bytes(std::string_view data)
+    {
+      if (_state != session_state::CONNECTED)
+        return boost::asio::error::not_connected;
+
+      boost::system::error_code ec;
+      std::size_t bytes_transferred = 0;
+      if(_config._enable_ssl && _ssl_socket)
+        bytes_transferred = boost::asio::write(*_ssl_socket,boost::asio::buffer(data),ec);
+      else
+        bytes_transferred = boost::asio::write(_socket,boost::asio::buffer(data),ec);
+
+      if(!ec)
+      {
+        _statistics._bytes_sent += bytes_transferred;
+        _statistics._messages_sent++;
+        _statistics.renewal_activity();
+      }
+      else
+        _handle_error(ec);
+      return ec;
+    }
+    /**
+     * @brief 异步发送请求
      * @param request 请求
      * @param callback 发送完成回调
      */
-    void send_request(const request_t& request,std::function<void(const boost::system::error_code&)> callback = nullptr)
+    void async_send_request(const request_t& request,std::function<void(const boost::system::error_code&)> callback = nullptr)
     {
       if(_state != session_state::CONNECTED)
       {
@@ -766,54 +645,39 @@ namespace conversation::fundamental
       try
       {
         std::string data = request.to_string();
-        auto self = this->shared_from_this();
-        if(_config._enable_ssl && _ssl_socket)
-        {
-          auto ssl_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
-          {
-            if(!ec)
-            {
-              self->_statistics._bytes_sent += bytes_transferred;
-              self->_statistics._messages_sent++;
-              self->_statistics.renewal_activity();
-            }
-            else
-              self->_handle_error(ec);
-            if (callback)
-              callback(ec);
-          };
-          boost::asio::async_write(*_ssl_socket,boost::asio::buffer(data),ssl_send_function);
-        }
-        else
-        {
-          auto tcp_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
-          {
-            if(!ec)
-            {
-              self->_statistics._bytes_sent += bytes_transferred;
-              self->_statistics._messages_sent++;
-              self->_statistics.renewal_activity();
-            }
-            else
-              self->_handle_error(ec);
-            if (callback)
-              callback(ec);
-          };
-          boost::asio::async_write(socket,boost::asio::buffer(data),tcp_send_function);
-        }
+        async_send_bytes(data, callback);
       }
-      catch(const std::exception& e)
+      catch(const std::exception&)
       {
         if (callback)
           callback(boost::asio::error::invalid_argument);
       }
     }
     /**
-     * @brief 同步发送响应
+     * @brief 同步发送请求
+     * @param request 请求对象
+     * @return 发送结果错误码（成功为 0）
+     */
+    boost::system::error_code send_request(const request_t& request)
+    {
+      if (_state != session_state::CONNECTED)
+        return boost::asio::error::not_connected;
+      try
+      {
+        std::string data = request.to_string();
+        return send_bytes(data);
+      }
+      catch(const std::exception&)
+      {
+        return boost::asio::error::invalid_argument;
+      }
+    }
+    /**
+     * @brief 异步发送响应
      * @param response 响应对象
      * @param callback 发送完成回调
      */
-    void send_response(const response_t& response,std::function<void(const boost::system::error_code&)> callback = nullptr)
+    void async_send_response(const response_t& response,std::function<void(const boost::system::error_code&)> callback = nullptr)
     {
       if (_state != session_state::CONNECTED)
       {
@@ -824,46 +688,91 @@ namespace conversation::fundamental
       try
       {
         std::string data = response.to_string();
-        auto self = this->shared_from_this();
-        if(_config._enable_ssl && _ssl_socket)
-        {
-          auto ssl_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
-          {
-            if(!ec)
-            {
-              self->_statistics._bytes_sent += bytes_transferred;
-              self->_statistics._messages_sent++;
-              self->_statistics.renewal_activity();
-            }
-            else
-              self->_handle_error(ec);
-            if (callback)
-              callback(ec);
-          };
-          boost::asio::async_write(*_ssl_socket,boost::asio::buffer(data),ssl_send_function);
-        }
-        else
-        {
-          auto tcp_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
-          {
-            if(!ec)
-            {
-              self->_statistics._bytes_sent += bytes_transferred;
-              self->_statistics._messages_sent++;
-              self->_statistics.renewal_activity();
-            }
-            else
-              self->_handle_error(ec);
-            if (callback)
-              callback(ec);
-          };
-          boost::asio::async_write(socket,boost::asio::buffer(data),tcp_send_function);
-        }
+        async_send_bytes(data, callback);
       }
-      catch(const std::exception& e)
+      catch(const std::exception&)
       {
         if (callback)
           callback(boost::asio::error::invalid_argument);
+      }
+    }
+    /**
+     * @brief 同步发送响应
+     * @param response 响应对象
+     * @return 发送结果错误码（成功为 0）
+     */
+    boost::system::error_code send_response(const response_t& response)
+    {
+      if (_state != session_state::CONNECTED)
+        return boost::asio::error::not_connected;
+      try
+      {
+        std::string data = response.to_string();
+        return send_bytes(data);
+      }
+      catch(const std::exception&)
+      {
+        return boost::asio::error::invalid_argument;
+      }
+    }
+    /**
+     * @brief 异步发送原始字节
+     * @param data 原始字节视图
+     * @param callback 发送完成回调
+     * @details
+     *   - 内部会复制 `data` 到共享字符串，确保异步写期间缓冲区有效；
+     *   - 支持 `TCP` 与 `SSL` 分支；完成回调会在 `IO` 线程调度。
+     * @return
+     *   - 若当前未连接：立即调用 `callback(not_connected)` 并返回；
+     *   - 若已连接：在写完成或出错后以 `error_code` 通知。
+     * @note
+     *   - 成功发送后会更新统计`_bytes_sent`、`_messages_sent`、`_last_activity`；
+     *   - 写入出错时，会调用 `_handle_error(ec)` 并进行必要的状态更新。
+     */
+    void async_send_bytes(std::string_view data,std::function<void(const boost::system::error_code&)> callback = nullptr)
+    {
+      if (_state != session_state::CONNECTED)
+      {
+        if (callback)
+          callback(boost::asio::error::not_connected);
+        return;
+      }
+      // 保证异步写期间缓冲区的生命周期（复制到共享字符串）
+      auto buffer_ptr = std::make_shared<std::string>(data);
+      auto self = this->shared_from_this();
+      if(_config._enable_ssl && _ssl_socket)
+      {
+        auto ssl_send_function = [self,callback,buffer_ptr](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
+        {
+          if(!ec)
+          {
+            self->_statistics._bytes_sent += bytes_transferred;
+            self->_statistics._messages_sent++;
+            self->_statistics.renewal_activity();
+          }
+          else
+            self->_handle_error(ec);
+          if (callback)
+            callback(ec);
+        };
+        boost::asio::async_write(*_ssl_socket,boost::asio::buffer(*buffer_ptr),ssl_send_function);
+      }
+      else
+      {
+        auto tcp_send_function = [self,callback,buffer_ptr](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
+        {
+          if(!ec)
+          {
+            self->_statistics._bytes_sent += bytes_transferred;
+            self->_statistics._messages_sent++;
+            self->_statistics.renewal_activity();
+          }
+          else
+            self->_handle_error(ec);
+          if (callback)
+            callback(ec);
+        };
+        boost::asio::async_write(_socket,boost::asio::buffer(*buffer_ptr),tcp_send_function);
       }
     }
     /**
@@ -876,14 +785,12 @@ namespace conversation::fundamental
         return;
       _set_state(session_state::DISCONNECTING);
       boost::system::error_code ec;
-      _timer.cancel(ec);
+      _timer.cancel();
       if(_ssl_socket)
         _ssl_socket->lowest_layer().close(ec);
       else
         _socket.close(ec);
       _set_state(session_state::DISCONNECTED);
-      if (_session_handling)
-        _session_handling->on_disconnected(this->shared_from_this(), ec);
     }
   }; // end class session
 } // end namespace fundamental
