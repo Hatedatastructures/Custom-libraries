@@ -140,12 +140,19 @@ namespace conversation::fundamental
     {p.from_string(str_value)} -> std::same_as<bool>;
   };
   /**
-   * @brief 会话类
-   * @tparam request_t 请求协议类型
-   * @tparam response_t 响应协议类型
-   * @warning 模板约束采用`protocol_constraints`concept，确保协议类具有`to_string`和`from_string`方法
-   * @note 会话类支持同步和异步请求处理，以及错误处理机制
-   * @details 提供会话管理、状态监控、错误处理等功能
+   * @class session
+   * @brief 通用会话管理类（支持 `TCP`/`SSL`，覆盖客户端与服务端场景）
+   * @tparam request_t 请求协议类型，需满足 protocol_constraints 约束
+   * @tparam response_t 响应协议类型，需满足 protocol_constraints 约束
+   *
+   * @note 
+   * - 支持同步/异步发送原始字节，以及基于请求/响应的封装接口,客户端用 `async_connect(host, port, ...)` 建立连接；
+   *  服务端可用已 `accept()` 的 `socket` 构造，直接进入已连接状态。
+   *
+   * @warning
+   * - `start()` 仅在“已连接”状态下生效；请先调用 `async_connect(...)`（客户端）或使用已连接 `socket `构造（服务端）。
+   * 
+   * - 请用 `std::shared_ptr` 管理会话对象；内部使用 `shared_from_this()` 保障异步期间的生命周期。
    */
   template <protocol_constraints request_t = request, protocol_constraints response_t = response>
   class session : public std::enable_shared_from_this<session<request_t, response_t>>
@@ -518,7 +525,6 @@ namespace conversation::fundamental
             callback(ec);
           return;
         }
-        // 连接成功，异步握手
         auto ssl_handshake = [self,callback](const boost::system::error_code& handshake_ec)
         {
           if(handshake_ec)
@@ -553,6 +559,63 @@ namespace conversation::fundamental
           callback(boost::system::error_code());
       };
 
+      // 若 host 为纯 IP，优先使用直连以规避解析差异
+      {
+        boost::system::error_code addr_ec;
+        auto addr = boost::asio::ip::make_address(host, addr_ec);
+        if (!addr_ec)
+        {
+          boost::asio::ip::tcp::endpoint endpoint(addr, port);
+          if(self->_config._enable_ssl && self->_ssl_socket)
+          {
+            // 直连 SSL：签名仅含 error_code，需要单独定义回调
+            auto ssl_connect_direct = [self,callback](const boost::system::error_code& ec)
+            {
+              if(ec)
+              {
+                self->_set_state(session_state::DISCONNECTED);
+                if (callback) callback(ec);
+                return;
+              }
+              auto ssl_handshake = [self,callback](const boost::system::error_code& handshake_ec)
+              {
+                if(handshake_ec)
+                {
+                  self->_set_state(session_state::DISCONNECTED);
+                  if (callback) callback(handshake_ec);
+                  return;
+                }
+                self->_set_state(session_state::CONNECTED);
+                self->_start_read();
+                self->_start_heartbeat_timer();
+                if (callback) callback(boost::system::error_code());
+              };
+              self->_ssl_socket->async_handshake(boost::asio::ssl::stream_base::client, ssl_handshake);
+            };
+            self->_ssl_socket->lowest_layer().async_connect(endpoint, ssl_connect_direct);
+          }
+          else
+          {
+            // 直连 TCP：仅含 error_code，需要单独定义回调
+            auto tcp_connect_direct = [self,callback](const boost::system::error_code& ec)
+            {
+              if(ec)
+              {
+                self->_set_state(session_state::DISCONNECTED);
+                if (callback) callback(ec);
+                return;
+              }
+              self->_set_state(session_state::CONNECTED);
+              self->_start_read();
+              self->_start_heartbeat_timer();
+              if (callback) callback(boost::system::error_code());
+            };
+            self->_socket.async_connect(endpoint, tcp_connect_direct);
+          }
+          return; // 已发起直连，无需解析
+        }
+      }
+
       auto asynchronous_function = [self,callback,tcp_connect,ssl_connect](const boost::system::error_code& ec,
         boost::asio::ip::tcp::resolver::results_type results)
       {
@@ -573,8 +636,8 @@ namespace conversation::fundamental
     }
     /**
      * @brief 启动会话
-     * @warning 启动后会自动处理数据，包括读取和心跳
-     * @note 会话启动后，会自动连接到远程地址
+     * @warning 仅在“已连接”状态下启动读取与心跳
+     * @note 不负责建立连接；请先调用 `async_connect(host, port, ...)`。
      */
     void start()
     {
