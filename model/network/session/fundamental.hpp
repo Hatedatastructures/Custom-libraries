@@ -136,7 +136,7 @@ namespace conversation::fundamental
   template <typename protocol_t>
   concept protocol_constraints = requires(protocol_t p,std::string_view str_value)
   {
-    {p.to_string()} -> std::same_as<std::string>;
+    {p.to_string()} -> std::same_as<const std::string&>;
     {p.from_string(str_value)} -> std::same_as<bool>;
   };
 
@@ -247,20 +247,25 @@ namespace conversation::fundamental
   }; // end class session_handling
   /**
    * @brief 会话类
+   * @tparam request_t 请求协议类型
+   * @tparam response_t 响应协议类型
+   * @warning 模板约束采用`protocol_constraints`concept，确保协议类具有`to_string`和`from_string`方法
+   * @note 会话类支持同步和异步请求处理，以及错误处理
    * @details 提供会话管理、状态监控、错误处理等功能
    */
-  template <protocol_constraints request_t = request, protocol_constraints response_t = response>
+  template <protocol_constraints request_t, protocol_constraints response_t>
   class session : public std::enable_shared_from_this<session<request_t, response_t>>
   {
   public:
     using session_handling_t = session_handling<request_t, response_t>;
     using session_handling_ptr = std::shared_ptr<session_handling_t>;
     using session_ptr = std::shared_ptr<session<request_t, response_t>>;
-    session_handling_t _session_handling; // 会话处理
+    session_handling_ptr _session_handling; // 会话处理
   private:
-    boost::asio::steady_timer _timer; // 定时器
 
     boost::asio::io_context& _io_context; // 引用IO上下文
+
+    boost::asio::steady_timer _timer; // 定时器
 
     boost::asio::ip::tcp::socket _socket; // TCP套接字
     std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> _ssl_socket; // SSL套接字
@@ -320,8 +325,8 @@ namespace conversation::fundamental
       }
       catch(const std::exception& e)
       {
-        if(_session_handling._error_callback)
-          _session_handling._error_callback(this->shared_from_this(),boost::system::error_code(),{e.what()});
+        if(_session_handling->_error_callback)
+          _session_handling->_error_callback(this->shared_from_this(),boost::system::error_code(),{e.what()});
       }
     }
     /**
@@ -504,7 +509,7 @@ namespace conversation::fundamental
   public:
     session(boost::asio::io_context &io_context,session_type type = session_type::TCP_CLIENT,
       const session_config &config = session_config{})
-    : _io_context(io_context), _socket(io_context), _timer(io_context), _type(type), _config(config),
+    : _io_context(io_context),_timer(io_context),_socket(io_context), _type(type), _config(config),
      _session_id(_generate_session_id())
     {
       if (_config._enable_ssl)
@@ -515,8 +520,8 @@ namespace conversation::fundamental
     }
     session(boost::asio::ip::tcp::socket &&socket,session_type type = session_type::TCP_SERVER,
       const session_config &config = session_config{})
-      : _io_context(socket.get_executor().context()), _socket(std::move(socket)),
-       _timer(_io_context), _type(type), _config(config), _session_id(_generate_session_id())
+      : _io_context(socket.get_executor().context()),_timer(_io_context), _socket(std::move(socket)),
+        _type(type), _config(config), _session_id(_generate_session_id())
     {
       if (_socket.is_open())
       {
@@ -745,9 +750,140 @@ namespace conversation::fundamental
         }
       }
     }
+    /**
+     * @brief 同步发送请求
+     * @param request 请求
+     * @param callback 发送完成回调
+     */
+    void send_request(const request_t& request,std::function<void(const boost::system::error_code&)> callback = nullptr)
+    {
+      if(_state != session_state::CONNECTED)
+      {
+        if (callback)
+          callback(boost::asio::error::not_connected);
+        return;
+      }
+      try
+      {
+        std::string data = request.to_string();
+        auto self = this->shared_from_this();
+        if(_config._enable_ssl && _ssl_socket)
+        {
+          auto ssl_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
+          {
+            if(!ec)
+            {
+              self->_statistics._bytes_sent += bytes_transferred;
+              self->_statistics._messages_sent++;
+              self->_statistics.renewal_activity();
+            }
+            else
+              self->_handle_error(ec);
+            if (callback)
+              callback(ec);
+          };
+          boost::asio::async_write(*_ssl_socket,boost::asio::buffer(data),ssl_send_function);
+        }
+        else
+        {
+          auto tcp_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
+          {
+            if(!ec)
+            {
+              self->_statistics._bytes_sent += bytes_transferred;
+              self->_statistics._messages_sent++;
+              self->_statistics.renewal_activity();
+            }
+            else
+              self->_handle_error(ec);
+            if (callback)
+              callback(ec);
+          };
+          boost::asio::async_write(socket,boost::asio::buffer(data),tcp_send_function);
+        }
+      }
+      catch(const std::exception& e)
+      {
+        if (callback)
+          callback(boost::asio::error::invalid_argument);
+      }
+    }
+    /**
+     * @brief 同步发送响应
+     * @param response 响应对象
+     * @param callback 发送完成回调
+     */
+    void send_response(const response_t& response,std::function<void(const boost::system::error_code&)> callback = nullptr)
+    {
+      if (_state != session_state::CONNECTED)
+      {
+        if (callback)
+          callback(boost::asio::error::not_connected);
+        return;
+      }
+      try
+      {
+        std::string data = response.to_string();
+        auto self = this->shared_from_this();
+        if(_config._enable_ssl && _ssl_socket)
+        {
+          auto ssl_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
+          {
+            if(!ec)
+            {
+              self->_statistics._bytes_sent += bytes_transferred;
+              self->_statistics._messages_sent++;
+              self->_statistics.renewal_activity();
+            }
+            else
+              self->_handle_error(ec);
+            if (callback)
+              callback(ec);
+          };
+          boost::asio::async_write(*_ssl_socket,boost::asio::buffer(data),ssl_send_function);
+        }
+        else
+        {
+          auto tcp_send_function = [self,callback](const boost::system::error_code& ec,std::uint64_t bytes_transferred)
+          {
+            if(!ec)
+            {
+              self->_statistics._bytes_sent += bytes_transferred;
+              self->_statistics._messages_sent++;
+              self->_statistics.renewal_activity();
+            }
+            else
+              self->_handle_error(ec);
+            if (callback)
+              callback(ec);
+          };
+          boost::asio::async_write(socket,boost::asio::buffer(data),tcp_send_function);
+        }
+      }
+      catch(const std::exception& e)
+      {
+        if (callback)
+          callback(boost::asio::error::invalid_argument);
+      }
+    }
+    /**
+     * @brief 关闭会话
+     * @details 关闭会话，释放资源
+     */
     void close()
     {
-
+      if(_state == session_state::DISCONNECTED || _state == session_state::DISCONNECTING)
+        return;
+      _set_state(session_state::DISCONNECTING);
+      boost::system::error_code ec;
+      _timer.cancel(ec);
+      if(_ssl_socket)
+        _ssl_socket->lowest_layer().close(ec);
+      else
+        _socket.close(ec);
+      _set_state(session_state::DISCONNECTED);
+      if (_session_handling)
+        _session_handling->on_disconnected(this->shared_from_this(), ec);
     }
   }; // end class session
 } // end namespace fundamental

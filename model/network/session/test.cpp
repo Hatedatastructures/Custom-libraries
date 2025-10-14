@@ -18,8 +18,11 @@ int main()
   // auto v1 = std::shared_ptr<protocol::json>(pool.construct(), remover);
   // v1->set<std::string>({"key"}, {"value"});
   // std::cout << v1->get<std::string>({"key"}) << std::endl;
-  boost::asio::io_context io_context;
-  conversation::fundamental::session session(io_context);
-  session.start();
+  // boost::asio::io_context io_context;
+  // conversation::fundamental::session session(io_context);
+  
+  // session.start();
+  using sessptr = std::shared_ptr<conversation::fundamental::session_handling<protocol::json, protocol::json>>;
+  sessptr session;
   return 0;
 }
