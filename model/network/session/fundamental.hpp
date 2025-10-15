@@ -133,8 +133,8 @@ namespace conversation::fundamental
    * @brief 协议约束概念
    * @details 定义协议类的约束条件，包括to_string和from_string方法
    */
-  template <typename protocol_t>
-  concept protocol_constraints = requires(protocol_t p,std::string_view str_value)
+  template <class protocol_t>
+  concept stringable_constraints = requires(protocol_t p,std::string_view str_value)
   {
     {p.to_string()} -> std::convertible_to<std::string>;
     {p.from_string(str_value)} -> std::same_as<bool>;
@@ -142,8 +142,8 @@ namespace conversation::fundamental
   /**
    * @class session
    * @brief 通用会话管理类（支持 `TCP`/`SSL`，覆盖客户端与服务端场景）
-   * @tparam request_t 请求协议类型，需满足 protocol_constraints 约束
-   * @tparam response_t 响应协议类型，需满足 protocol_constraints 约束
+   * @tparam request_t 请求协议类型，需满足 stringable_constraints 约束
+   * @tparam response_t 响应协议类型，需满足 stringable_constraints 约束
    *
    * @note 
    * - 支持同步/异步发送原始字节，以及基于请求/响应的封装接口,客户端用 `async_connect(host, port, ...)` 建立连接；
@@ -154,7 +154,7 @@ namespace conversation::fundamental
    * 
    * - 请用 `std::shared_ptr` 管理会话对象；内部使用 `shared_from_this()` 保障异步期间的生命周期。
    */
-  template <protocol_constraints request_t = request, protocol_constraints response_t = response>
+  template <stringable_constraints request_t = request, stringable_constraints response_t = response>
   class session : public std::enable_shared_from_this<session<request_t, response_t>>
   {
   public:
@@ -666,8 +666,8 @@ namespace conversation::fundamental
       }
     }
     /**
-     * @brief 同步发送原始字节
-     * @param data 原始字节视图
+     * @brief 同步发送字符串
+     * @param data 字符串视图
      * @return 发送结果错误码（成功为 0）
      */
     boost::system::error_code send_bytes(std::string_view data)
@@ -779,7 +779,7 @@ namespace conversation::fundamental
       }
     }
     /**
-     * @brief 异步发送原始字节
+     * @brief 异步发送字符串
      * @param data 原始字节视图
      * @param callback 发送完成回调
      * @details
@@ -848,6 +848,8 @@ namespace conversation::fundamental
         return;
       _set_state(session_state::DISCONNECTING);
       boost::system::error_code ec;
+      _on_data = {};
+      std::string().swap(_received_data);
       _timer.cancel();
       if(_ssl_socket)
         _ssl_socket->lowest_layer().close(ec);
@@ -856,4 +858,5 @@ namespace conversation::fundamental
       _set_state(session_state::DISCONNECTED);
     }
   }; // end class session
+
 } // end namespace fundamental
