@@ -400,8 +400,8 @@ namespace conversation::fundamental
      */
     session(boost::asio::ip::tcp::socket &&socket,session_type type = session_type::TCP_SERVER,
       const session_config &config = session_config{})
-      : _io_context(socket.get_executor().context()),_timer(_io_context), _socket(std::move(socket)),
-        _type(type), _config(config), _session_id(_generate_session_id())
+      : _io_context(static_cast<boost::asio::io_context&>(socket.get_executor().context())),_timer(_io_context), 
+      _socket(std::move(socket)),_type(type), _config(config), _session_id(_generate_session_id())
     {
       if (_socket.is_open())
       {
