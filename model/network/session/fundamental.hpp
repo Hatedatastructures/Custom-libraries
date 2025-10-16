@@ -405,10 +405,18 @@ namespace conversation::fundamental
     {
       if (_socket.is_open())
       {
-        _set_state(session_state::CONNECTED);
-        auto endpoint = _socket.remote_endpoint();
-        _remote_address = endpoint.address().to_string();
-        _remote_port = endpoint.port();
+        boost::system::error_code ep_ec;
+        auto ep = _socket.remote_endpoint(ep_ec);
+        if (!ep_ec)
+        {
+          _remote_address = ep.address().to_string();
+          _remote_port = ep.port();
+          _set_state(session_state::CONNECTED);
+        }
+        else
+        {
+          _set_state(session_state::DISCONNECTED);
+        }
       }
 
       if (_config._enable_ssl)
@@ -635,9 +643,144 @@ namespace conversation::fundamental
       resolver.async_resolve(host,std::to_string(port),asynchronous_function);
     }
     /**
+     * @brief 同步连接到远程地址
+     * @param host 主机地址
+     * @param port 端口
+     * @return 错误码（成功为 0）
+     * @details 与异步连接保持一致的握手与状态更新语义；成功后立即启动读取与心跳
+     */
+    boost::system::error_code connect(const std::string& host, std::uint16_t port)
+    {
+      if (_state != session_state::DISCONNECTED)
+        return boost::asio::error::already_connected;
+
+      _set_state(session_state::CONNECTING);
+      _remote_address = host;
+      _remote_port = port;
+
+      boost::system::error_code ec;
+      // 优先尝试纯 IP 直连
+      {
+        boost::system::error_code addr_ec;
+        auto addr = boost::asio::ip::make_address(host, addr_ec);
+        if (!addr_ec)
+        {
+          boost::asio::ip::tcp::endpoint endpoint(addr, port);
+          if(_config._enable_ssl && _ssl_socket)
+            _ssl_socket->lowest_layer().connect(endpoint, ec);
+          else
+            _socket.connect(endpoint, ec); // 拿远程ip和端口来连接，连接成功后socket 就可以发送数据
+        }
+        else
+        {
+          boost::asio::ip::tcp::resolver resolver(_io_context); // 解析并连接
+          auto results = resolver.resolve(host, std::to_string(port), ec);
+          if(ec)
+          {
+            _set_state(session_state::DISCONNECTED);
+            return ec;
+          }
+          if(_config._enable_ssl && _ssl_socket)
+            boost::asio::connect(_ssl_socket->lowest_layer(), results, ec);
+          else
+            boost::asio::connect(_socket, results, ec);
+        }
+      }
+
+      if(ec)
+      {
+        _set_state(session_state::DISCONNECTED);
+        return ec;
+      }
+
+      if(_config._enable_ssl && _ssl_socket)
+      {
+        _ssl_socket->handshake(boost::asio::ssl::stream_base::client, ec);
+        if(ec)
+        {
+          _set_state(session_state::DISCONNECTED);
+          return ec;
+        }
+      }
+
+      _set_state(session_state::CONNECTED);
+      {
+        boost::system::error_code ep_ec;
+        auto ep = (_config._enable_ssl && _ssl_socket)
+          ? _ssl_socket->lowest_layer().remote_endpoint(ep_ec)
+          : _socket.remote_endpoint(ep_ec);
+        if (!ep_ec)
+        {
+          _remote_address = ep.address().to_string();
+          _remote_port = ep.port();
+        }
+      }
+
+      _start_read();
+      _start_heartbeat_timer();
+      return ec;
+    }
+    /**
+     * @brief 在断开状态下接管外部 socket（用于与连接池协作）
+     * @param socket 外部已打开的 socket（需与当前 io_context 同源）
+     * @param type 接管后的会话类型（默认服务端）
+     * @return 是否接管成功
+     * @note SSL 客户端将同步握手；SSL 服务端握手在 start() 进行
+     */
+    bool adopt_socket(boost::asio::ip::tcp::socket&& socket, session_type type = session_type::TCP_SERVER)
+    {
+      if (_state != session_state::DISCONNECTED)
+        return false;
+      // 必须同源 io_context
+      auto& ctx = static_cast<boost::asio::io_context&>(socket.get_executor().context());
+      if (&ctx != &_io_context)
+        return false;
+
+      if((type == session_type::SSL_CLIENT || type == session_type::SSL_SERVER) && !_config._enable_ssl)
+        return false;
+
+      _type = type;
+      _socket = std::move(socket);
+
+
+      {
+        boost::system::error_code ep_ec;
+        auto ep = _socket.remote_endpoint(ep_ec);
+        if (!ep_ec)
+        {
+          _remote_address = ep.address().to_string();
+          _remote_port = ep.port();
+        }
+      }
+
+      if(_config._enable_ssl)
+      {
+        if(!_ssl_context)
+        {
+          _ssl_context = std::make_unique<boost::asio::ssl::context>(boost::asio::ssl::context::sslv23);
+          _init_ssl_context(*_ssl_context);
+        }
+        _ssl_socket = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(std::move(_socket), *_ssl_context);
+
+        if(_type == session_type::SSL_CLIENT)
+        {
+          boost::system::error_code hs_ec;
+          _ssl_socket->handshake(boost::asio::ssl::stream_base::client, hs_ec);
+          if(hs_ec)
+          {
+            _set_state(session_state::DISCONNECTED);
+            return false;
+          }
+        }
+      }
+
+      _set_state(session_state::CONNECTED);
+      return true;
+    }
+    /**
      * @brief 启动会话
      * @warning 仅在“已连接”状态下启动读取与心跳
-     * @note 不负责建立连接；请先调用 `async_connect(host, port, ...)`。
+     * @note 不负责建立连接；请先调用 `async_connect(host, port, ...)`或`adopt_socket(socket, type)`
      */
     void start()
     {

@@ -17,7 +17,7 @@
 #include <memory>
 #include <functional>
 
-#include "../sched/thread_pool.hpp"
+#include "../../sched/thread_pool.hpp"
 #include "./fundamental.hpp"
 
 namespace conversation
@@ -143,7 +143,7 @@ namespace conversation
           if(_thread_pool_running.load() && _thread_pool)
             _thread_pool->submit_priority(weight::low, _cleanup_task);
           else
-            std::async(std::launch::async, _cleanup_task);
+            _cleanup_task();
           _start_cleanup_timer();
         }
       };
@@ -174,7 +174,7 @@ namespace conversation
       if(!_running.load())
         return;
         
-      for(const auto session_string_id : inactive_sessions)
+      for(const auto& session_string_id : inactive_sessions)
       {
         if(!_running.load())
           break;
@@ -236,7 +236,7 @@ namespace conversation
   public:
     session_management(boost::asio::io_context& io_context,
       const session_management_config& config = session_management_config())
-      : _io_context(io_context),_config(config),_cleanup_timer(_io_context)
+      : _io_context(io_context),_cleanup_timer(_io_context),_config(config)
     {
       _initialize_thread_pool();
     }
@@ -414,7 +414,6 @@ namespace conversation
         session_ids.push_back(pair.first);
       return session_ids;
     }
-    
     /**
      * @brief 添加已存在的会话到管理器
      * @param session 会话指针
@@ -719,7 +718,7 @@ namespace conversation
     std::optional<pool_statistics> get_thread_pool_statistics() const
     {
       if(_thread_pool_running.load() && _thread_pool)
-        return _thread_pool->get_statistics();
+        return std::optional<pool_statistics>(_thread_pool->get_statistics());
       return std::nullopt;
     }
   }; // end class session_management

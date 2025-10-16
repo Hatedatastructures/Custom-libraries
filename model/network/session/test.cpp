@@ -35,10 +35,29 @@ int main()
   // };
   // sess->async_connect({"124.71.136.228"}, std::uint16_t(6779), send_message);
   // io.run();
+
+
+  // using namespace conversation::fundamental;
+  // boost::asio::io_context io;
+  // auto sess = std::make_shared<session<request,response>>(io);
+  // conversation::session_management sess_man(io);
+  // sess_man.start();
+  
+  // boost::asio::ip::tcp::endpoint server_ip(boost::asio::ip::make_address("124.71.136.228"), std::uint16_t(6779));
+  // auto client_sess = sess_man.create_client_session(server_ip);
+  // if(client_sess.second != nullptr)
+  // {
+  //   std::cout << "[connect success] session_id=" << client_sess.first  << " " <<
+  //   client_sess.second->get_session_id() << std::endl;
+  // }
   using namespace conversation::fundamental;
   boost::asio::io_context io;
-  auto sess = std::make_shared<session<request,response>>(io);
-  conversation::session_management sess_man(io);
-  sess_man.start();
+  std::shared_ptr<session<>> sess = std::make_shared<session<>>(io);
+  auto value = sess->connect({"124.71.136.228"}, std::uint16_t(6779));
+  if(!value)
+    sess->send_bytes({"hello, server"});
+  // boost::asio::ip::tcp::socket sock(io);
+  // sock.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address("124.71.136.228"), std::uint16_t(6779)));
+  std::this_thread::sleep_for(std::chrono::seconds(10));
   return 0;
 }

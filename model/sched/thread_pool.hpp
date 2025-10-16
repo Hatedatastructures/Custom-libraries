@@ -446,7 +446,7 @@ namespace internals::structure_t
 
       auto execution_unit = make_unit_standard(std::bind(std::forward<function>(func), std::forward<Args>(args)...),priority);
 
-      auto future = std::move(execution_unit->get_future());
+      auto future = execution_unit->get_future();
 
       if (!submit_unit_internal(execution_unit))
       {
