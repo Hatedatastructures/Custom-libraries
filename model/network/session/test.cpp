@@ -59,5 +59,7 @@ int main()
   // boost::asio::ip::tcp::socket sock(io);
   // sock.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address("124.71.136.228"), std::uint16_t(6779)));
   std::this_thread::sleep_for(std::chrono::seconds(10));
+  conversation::connection_pool pool(io);
+  pool.start();
   return 0;
 }

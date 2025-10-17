@@ -8,6 +8,9 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <queue>
+#include <unordered_set>
+#include <condition_variable>
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
@@ -721,5 +724,101 @@ namespace conversation
         return std::optional<pool_statistics>(_thread_pool->get_statistics());
       return std::nullopt;
     }
-  }; // end class session_management
+  }; // end class 
+  
+  struct endpoint_config
+  {
+    std::string host;
+    std::uint16_t port{0};
+    std::uint64_t min_connections{1};
+    std::uint64_t max_connections{8};
+
+    std::chrono::milliseconds borrow_timeout{2000};
+    std::chrono::milliseconds connect_timeout{1500};
+    std::chrono::seconds health_check_interval{10};
+
+    fundamental::session_config session_cfg{};
+  }; // end struct endpoint_config
+
+  
+  /**
+   * @brief 会话连接池
+   * @tparam request_t 请求数据类型
+   * @tparam response_t 响应数据类型
+   * @details 提供会话连接的管理和维护功能
+   * @note 主要面对客户端会话管理
+   */
+  template <serializable_constraints request_t = request, serializable_constraints response_t = response>
+  class connection_pool
+  {
+  public:
+    using session_ptr = std::shared_ptr<session<request_t, response_t>>;
+
+    struct pool_stats
+    {
+      std::uint64_t remaining_available{0};
+      std::uint64_t in_use{0};
+      std::uint64_t total{0};
+    };
+
+  private:
+    /**
+     * @brief 端点键
+     * @details 用于唯一标识会话连接池中的端点
+     */
+    struct endpoint_key
+    {
+      std::string host;
+      std::uint16_t port{0};
+      bool operator==(const endpoint_key &other) const noexcept
+      {
+        return port == other.port && host == other.host;
+      }
+    }; // end struct endpoint_key
+
+    /**
+     * @brief 端点键哈希函数
+     * @details 用于将端点键映射到哈希值
+     */
+    struct endpoint_hash
+    { 
+      std::size_t operator()(const endpoint_key &k) const noexcept
+      {
+        std::hash<std::string> hs;
+        std::hash<std::uint16_t> hp;
+        return hs(k.host) ^ (static_cast<std::size_t>(hp(k.port)) << 1);
+      }
+    }; // end struct endpoint_hash
+
+    /**
+     * @brief 端点连接池
+     * @details 存储和管理特定端点的会话连接
+     */
+    struct endpoint_pool
+    {
+
+      using session_weak_ptr = std::weak_ptr<fundamental::session<request_t, response_t>>;
+
+      std::mutex mtx; // 互斥锁
+      std::condition_variable cv;
+
+      endpoint_config cfg; // 端点配置
+      std::deque<session_ptr> remaining_available; // 剩余可用会话
+      std::unordered_set<std::string> weak_reference_collection; // 借出的会话 ID 集合
+      std::unordered_map<std::string, session_weak_ptr> weak_reference_mapping; // 借出会话弱引用
+
+      std::atomic<bool> healthy{true}; // 端点健康状态
+    }; // end struct endpoint_pool
+
+    std::atomic<bool> _running{false}; // 会话管理器运行状态
+
+    boost::asio::io_context& _io_context;  // IO上下文
+    boost::asio::steady_timer _check_timer; // 健康检查定时器
+
+    mutable std::shared_mutex _map_mutex; // 会话连接池互斥锁
+
+    std::unordered_map<endpoint_key,endpoint_pool,endpoint_hash> _endpoint_pools; // 端点连接池
+  public:
+    
+  }; // end class connection_pool
 } // end namespace conversation

@@ -64,7 +64,7 @@
 ### 头文件包含示例
 
 ```cpp
-// 容器（自研）
+// 容器（模拟实现）
 #include "model/container/container.hpp"
 
 // 并发封装（标准库）

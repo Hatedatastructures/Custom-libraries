@@ -116,7 +116,7 @@ namespace conversation::fundamental
     std::chrono::milliseconds _write_timeout{30000};      // 写入超时
     std::chrono::milliseconds _connect_timeout{30000};    // 连接超时
 
-    std::chrono::milliseconds _heartbeat_interval{60000}; // 心跳间隔
+    std::chrono::milliseconds _heartbeat_interval{600000}; // 心跳间隔，默认 10min
 
     bool _enable_heartbeat{true};                         // 启用心跳
     bool _enable_ssl{false};                              // 启用SSL
