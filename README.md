@@ -1,115 +1,110 @@
-# **Custom Libraries** - 高性能 C++ 基础库集合
+# Custom Libraries - 高性能 C++ 基础库集合
 
 <div align="center">
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![C++](https://img.shields.io/badge/C%2B%2B-20%2B-blue.svg)](https://en.cppreference.com/w/cpp/17) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![C++](https://img.shields.io/badge/C%2B%2B-20%2B-blue.svg)](https://en.cppreference.com/w/cpp/20) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
 </div>
 
-## 📖 项目简介
+## 项目简介
 
-Custom Libraries 是一个高性能、模块化的C++基础库集合，专为现代C++应用程序和高并发服务器开发而设计。项目提供了从基础数据结构到高级并发组件的完整解决方案。
+`Custom Libraries` 是一个以头文件为主的高性能 `C++` 基础库集合，提供：
+- 模拟实现`stl`的容器；
+- 基于标准库的线程安全封装（读写锁/互斥锁/条件变量）；
+- 调度与线程池框架；
+- 网络协议与会话框架；
+- 高性能日志系统。
 
-## 🔍 项目结构详解
+## 模块总览
 
-| 文件夹 | 主要职责 | 核心特性 |
-|--------|----------|----------|
-| `foundation` | 基础数据结构和容器库 | 智能指针、STL兼容容器、算法工具、哈希表、布隆过滤器 |
-| `model/module` | 高级线程池和任务系统 | 动态线程池、多种调度策略、任务优先级、性能监控 |
-| `model/atomic_concurrent` | 原子操作并发容器 | 无锁数据结构、原子操作、高并发性能 |
-| `model/standard_concurrent` | 标准并发容器 | 线程安全容器、互斥锁保护、标准接口 |
-| `framework` | 框架级同步和线程工具 | 高级同步原语、线程池框架 |
-| `chronicle` | 高性能日志系统 | 异步日志、多级输出、结构化记录 |
+| 文件夹 | 角色 | 特性 |
+|--------|------|------|
+| `model/container` | 模拟实现`stl`的容器 | 保持 STL 风格接口、统一聚合头 `container.hpp` |
+| `model/concurrent` | 标准库容器的线程安全封装 | 互斥锁/读写锁/条件变量，接口同名同语义，提供阻塞/非阻塞与快照 |
+| `model/sched` | 框架：调度与线程池 | 动态扩缩容、`worker` 框架、调度/排名策略、任务编排 |
+| `model/network` | 框架：网络协议与会话 | 协议解析、编解码/转换、加密组件、客户端/服务端示例、会话管理 |
+| `chronicle` | 高性能日志系统 | 异步日志、多级输出、结构化记录（`Logbook.hpp`） |
 
-## 🚀 核心特性
+说明：
+- `model/sched` 与 `model/network` 为框架模块；
+- `model/container` 为模拟实现的容器实现逻辑；
+- `model/concurrent` 是对标准库容器的线程安全封装。
 
-### 🔧 基础库 (Foundation)
-- **智能指针系统**: `shared_ptr`, `unique_ptr`, `weak_ptr`
-- **STL兼容容器**: `vector`, `list`, `map`, `set`, `hash_map`, `hash_set`
-- **高级数据结构**: 红黑树、AVL树、哈希表、布隆过滤器
-- **算法工具**: 排序、查找、哈希算法等
+## 核心特性
 
-### ⚡ 并发模块 (Model)
-- **高性能线程池**: 动态扩缩容、多种调度策略
-- **任务系统**: 普通任务、优先级任务、延迟任务、依赖任务
-- **并发容器**: 原子操作容器和标准并发容器
+### 容器（模拟实现，`model/container`）
+- 提供 `vector/list/map/set/queue/stack/string/tree` 等容器的模拟实现；
+- 保持 STL 风格接口与一致语义，低侵入替换；
+- 配套仿真与算法工具（`simulate_*`：算法、哈希、布隆过滤器、异常等）；
+- 统一聚合头 `container.hpp`。
 
-## 🛠️ 快速开始
+### 并发封装（标准库，`model/concurrent`）
+- 覆盖主流标准容器的线程安全封装（`deque/queue/stack/vector/list/map/set/unordered_*`、`priority_queue`、`forward_list`、`bitset`、`string`）；
+- 读共享写独占或互斥锁保护，提供阻塞/非阻塞接口与快照 `snapshot()`；
 
-### 基本使用示例
 
-#### 线程池使用
+
+### 调度框架（`model/sched`）
+- 动态线程池与 `worker` 框架（`thread_pool.hpp`、`worker.hpp`），弹性扩缩容；
+- 调度与排名策略（`scheduling.hpp`、`rank.hpp`），可扩展自定义策略；
+- 任务编排与集成（`integration.hpp`、`unit.hpp`），便捷组合与复用；
+- 参考文档：`docs/thread_pool_reference_document.md`、`docs/thread_pool_user_ manual.md`。
+
+### 网络框架（`model/network`）
+- 协议与会话框架（`agreement/*`、`session/*`），含客户端/服务端示例；
+- 编解码与转换（`json.hpp`、`conversion.hpp`），统一协议处理；
+- 加密支持（`crypt/encryption.hpp`），可插拔安全组件；
+- 统一入口与封装（`network.hpp`），便于集成。
+
+### 日志系统（`chronicle`）
+- 异步日志、多级输出、结构化记录（`Logbook.hpp`），适合高并发场景观测。
+
+## 快速开始
+
+### 头文件包含示例
+
 ```cpp
-#include "model/module/Thread_pool.hpp"
-using namespace pool;
+// 容器（自研）
+#include "model/container/container.hpp"
 
-// 创建线程池
-auto pool = make_thread_pool(4, 1000);
-pool->start();
+// 并发封装（标准库）
+#include "model/concurrent/concurrent_vector.hpp"
 
-// 提交任务
-auto future = pool->submit([]() 
-{
-    return 42;
-});
+// 调度框架
+#include "model/sched/thread_pool.hpp"
 
-int result = future.get();
-```
-
-#### 基础容器使用
-```cpp
-#include "foundation/Foundation.hpp"
-using namespace con;
-
-// 使用自定义vector
-vector<int> vec;
-vec.push_back(1);
-
-// 使用智能指针
-auto ptr = make_shared<int>(42);
-```
-
-## 📚 详细文档
-
-### 核心模块文档
-- [基础库详细文档](docs/foundation.md) - 完整的文档和使用示例
-- [线程池模块文档](docs/thread_pool_reference_document.md) - 线程池详细技术文档
-- [线程池使用指南](docs/thread_pool_user_%20manual.md) - 线程池配置和优化指南
-- [高性能服务器开发指南](high_performance_servers.md) - 服务器开发最佳实践
-
-
-## 🔧 编译和集成
-
-### 头文件包含
-```cpp
-// 基础库
-#include "foundation/Foundation.hpp"
-
-// 线程池
-#include "model/module/Thread_pool.hpp"
-
-// 并发容器
-#include "model/atomic_concurrent/Atomic_vector.hpp"
+// 网络框架
+#include "model/network/network.hpp"
 
 // 日志系统
 #include "chronicle/Logbook.hpp"
 ```
 
-### 命名空间
-```cpp
-using namespace con;        // 基础容器
-using namespace pool;       // 线程池
-using namespace ptr;        // 智能指针
-using namespace exc;        // 异常处理
-```
+### 编译要求
+- C++20 或以上编译器；
+- Windows / Linux；
+- 将 `model/` 与 `chronicle/` 目录加入头文件搜索路径即可使用（以头文件为主）。
 
-## 📄 许可证
+## 编译与集成
+- 以头文件为主，按需包含相应模块的 `.hpp`；
+- 模块间尽量解耦，便于单独集成；
+- 推荐为不同模块创建独立编译单元，并启用优化选项（如 `-O2`）。
+
+## 使用建议
+- 并发封装：遍历与统计优先使用 `snapshot()`；避免在写入并发下长期持有迭代器/引用；
+- 网络框架：协议/会话在业务入口统一封装，便于扩展与测试；
+- 日志系统：按级别区分输出，关键路径使用异步日志以降低延迟。
+
+## 文档
+- `docs/foundation.md`：基础容器与算法文档；
+- `docs/thread_pool_reference_document.md`：线程池技术文档；
+- `docs/thread_pool_user_ manual.md`：线程池使用指南；
+- `high_performance_servers.md`：高性能服务器开发指南。
+
+## 许可证
 
 本项目采用 [MIT 许可证](LICENSE)，允许自由使用、修改和分发。
 
 ---
 
-**Custom Libraries** - 为现代`C++`应用程序提供高性能、可靠的基础组件支持
-
-
-
+`Custom Libraries` — 为现代 `C++` 应用提供高性能、可靠的基础组件支持
