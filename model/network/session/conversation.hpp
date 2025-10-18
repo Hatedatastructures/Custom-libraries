@@ -962,8 +962,15 @@ namespace conversation
       auto proto = cfg.session_cfg._enable_ssl ? 
         fundamental::session_type::SSL_CLIENT : fundamental::session_type::TCP_CLIENT;
       auto sp = std::make_shared<session_internal>(_io_context, proto, cfg.session_cfg);
-      if(!sp->connect(cfg.host, cfg.port))
+      if (sp->connect(cfg.host, cfg.port))
         return nullptr;
+      // auto erro_func = [](const boost::system::error_code &ec)
+      // {
+      //   if(!ec)
+      //     return;
+      //   std::cout << "async_connect failed: " << ec.message() << std::endl;
+      // };
+      // sp->async_connect(cfg.host, cfg.port, erro_func);
       return sp;
     }
   public:

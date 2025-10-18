@@ -992,7 +992,6 @@ namespace conversation::fundamental
       _set_state(session_state::DISCONNECTING);
       boost::system::error_code ec;
       _on_data = {};
-      std::string().swap(_received_data);
       _timer.cancel();
       if(_ssl_socket)
         _ssl_socket->lowest_layer().close(ec);
