@@ -1,7 +1,7 @@
 /**
  * @file conversation.hpp
- * @brief 会话定义
- * @details 提供会话的定义与操作，包括会话的创建、销毁、消息的发送、接收等功能
+ * @brief 会话管理类定义
+ * @details 提供会话类的管理功能，包括会话的创建、销毁、消息的发送、接收等操作
  */
 #pragma once
 
@@ -740,7 +740,6 @@ namespace conversation
     fundamental::session_config session_cfg{};
   }; // end struct endpoint_config
 
-  
   /**
    * @brief 会话连接池
    * @tparam request_t 请求数据类型
@@ -752,7 +751,8 @@ namespace conversation
   class connection_pool
   {
   public:
-    using session_ptr = std::shared_ptr<session<request_t, response_t>>;
+    using session_ptr = std::shared_ptr<fundamental::session<request_t, response_t>>;
+    using session_internal = fundamental::session<request_t, response_t>;
 
     struct pool_stats
     {
@@ -817,8 +817,391 @@ namespace conversation
 
     mutable std::shared_mutex _map_mutex; // 会话连接池互斥锁
 
-    std::unordered_map<endpoint_key,endpoint_pool,endpoint_hash> _endpoint_pools; // 端点连接池
+    std::unordered_map<endpoint_key, std::shared_ptr<endpoint_pool>, endpoint_hash> _endpoint_pools; // 端点连接池
+  private:
+    /**
+     * @brief 获取指定端点连接池
+     * @param host 主机名
+     * @param port 端口号
+     * @return 端点连接池指针
+     */
+    std::shared_ptr<endpoint_pool> _get_pool(const std::string& host, std::uint16_t port) const
+    {
+      endpoint_key key{host, port};
+      std::shared_lock<std::shared_mutex> rlock(_map_mutex);
+      auto it = _endpoint_pools.find(key);
+      if (it == _endpoint_pools.end())
+        return nullptr;
+      return it->second;
+    }
+    /**
+     * @brief 计算指定端点连接池已连接会话总数
+     * @param pool 端点连接池指针
+     * @warning 调用前需持有 pool->mtx 锁
+     * @return 已连接会话总数
+     */
+    std::uint64_t _connected_total_locked(const std::shared_ptr<endpoint_pool>& pool) const
+    {
+      std::uint64_t cnt = 0;
+      for(auto& sp : pool->remaining_available) 
+      {
+        if(sp && sp->is_connected())
+          ++cnt;
+      }
+      for(auto& kv : pool->weak_reference_mapping)
+      {
+        auto sp = kv.second.lock();
+        if (sp && sp->is_connected())
+          ++cnt;
+      }
+      return cnt;
+    }
+    /**
+     * @brief 计划下一次健康检查
+     * @details 基于端点配置的健康检查间隔，设置定时器触发下一次检查
+     */
+    void _schedule_next_check()
+    {
+      if(!_running.load())
+        return;
+      std::chrono::seconds interval{3};
+      {
+        std::shared_lock<std::shared_mutex> rlock(_map_mutex);
+        for (auto &kv : _endpoint_pools)
+        {
+          auto pool = kv.second;
+          if(pool && pool->cfg.health_check_interval > interval)
+            interval = pool->cfg.health_check_interval;
+        }
+      }
+      _check_timer.expires_after(interval);
+      auto cb = [this](const boost::system::error_code &ec)
+      {
+        if (!ec && _running.load())
+        {
+          _health_check_tick();
+          _schedule_next_check();
+        }
+      };
+      _check_timer.async_wait(cb);
+    }
+    /**
+     * @brief 健康检查 tick
+     * @details 遍历所有端点连接池，检查会话健康状态，更新端点健康状态
+     */
+    void _health_check_tick()
+    {
+      std::shared_lock<std::shared_mutex> rlock(_map_mutex);
+      for (auto &kv : _endpoint_pools)
+      {
+        auto pool = kv.second;
+        std::unique_lock<std::mutex> lock(pool->mtx);
+
+        auto it = pool->remaining_available.begin();
+        while(it != pool->remaining_available.end()) 
+        { // 清理断开的空闲会话
+          if(!(*it)->is_connected())
+            it = pool->remaining_available.erase(it);
+          else
+            ++it;
+        }
+        // 清理已借出但已失效/断开的弱引用，避免统计和内存泄漏
+        auto itw = pool->weak_reference_mapping.begin();
+        while(itw != pool->weak_reference_mapping.end())
+        {
+          auto spw = itw->second.lock();
+          if(!spw || !spw->is_connected())
+          {
+            pool->weak_reference_collection.erase(itw->first);
+            itw = pool->weak_reference_mapping.erase(itw);
+          }
+          else
+          {
+            ++itw;
+          }
+        }
+        lock.unlock();
+        _preheat_pool(pool);
+      }
+    }
+    /**
+     * @brief 预加热会话池
+     * @details 检查会话池是否需要预加热，根据配置创建新会话
+     * @param pool 端点连接池指针
+     */
+    void _preheat_pool(std::shared_ptr<endpoint_pool>& pool)
+    {
+      if(!pool) return;
+      std::uint64_t need = 0;
+      {
+        std::unique_lock<std::mutex> lock(pool->mtx);
+        std::uint64_t connected  =  _connected_total_locked(pool);
+        if(connected < pool->cfg.min_connections)
+          need = pool->cfg.min_connections - connected;
+      }
+      for(std::uint64_t i = 0; i < need; ++i)
+      { // 预加热会话池，创建新会话
+        auto sp = _create_session_sync(pool->cfg);
+        std::unique_lock<std::mutex> lock(pool->mtx);
+        std::uint64_t connected = _connected_total_locked(pool);
+        if(sp && sp->is_connected() && connected < pool->cfg.max_connections)
+        {
+          pool->remaining_available.emplace_back(std::move(sp));
+          pool->cv.notify_one();
+        }
+      }
+    }
+    /**
+     * @brief 同步建连
+     * @details 根据端点配置创建新会话，阻塞当前线程直到建连完成
+     * @param cfg 端点配置
+     * @return 会话指针
+     */
+    session_ptr _create_session_sync(const endpoint_config& cfg)
+    {
+      auto proto = cfg.session_cfg._enable_ssl ? 
+        fundamental::session_type::SSL_CLIENT : fundamental::session_type::TCP_CLIENT;
+      auto sp = std::make_shared<session_internal>(_io_context, proto, cfg.session_cfg);
+      if(!sp->connect(cfg.host, cfg.port))
+        return nullptr;
+      return sp;
+    }
   public:
-    
+    connection_pool(boost::asio::io_context& io_context)
+      :_io_context(io_context), _check_timer(io_context) {}
+      
+    ~connection_pool() 
+    { 
+      stop(); 
+    }
+    /**
+     * @brief 启动会话池
+     * @details 初始化会话池，创建健康检查定时器
+     */
+    bool start()
+    {
+      if (_running.exchange(true))
+        return true;
+      _schedule_next_check();
+      std::shared_lock<std::shared_mutex> rlock(_map_mutex);
+      for (auto &kv : _endpoint_pools)
+      {
+        auto pool = kv.second;
+        _preheat_pool(pool);
+      }
+      return true;
+    }
+    /**
+     * @brief 停止会话池
+     * @details 关闭所有会话，取消健康检查定时器
+     */
+    bool stop()
+    {
+      if(!_running.exchange(false))
+        return true;
+      _check_timer.cancel();
+      std::unique_lock<std::shared_mutex> wlock(_map_mutex);
+      for (auto &kv : _endpoint_pools)
+      {
+        auto pool = kv.second;
+        std::unique_lock<std::mutex> lock(pool->mtx);
+        while(!pool->remaining_available.empty())
+        {
+          auto sp = pool->remaining_available.front();
+          pool->remaining_available.pop_front();
+          sp->close();
+        }
+        pool->cv.notify_all();
+      }
+      return true;
+    }
+    /**
+     * @brief 添加端点
+     * @details 根据端点配置创建新的ip连接池
+     * @param cfg 端点配置
+     * @return 是否添加成功
+     */
+    bool add_endpoint(const endpoint_config &cfg)
+    {
+      if(cfg.host.empty() || cfg.port == 0 || cfg.min_connections > cfg.max_connections)
+        return false;
+      endpoint_key key{cfg.host, cfg.port};
+      std::unique_lock<std::shared_mutex> wlock(_map_mutex);
+      if(_endpoint_pools.find(key) != _endpoint_pools.end())
+        return true; // 存在为成功
+      auto pool = std::make_shared<endpoint_pool>();
+      pool->cfg = cfg;
+      _endpoint_pools.emplace(key, pool);
+      wlock.unlock();
+      _preheat_pool(pool);
+      return true;
+    }
+    /**
+     * @brief 删除端点
+     * @details 根据主机名和端口号删除指定的ip连接池
+     * @param host 主机名
+     * @param port 端口号
+     * @return 是否删除成功
+     */
+    bool remove_endpoint(const std::string& host, std::uint16_t port)
+    {
+      endpoint_key key{host, port};
+      std::unique_lock<std::shared_mutex> wlock(_map_mutex);
+      auto it = _endpoint_pools.find(key);
+      if(it == _endpoint_pools.end())
+        return false; // 不存在为失败
+      auto pool = it->second;
+      std::unique_lock<std::mutex> lock(pool->mtx);
+      while(!pool->remaining_available.empty())
+      {
+        auto sp = pool->remaining_available.front();
+        pool->remaining_available.pop_front();
+        if(sp) sp->close();
+      }
+      pool->cv.notify_all();
+      _endpoint_pools.erase(it);
+      return true;
+    }
+    /**
+     * @brief 从端点连接池借用会话
+     * @details 根据主机名和端口号从指定的ip连接池借用会话
+     * @param host 主机名
+     * @param port 端口号
+     * @return 会话指针
+     */
+    std::optional<session_ptr> borrow(const std::string& host, std::uint16_t port,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds::zero())
+    {
+      auto pool = _get_pool(host,port);
+      if(!pool)
+        return std::nullopt;
+      auto deadline =  std::chrono::steady_clock::now() + (timeout.count() > 0 ? timeout : pool->cfg.borrow_timeout);
+      std::unique_lock<std::mutex> lock(pool->mtx);
+      while(true)
+      {
+        if(!pool->remaining_available.empty())
+        {
+          auto sp = pool->remaining_available.front();
+          pool->remaining_available.pop_front();
+          if(sp && sp->is_connected())
+          {
+            pool->weak_reference_collection.insert(sp->get_session_id());
+            pool->weak_reference_mapping[sp->get_session_id()] = sp;
+            return sp;
+          } // 断开连接，丢弃并尝试重试
+        }
+        if(_connected_total_locked(pool) < pool->cfg.max_connections)
+        {
+          lock.unlock();
+          auto sp_new = _create_session_sync(pool->cfg);
+          lock.lock();
+          if (sp_new && sp_new->is_connected())
+          {
+            pool->weak_reference_collection.insert(sp_new->get_session_id());
+            pool->weak_reference_mapping[sp_new->get_session_id()] = sp_new;
+            return sp_new;
+          }
+        }
+        if(std::chrono::steady_clock::now() >= deadline)
+          break;
+        pool->cv.wait_until(lock, deadline);
+      }
+      return std::nullopt;
+    }
+    /**
+     * @brief 尝试从端点连接池借用会话
+     * @details 根据主机名和端口号从指定的ip连接池尝试借用会话
+     * @param host 主机名
+     * @param port 端口号
+     * @return 会话指针
+     */
+    std::optional<session_ptr> try_borrow(const std::string& host,std::uint16_t port)
+    {
+      auto pool = _get_pool(host,port);
+      if(!pool)
+        return std::nullopt;
+      std::unique_lock<std::mutex> lock(pool->mtx);
+      if(!pool->remaining_available.empty())
+      {
+        auto sp = pool->remaining_available.front();
+        pool->remaining_available.pop_front();
+        if(sp && sp->is_connected())
+        {
+          pool->weak_reference_collection.insert(sp->get_session_id());
+          pool->weak_reference_mapping[sp->get_session_id()] = sp;
+          return sp;
+        } // 断开连接，直接返回
+      }
+      return std::nullopt;
+    }
+    /**
+     * @brief 归还会话到端点连接池
+     * @details 将之前从端点连接池借用的会话归还到连接池
+     * @param sp 会话指针
+     */
+    void give_back(session_ptr sp)
+    {
+      if(!sp)
+        return;
+      auto key = endpoint_key{sp->get_remote_address(), sp->get_remote_port()};
+      auto pool = _get_pool(key.host, key.port);
+      if(!pool)
+      {
+        sp->close(); // 不是该连接池开辟的，直接关闭，防止资源泄露
+        return;
+      }
+      std::unique_lock<std::mutex> lock(pool->mtx);
+      pool->weak_reference_collection.erase(sp->get_session_id());
+      pool->weak_reference_mapping.erase(sp->get_session_id());
+      if(sp->is_connected())
+        pool->remaining_available.emplace_back(std::move(sp)); //正式归还链接
+      lock.unlock();
+      pool->cv.notify_one();
+      _preheat_pool(pool); // 触发补足
+    }
+    /**
+     * @brief 无效会话
+     * @details 将之前从端点连接池借用的会话无效，主动关闭连接
+     * @param sp 会话指针
+     */
+    void invalidate(session_ptr sp)
+    {
+      if(!sp)
+        return;
+      auto pool = _get_pool(sp->get_remote_address(), sp->get_remote_port());
+      if(!pool)
+      {
+        sp->close();
+        return;
+      }
+      std::unique_lock<std::mutex> lock(pool->mtx);
+      pool->weak_reference_collection.erase(sp->get_session_id());
+      pool->weak_reference_mapping.erase(sp->get_session_id());
+      if(sp->is_connected())
+        sp->close(); // 主动关闭连接
+      lock.unlock();
+      pool->cv.notify_one();
+      _preheat_pool(pool); // 触发补足
+    }
+    /**
+     * @brief 获取端点连接池状态
+     * @details 获取指定主机名和端口号的端点连接池的状态
+     * @param host 主机名
+     * @param port 端口号
+     * @return 连接池状态
+     */
+    pool_stats get_pool_stats(const std::string& host, std::uint16_t port) const
+    {
+      pool_stats s{};
+      auto pool = _get_pool(host, port);
+      if(!pool)
+        return s;
+      std::unique_lock<std::mutex> lock(pool->mtx);
+      s.remaining_available = pool->remaining_available.size();
+      s.in_use = pool->weak_reference_collection.size();
+      s.total = _connected_total_locked(pool);
+      lock.unlock();
+      return s;
+    }
   }; // end class connection_pool
 } // end namespace conversation
