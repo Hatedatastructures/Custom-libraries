@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>线程池监控仪表盘 - 能源科技平台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
+  
+  <!-- 配置Tailwind -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0ea5e9', // 明亮的蓝色作为主色调
+            secondary: '#10b981', // 清新的绿色作为辅助色
+            accent: '#8b5cf6',    // 紫色作为强调色
+            dark: '#0f172a',      // 更深的背景色
+            'dark-light': '#1e293b', // 卡片背景
+            'dark-lighter': '#334155' // 边框和分割线
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          boxShadow: {
+            'card': '0 8px 30px rgba(0, 0, 0, 0.12)',
+            'card-hover': '0 12px 40px rgba(0, 0, 0, 0.18)',
+          }
+        },
+      }
+    }
+  </script>
+  
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .glass {
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+      .gradient-border {
+        position: relative;
+        border-radius: 0.75rem;
+      }
+      .gradient-border::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 0.85rem;
+        padding: 1px;
+        background: linear-gradient(135deg, #0ea5e9, #8b5cf6);
+        -webkit-mask: 
+          linear-gradient(#fff 0 0) content-box, 
+          linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        pointer-events: none;
+      }
+      .pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      @keyframes pulse {
+        0%, 100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.7;
+        }
+      }
+      .slide-up {
+        animation: slideUp 0.5s ease forwards;
+        opacity: 0;
+      }
+      @keyframes slideUp {
+        from {
+          transform: translateY(20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+      .progress-bar {
+        position: relative;
+        height: 6px;
+        overflow: hidden;
+        border-radius: 3px;
+      }
+      .progress-bar::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        transform-origin: left;
+        animation: progress 1.5s ease-out forwards;
+      }
+      @keyframes progress {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(var(--width, 1)); }
+      }
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-dark to-dark-light text-gray-100 font-inter min-h-screen flex flex-col">
+  <!-- 顶部导航栏 - 玻璃态效果 -->
+  <header class="glass border-b border-dark-lighter/50 sticky top-0 z-50 transition-all duration-300">
+    <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <button id="sidebar-toggle" class="lg:hidden p-2 rounded-md hover:bg-primary/10 transition-colors">
+          <i class="fa fa-bars text-lg"></i>
+        </button>
+        <div class="flex items-center">
+          <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center mr-2">
+            <i class="fa fa-cogs"></i>
+          </div>
+          <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">线程池管理系统</h1>
+        </div>
+      </div>
+      
+      <div class="flex items-center space-x-6">
+        <div class="hidden md:flex items-center space-x-4">
+          <button class="p-2 rounded-full hover:bg-dark-lighter/50 transition-colors relative">
+            <i class="fa fa-bell-o text-gray-300"></i>
+            <span class="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full"></span>
+          </button>
+          <button class="p-2 rounded-full hover:bg-dark-lighter/50 transition-colors">
+            <i class="fa fa-question-circle-o text-gray-300"></i>
+          </button>
+        </div>
+        
+        <div class="flex items-center space-x-3">
+          <div class="hidden md:block">
+            <p class="text-sm font-medium">管理员</p>
+            <p class="text-xs text-gray-400">系统管理员</p>
+          </div>
+          <div class="w-9 h-9 rounded-full overflow-hidden border-2 border-primary/30">
+            <img src="https://picsum.photos/id/1005/40/40" alt="用户头像" class="w-full h-full object-cover">
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <!-- 侧边栏导航 -->
+    <aside id="sidebar" class="glass w-64 border-r border-dark-lighter/50 flex-shrink-0 hidden lg:block transition-all duration-300 ease-in-out">
+      <nav class="py-6">
+        <div class="px-4 mb-6">
+          <p class="text-xs uppercase text-gray-400 font-semibold tracking-wider">主菜单</p>
+        </div>
+        
+        <ul>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-primary bg-primary/10 rounded-r-lg">
+              <i class="fa fa-tachometer w-5 text-center"></i>
+              <span class="ml-3">仪表盘</span>
+            </a>
+          </li>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-cog w-5 text-center"></i>
+              <span class="ml-3">线程配置</span>
+            </a>
+          </li>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-tasks w-5 text-center"></i>
+              <span class="ml-3">任务管理</span>
+            </a>
+          </li>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-bar-chart w-5 text-center"></i>
+              <span class="ml-3">性能分析</span>
+            </a>
+          </li>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-map-marker w-5 text-center"></i>
+              <span class="ml-3">客户分布</span>
+            </a>
+          </li>
+        </ul>
+        
+        <div class="px-4 mt-8 mb-6">
+          <p class="text-xs uppercase text-gray-400 font-semibold tracking-wider">系统</p>
+        </div>
+        
+        <ul>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-history w-5 text-center"></i>
+              <span class="ml-3">操作日志</span>
+            </a>
+          </li>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-user w-5 text-center"></i>
+              <span class="ml-3">用户管理</span>
+            </a>
+          </li>
+          <li class="mb-1">
+            <a href="#" class="flex items-center px-4 py-3 text-gray-300 hover:bg-dark-lighter/30 hover:text-white transition-colors rounded-r-lg">
+              <i class="fa fa-cog w-5 text-center"></i>
+              <span class="ml-3">系统设置</span>
+            </a>
+          </li>
+        </ul>
+        
+        <!-- 侧边栏底部信息 -->
+        <div class="mt-auto px-4 pt-6 mt-6 border-t border-dark-lighter/50">
+          <div class="bg-dark/50 rounded-lg p-3">
+            <p class="text-xs text-gray-400 mb-2">系统状态</p>
+            <div class="flex items-center">
+              <span class="w-2 h-2 bg-secondary rounded-full mr-2 pulse"></span>
+              <span class="text-xs">运行正常</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">版本: v2.4.1</p>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 overflow-y-auto p-4 lg:p-6">
+      <!-- 页面标题 -->
+      <div class="mb-6 slide-up" style="animation-delay: 0.1s">
+        <div class="flex flex-wrap justify-between items-center">
+          <div>
+            <h2 class="text-[clamp(1.5rem,3vw,2rem)] font-bold">线程池监控仪表盘</h2>
+            <p class="text-gray-400 mt-1">实时监控线程池状态、任务执行情况和系统性能</p>
+          </div>
+          <div class="mt-4 sm:mt-0 flex items-center space-x-2">
+            <div class="text-sm text-gray-400">
+              <span id="current-date">2023-06-15</span>
+              <span id="current-time" class="ml-2">14:30:45</span>
+            </div>
+            <button class="p-2 rounded-md hover:bg-dark-lighter/30 transition-colors">
+              <i class="fa fa-refresh text-gray-400"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 线程池状态概览 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <!-- 线程池状态 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.2s">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <p class="text-gray-400 text-sm">线程池状态</p>
+              <h3 class="text-2xl font-bold mt-1 flex items-center">
+                运行中
+                <span class="ml-2 w-3 h-3 bg-secondary rounded-full pulse"></span>
+              </h3>
+            </div>
+            <div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center">
+              <i class="fa fa-play text-secondary"></i>
+            </div>
+          </div>
+          <div class="flex space-x-2">
+            <button id="stop-btn" class="px-3 py-1.5 text-xs bg-red-500/10 text-red-400 rounded-md hover:bg-red-500/20 transition-colors">
+              停止
+            </button>
+            <button id="pause-btn" class="px-3 py-1.5 text-xs bg-amber-500/10 text-amber-400 rounded-md hover:bg-amber-500/20 transition-colors">
+              暂停
+            </button>
+            <button id="restart-btn" class="px-3 py-1.5 text-xs bg-secondary/10 text-secondary rounded-md hover:bg-secondary/20 transition-colors">
+              重启
+            </button>
+          </div>
+        </div>
+        
+        <!-- 活跃线程数 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.3s">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <p class="text-gray-400 text-sm">活跃线程数</p>
+              <h3 class="text-2xl font-bold mt-1">12</h3>
+            </div>
+            <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+              <i class="fa fa-microchip text-primary"></i>
+            </div>
+          </div>
+          <div class="flex items-center text-sm">
+            <span class="text-secondary flex items-center">
+              <i class="fa fa-arrow-up mr-1"></i> 2
+            </span>
+            <span class="text-gray-400 ml-2">/ 20 总线程</span>
+          </div>
+          <div class="w-full bg-dark-lighter/30 rounded-full h-1.5 mt-3">
+            <div class="bg-gradient-to-r from-primary to-accent h-1.5 rounded-full progress-bar" style="--width: 0.6"></div>
+          </div>
+        </div>
+        
+        <!-- 任务吞吐量 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.4s">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <p class="text-gray-400 text-sm">任务吞吐量</p>
+              <h3 class="text-2xl font-bold mt-1">148/sec</h3>
+            </div>
+            <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
+              <i class="fa fa-tachometer text-accent"></i>
+            </div>
+          </div>
+          <div class="flex items-center text-sm">
+            <span class="text-red-400 flex items-center">
+              <i class="fa fa-arrow-down mr-1"></i> 5%
+            </span>
+            <span class="text-gray-400 ml-2">较上小时</span>
+          </div>
+          <div class="mt-3 h-1.5 bg-dark-lighter/30 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-accent to-primary progress-bar" style="--width: 0.74"></div>
+          </div>
+        </div>
+        
+        <!-- 队列利用率 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.5s">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <p class="text-gray-400 text-sm">队列利用率</p>
+              <h3 class="text-2xl font-bold mt-1">32%</h3>
+            </div>
+            <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+              <i class="fa fa-queue text-amber-400"></i>
+            </div>
+          </div>
+          <div class="w-full bg-dark-lighter/30 rounded-full h-1.5 mt-3">
+            <div class="bg-gradient-to-r from-amber-400 to-amber-600 h-1.5 rounded-full progress-bar" style="--width: 0.32"></div>
+          </div>
+          <div class="flex justify-between text-xs text-gray-400 mt-2">
+            <span>0%</span>
+            <span>50%</span>
+            <span>100%</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 图表和地图区域 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <!-- 任务统计图表 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 lg:col-span-2 slide-up" style="animation-delay: 0.6s">
+          <div class="flex flex-wrap justify-between items-center mb-6">
+            <h3 class="font-bold text-lg">任务执行统计</h3>
+            <div class="flex space-x-2 mt-2 sm:mt-0">
+              <button class="px-3 py-1.5 text-xs bg-primary/10 text-primary rounded-md hover:bg-primary/20 transition-colors">
+                今日
+              </button>
+              <button class="px-3 py-1.5 text-xs bg-dark-lighter/30 text-gray-400 rounded-md hover:bg-dark-lighter/50 transition-colors">
+                本周
+              </button>
+              <button class="px-3 py-1.5 text-xs bg-dark-lighter/30 text-gray-400 rounded-md hover:bg-dark-lighter/50 transition-colors">
+                本月
+              </button>
+            </div>
+          </div>
+          <div class="h-80">
+            <canvas id="taskChart"></canvas>
+          </div>
+        </div>
+        
+        <!-- 客户分布图 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.7s">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="font-bold text-lg">客户分布</h3>
+            <button class="p-1.5 rounded-md hover:bg-dark-lighter/30 transition-colors text-gray-400">
+              <i class="fa fa-expand"></i>
+            </button>
+          </div>
+          <div class="h-80 rounded-lg overflow-hidden border border-dark-lighter/50" id="customerMap"></div>
+          <div class="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400">总客户</p>
+              <p class="font-bold mt-1">248</p>
+            </div>
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400">活跃</p>
+              <p class="font-bold text-secondary mt-1">196</p>
+            </div>
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400">任务量</p>
+              <p class="font-bold text-primary mt-1">12,548</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 详细统计和最近任务 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- 性能指标 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.8s">
+          <h3 class="font-bold text-lg mb-4">性能指标</h3>
+          <div class="space-y-5">
+            <div>
+              <div class="flex justify-between mb-2">
+                <span class="text-sm text-gray-400">平均任务执行时间</span>
+                <span class="text-sm font-medium">428ms</span>
+              </div>
+              <div class="w-full bg-dark-lighter/30 rounded-full h-2">
+                <div class="bg-primary h-2 rounded-full progress-bar" style="--width: 0.65"></div>
+              </div>
+            </div>
+            
+            <div>
+              <div class="flex justify-between mb-2">
+                <span class="text-sm text-gray-400">线程利用率</span>
+                <span class="text-sm font-medium">78%</span>
+              </div>
+              <div class="w-full bg-dark-lighter/30 rounded-full h-2">
+                <div class="bg-secondary h-2 rounded-full progress-bar" style="--width: 0.78"></div>
+              </div>
+            </div>
+            
+            <div>
+              <div class="flex justify-between mb-2">
+                <span class="text-sm text-gray-400">任务成功率</span>
+                <span class="text-sm font-medium">99.4%</span>
+              </div>
+              <div class="w-full bg-dark-lighter/30 rounded-full h-2">
+                <div class="bg-secondary h-2 rounded-full progress-bar" style="--width: 0.994"></div>
+              </div>
+            </div>
+            
+            <div>
+              <div class="flex justify-between mb-2">
+                <span class="text-sm text-gray-400">队列等待时间</span>
+                <span class="text-sm font-medium">12ms</span>
+              </div>
+              <div class="w-full bg-dark-lighter/30 rounded-full h-2">
+                <div class="bg-amber-400 h-2 rounded-full progress-bar" style="--width: 0.22"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mt-6 pt-4 border-t border-dark-lighter/50">
+            <h4 class="font-semibold mb-3">线程池配置</h4>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-gray-400">最小线程数</span>
+                <span>4</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-400">最大线程数</span>
+                <span>32</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-400">核心线程数</span>
+                <span>16</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-400">队列最大容量</span>
+                <span>10,000</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-400">调度策略</span>
+                <span>自适应</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 任务状态分布 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 0.9s">
+          <h3 class="font-bold text-lg mb-4">任务状态分布</h3>
+          <div class="h-64">
+            <canvas id="taskStatusChart"></canvas>
+          </div>
+          
+          <div class="mt-6 grid grid-cols-2 gap-3">
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400 text-sm">累计提交任务</p>
+              <p class="text-2xl font-bold mt-1">148,521</p>
+            </div>
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400 text-sm">今日新增任务</p>
+              <p class="text-2xl font-bold mt-1">8,452</p>
+            </div>
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400 text-sm">失败任务</p>
+              <p class="text-2xl font-bold text-red-400 mt-1">254</p>
+            </div>
+            <div class="bg-dark/30 rounded-lg p-3">
+              <p class="text-gray-400 text-sm">超时任务</p>
+              <p class="text-2xl font-bold text-amber-400 mt-1">108</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 最近任务列表 -->
+        <div class="glass rounded-xl p-5 shadow-card hover:shadow-card-hover transition-all duration-300 slide-up" style="animation-delay: 1s">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="font-bold text-lg">最近任务</h3>
+            <button class="text-primary text-sm hover:text-primary/80 transition-colors">查看全部</button>
+          </div>
+          
+          <div class="space-y-3 max-h-80 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-dark-lighter/50">
+            <!-- 任务项 -->
+            <div class="bg-dark/30 rounded-lg p-3 hover:bg-dark/50 transition-colors border border-transparent hover:border-primary/20">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-medium">数据同步任务 #8524</h4>
+                  <p class="text-gray-400 text-xs mt-1">客户ID: CUST-7842 | 优先级: 中</p>
+                </div>
+                <span class="px-2 py-0.5 text-xs bg-secondary/10 text-secondary rounded">完成</span>
+              </div>
+              <div class="flex justify-between items-center mt-2 text-xs">
+                <span class="text-gray-400">执行时间: 342ms</span>
+                <span class="text-gray-400">1分钟前</span>
+              </div>
+            </div>
+            
+            <div class="bg-dark/30 rounded-lg p-3 hover:bg-dark/50 transition-colors border border-transparent hover:border-primary/20">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-medium">数据分析任务 #8523</h4>
+                  <p class="text-gray-400 text-xs mt-1">客户ID: CUST-1258 | 优先级: 高</p>
+                </div>
+                <span class="px-2 py-0.5 text-xs bg-secondary/10 text-secondary rounded">完成</span>
+              </div>
+              <div class="flex justify-between items-center mt-2 text-xs">
+                <span class="text-gray-400">执行时间: 1.2s</span>
+                <span class="text-gray-400">3分钟前</span>
+              </div>
+            </div>
+            
+            <div class="bg-dark/30 rounded-lg p-3 hover:bg-dark/50 transition-colors border border-transparent hover:border-primary/20">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-medium">报表生成任务 #8522</h4>
+                  <p class="text-gray-400 text-xs mt-1">客户ID: CUST-4563 | 优先级: 中</p>
+                </div>
+                <span class="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">运行中</span>
+              </div>
+              <div class="flex justify-between items-center mt-2 text-xs">
+                <span class="text-gray-400">已运行: 45s</span>
+                <span class="text-gray-400">正在执行</span>
+              </div>
+            </div>
+            
+            <div class="bg-dark/30 rounded-lg p-3 hover:bg-dark/50 transition-colors border border-transparent hover:border-primary/20">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-medium">系统备份任务 #8521</h4>
+                  <p class="text-gray-400 text-xs mt-1">系统任务 | 优先级: 低</p>
+                </div>
+                <span class="px-2 py-0.5 text-xs bg-amber-500/10 text-amber-400 rounded">超时</span>
+              </div>
+              <div class="flex justify-between items-center mt-2 text-xs">
+                <span class="text-gray-400">执行时间: 15min</span>
+                <span class="text-gray-400">10分钟前</span>
+              </div>
+            </div>
+            
+            <div class="bg-dark/30 rounded-lg p-3 hover:bg-dark/50 transition-colors border border-transparent hover:border-primary/20">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h4 class="font-medium">数据清洗任务 #8520</h4>
+                  <p class="text-gray-400 text-xs mt-1">客户ID: CUST-9632 | 优先级: 中</p>
+                </div>
+                <span class="px-2 py-0.5 text-xs bg-red-500/10 text-red-400 rounded">失败</span>
+              </div>
+              <div class="flex justify-between items-center mt-2 text-xs">
+                <span class="text-gray-400">错误: 连接超时</span>
+                <span class="text-gray-400">15分钟前</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // 更新当前日期和时间
+    function updateDateTime() {
+      const now = new Date();
+      const dateOptions = { year: 'numeric', month: '2-digit', day: '2-digit' };
+      const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+      
+      document.getElementById('current-date').textContent = now.toLocaleDateString('zh-CN', dateOptions);
+      document.getElementById('current-time').textContent = now.toLocaleTimeString('zh-CN', timeOptions);
+    }
+    
+    // 初始化并每秒更新日期时间
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+    
+    // 侧边栏切换
+    document.getElementById('sidebar-toggle').addEventListener('click', function() {
+      const sidebar = document.getElementById('sidebar');
+      sidebar.classList.toggle('hidden');
+    });
+    
+    // 线程池控制按钮事件
+    document.getElementById('stop-btn').addEventListener('click', function() {
+      if(confirm('确定要停止线程池吗？这将中断所有正在执行的任务。')) {
+        showNotification('线程池已停止', 'info');
+      }
+    });
+    
+    document.getElementById('pause-btn').addEventListener('click', function() {
+      showNotification('线程池已暂停', 'info');
+    });
+    
+    document.getElementById('restart-btn').addEventListener('click', function() {
+      showNotification('线程池正在重启', 'info');
+    });
+    
+    // 通知提示
+    function showNotification(message, type = 'info') {
+      // 创建通知元素
+      const notification = document.createElement('div');
+      notification.className = `fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg flex items-center z-50 transform transition-all duration-300 translate-y-10 opacity-0 glass`;
+      
+      // 设置通知图标和样式
+      let icon = 'fa-info-circle';
+      let textColor = 'text-primary';
+      
+      switch(type) {
+        case 'success':
+          icon = 'fa-check-circle';
+          textColor = 'text-secondary';
+          break;
+        case 'error':
+          icon = 'fa-exclamation-circle';
+          textColor = 'text-red-400';
+          break;
+        case 'warning':
+          icon = 'fa-exclamation-triangle';
+          textColor = 'text-amber-400';
+          break;
+      }
+      
+      // 设置通知内容
+      notification.innerHTML = `
+        <i class="fa ${icon} mr-2 ${textColor}"></i>
+        <span>${message}</span>
+        <button class="ml-4 text-gray-400 hover:text-white transition-colors">
+          <i class="fa fa-times"></i>
+        </button>
+      `;
+      
+      // 添加到页面
+      document.body.appendChild(notification);
+      
+      // 显示通知
+      setTimeout(() => {
+        notification.classList.remove('translate-y-10', 'opacity-0');
+      }, 10);
+      
+      // 自动关闭
+      const timeout = setTimeout(() => {
+        notification.classList.add('translate-y-10', 'opacity-0');
+        setTimeout(() => {
+          document.body.removeChild(notification);
+        }, 300);
+      }, 3000);
+      
+      // 手动关闭
+      notification.querySelector('button').addEventListener('click', () => {
+        clearTimeout(timeout);
+        notification.classList.add('translate-y-10', 'opacity-0');
+        setTimeout(() => {
+          document.body.removeChild(notification);
+        }, 300);
+      });
+    }
+    
+    // 任务统计图表
+    const taskCtx = document.getElementById('taskChart').getContext('2d');
+    const taskChart = new Chart(taskCtx, {
+      type: 'line',
+      data: {
+        labels: ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'],
+        datasets: [
+          {
+            label: '完成任务',
+            data: [650, 780, 450, 920, 1250, 1480, 1320, 950],
+            borderColor: '#0ea5e9',
+            backgroundColor: 'rgba(14, 165, 233, 0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2,
+            pointBackgroundColor: '#0ea5e9',
+            pointRadius: 3,
+            pointHoverRadius: 5
+          },
+          {
+            label: '失败任务',
+            data: [12, 8, 5, 15, 22, 18, 10, 8],
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2,
+            pointBackgroundColor: '#ef4444',
+            pointRadius: 3,
+            pointHoverRadius: 5
+          },
+          {
+            label: '超时任务',
+            data: [5, 3, 2, 8, 12, 10, 6, 4],
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2,
+            pointBackgroundColor: '#f59e0b',
+            pointRadius: 3,
+            pointHoverRadius: 5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+          duration: 1500,
+          easing: 'easeOutQuart'
+        },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              color: 'rgba(255, 255, 255, 0.7)',
+              boxWidth: 10,
+              usePointStyle: true,
+              pointStyle: 'circle'
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(30, 41, 59, 0.9)',
+            borderColor: 'rgba(14, 165, 233, 0.2)',
+            borderWidth: 1,
+            padding: 10,
+            titleColor: '#fff',
+            bodyColor: 'rgba(255, 255, 255, 0.8)',
+            displayColors: true,
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' + context.raw;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              color: 'rgba(255, 255, 255, 0.05)'
+            },
+            ticks: {
+              color: 'rgba(255, 255, 255, 0.6)',
+              font: {
+                size: 10
+              }
+            }
+          },
+          y: {
+            grid: {
+              color: 'rgba(255, 255, 255, 0.05)'
+            },
+            ticks: {
+              color: 'rgba(255, 255, 255, 0.6)',
+              font: {
+                size: 10
+              },
+              padding: 10
+            }
+          }
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        }
+      }
+    });
+    
+    // 任务状态分布图表
+    const statusCtx = document.getElementById('taskStatusChart').getContext('2d');
+    const statusChart = new Chart(statusCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['已完成', '运行中', '排队中', '已失败', '已超时', '已取消'],
+        datasets: [{
+          data: [75, 10, 8, 3, 3, 1],
+          backgroundColor: [
+            '#10b981', // 成功
+            '#0ea5e9', // 运行中
+            '#64748b', // 排队中
+            '#ef4444', // 失败
+            '#f59e0b', // 超时
+            '#475569'  // 取消
+          ],
+          borderWidth: 0,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+          animateRotate: true,
+          animateScale: true,
+          duration: 1500,
+          easing: 'easeOutQuart'
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: 'rgba(255, 255, 255, 0.7)',
+              padding: 15,
+              boxWidth: 10,
+              usePointStyle: true,
+              pointStyle: 'circle',
+              font: {
+                size: 11
+              }
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(30, 41, 59, 0.9)',
+            borderColor: 'rgba(14, 165, 233, 0.2)',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: function(context) {
+                const label = context.label || '';
+                const value = context.raw || 0;
+                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                const percentage = Math.round((value / total) * 100);
+                return `${label}: ${value} (${percentage}%)`;
+              }
+            }
+          }
+        },
+        cutout: '70%'
+      }
+    });
+    
+    // 客户分布地图
+    document.addEventListener('DOMContentLoaded', function() {
+      // 初始化地图
+      const map = L.map('customerMap').setView([35.8617, 104.1954], 4); // 中国中心点
+      
+      // 添加地图图层
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      }).addTo(map);
+      
+      // 模拟客户位置数据
+      const customerLocations = [
+        [39.9042, 116.4074, 56],   // 北京
+        [31.2304, 121.4737, 89],   // 上海
+        [22.5431, 114.0579, 78],   // 深圳
+        [30.2741, 120.1551, 42],   // 杭州
+        [23.1291, 113.2644, 36],   // 广州
+        [39.0842, 117.2009, 28],   // 天津
+        [37.5078, 121.3911, 31],   // 烟台
+        [25.0389, 102.7183, 18],   // 昆明
+        [34.3416, 108.9398, 25],   // 西安
+        [40.0583, 116.3076, 19],   // 北京周边
+        [29.5630, 106.5511, 32],   // 重庆
+        [38.0423, 114.5149, 22],   // 石家庄
+        [26.0990, 119.2959, 26],   // 福州
+        [36.6512, 117.1200, 34]    // 济南
+      ];
+      
+      // 添加客户标记 - 带动画效果
+      customerLocations.forEach(([lat, lng, count], index) => {
+        setTimeout(() => {
+          const circle = L.circle([lat, lng], {
+            color: '#0ea5e9',
+            fillColor: '#0ea5e9',
+            fillOpacity: 0.6,
+            radius: 0,
+            weight: 1
+          }).addTo(map);
+          
+          // 半径动画
+          circle.animateRadius(Math.sqrt(count) * 30000, 1000);
+          
+          circle.bindPopup(`<b>客户数量: ${count}</b><br>任务数: ${Math.floor(count * (Math.random() * 50 + 50))}`);
+        }, index * 100);
+      });
+    });
+    
+    // 为地图圆添加半径动画方法
+    L.Circle.prototype.animateRadius = function(toRadius, duration) {
+      const startRadius = this.getRadius();
+      const startTime = Date.now();
+      
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // 使用缓动函数使动画更自然
+        const easeProgress = 1 - Math.pow(1 - progress, 3);
+        const currentRadius = startRadius + (toRadius - startRadius) * easeProgress;
+        
+        this.setRadius(currentRadius);
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      
+      requestAnimationFrame(animate);
+    };
+    
+    // 模拟实时数据更新
+    setInterval(() => {
+      // 随机更新一些数据，模拟实时变化
+      const randomChange = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+      
+      // 更新吞吐量
+      const throughputEl = document.querySelector('.text-2xl.font-bold:contains("148/sec")');
+      if (throughputEl) {
+        const current = parseInt(throughputEl.textContent);
+        const newVal = Math.max(100, Math.min(200, current + randomChange(-5, 5)));
+        // 添加数值变化动画
+        animateValue(throughputEl, current, newVal, 1000);
+        throughputEl.textContent = `${newVal}/sec`;
+      }
+      
+      // 更新活跃线程数
+      const threadsEl = document.querySelector('.text-2xl.font-bold:contains("12")');
+      if (threadsEl) {
+        const current = parseInt(threadsEl.textContent);
+        const newVal = Math.max(4, Math.min(20, current + randomChange(-1, 1)));
+        if (current !== newVal) {
+          animateValue(threadsEl, current, newVal, 1000);
+          threadsEl.textContent = newVal;
+        }
+      }
+      
+    }, 5000);
+    
+    // 数值变化动画
+    function animateValue(element, start, end, duration) {
+      let startTimestamp = null;
+      const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        // 缓动函数
+        const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+        const value = Math.floor(start + (end - start) * easeProgress);
+        
+        // 添加数值变化时的闪烁效果
+        if (Math.abs(value - parseInt(element.textContent)) > 0) {
+          element.classList.add('text-primary');
+          setTimeout(() => {
+            element.classList.remove('text-primary');
+          }, 200);
+        }
+        
+        if (progress < 1) {
+          window.requestAnimationFrame(step);
+        }
+      };
+      window.requestAnimationFrame(step);
+    }
+  </script>
+</body>
+</html>

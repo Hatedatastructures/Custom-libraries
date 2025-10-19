@@ -441,23 +441,33 @@
 // }
 // #include "agreement.hpp"
 
-#include <iostream>
-#include <thread>
-#include <memory>
-#include "agreement/protocol.hpp"
+// #include <iostream>
+// #include <thread>
+// #include <memory>
+// #include "agreement/protocol.hpp"
 
+// int main()
+// {
+//   protocol::request request;
+//   request.header().set_header("Content-Type", "application/json");
+//   // auto value = request.header().get_header("Content-Type").value().data();
+//   request.set_message("这个是请求体");
+//   std::cout << request.to_string() << std::endl;
+
+//   protocol::response response;
+//   response.header().set_header("Content-Type", "application/json");
+//   response.set_message("这个是响应体");
+//   response.set_status_code(200);
+//   std::cout << response.to_string() << std::endl;
+//   return 0;
+// }
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
+#include <iostream>
 int main()
 {
-  protocol::request request;
-  request.header().set_header("Content-Type", "application/json");
-  // auto value = request.header().get_header("Content-Type").value().data();
-  request.set_message("这个是请求体");
+  boost::beast::http::request<boost::beast::http::string_body> request(boost::beast::http::verb::get, "/", 11);
+  request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
   std::cout << request.to_string() << std::endl;
-
-  protocol::response response;
-  response.header().set_header("Content-Type", "application/json");
-  response.set_message("这个是响应体");
-  response.set_status_code(200);
-  std::cout << response.to_string() << std::endl;
   return 0;
 }
