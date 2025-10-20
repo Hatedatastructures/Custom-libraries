@@ -69,14 +69,14 @@ private:
         {
           auto auto_reception_processing = [this](std::shared_ptr<session<>> sess, std::string_view /*data*/)
           { 
+            const std::string& body = _webpage;
             std::string http_response =
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
-            "Content-Length: " + std::to_string(_webpage.size()) + "\r\n"
+            "Content-Length: " + std::to_string(body.size()) + "\r\n"
             "Connection: close\r\n"
-            "\r\n" + _webpage;
-            _webpage = std::move(http_response);
-            sess->async_send_bytes(_webpage, nullptr); 
+            "\r\n" + body;
+            sess->async_send_bytes(http_response, nullptr); 
           };
           new_session->set_reception_processing(auto_reception_processing);
           new_session->start();
