@@ -143,12 +143,16 @@ namespace protocol
        */
       void prepare_payload() { _req.prepare_payload(); }
       /**
-       * @bri
+       * @brief 检查 HTTP 请求是否包含 Content-Length 头部字段
+       * @return bool 是否包含 Content-Length 头部字段
        */
       bool has_content_length() const { return _req.has_content_length(); }
+      /**
+       * @brief 获取 HTTP 请求正文长度
+       * @return std::uint64_t 当前请求正文长度
+       */
       std::uint64_t content_length() const { return _req.content_length(); }
 
-      // 序列化/反序列化
       std::string to_string() const
       {
         std::ostringstream os;
@@ -168,7 +172,12 @@ namespace protocol
         return true;
       }
     }; // end class request
-
+    /**
+     * @brief HTTP 响应类
+     * @details 用于表示 HTTP 响应，包含状态码、版本、头部字段和正文等信息
+     * @tparam message_body 响应正文类型，默认使用 `boost::beast::http::string_body`
+     * @tparam fields_container 响应头部字段容器类型，默认使用 `boost::beast::http::fields`
+     */
     template <body_structure_constraint message_body = boost::beast::http::string_body, class fields_container = boost::beast::http::fields>
     class response
     {
@@ -176,45 +185,131 @@ namespace protocol
       boost::beast::http::response<message_body, fields_container> _res;
 
     public:
-      using beast_response = boost::beast::http::response<message_body, fields_container>;
+      using underlying_container = boost::beast::http::response<message_body, fields_container>;
       using message_body_type = message_body;
       using fields_container_type = fields_container;
 
       response() = default;
       response(boost::beast::http::status s, unsigned v) : _res{s, v} {}
 
-      // 直接暴露底层以保持与 Beast 用法一致
-      beast_response &base() { return _res; }
-      beast_response const &base() const { return _res; }
+      /**
+       * @brief 获取/设置 HTTP 响应底层容器
+       * @return underlying_container& 引用当前响应底层容器
+       */
+      underlying_container &base() { return _res; }
+      /**
+       * @brief 获取 HTTP 响应底层容器（只读）
+       * @return underlying_container const& 当前响应底层容器
+       */
+      underlying_container const &base() const { return _res; }
 
-      // 状态码与原因短语
+      /**
+       * @brief 获取/设置 HTTP 响应状态码
+       * @return boost::beast::http::status 当前状态码
+       */
       boost::beast::http::status result() const { return _res.result(); }
-      void result(boost::beast::http::status s) { _res.result(s); }
+      /**
+       * @brief 设置 HTTP 响应状态码
+       * @param s 要设置的状态码
+       */
+      void result(boost::beast::http::status status_code) { _res.result(status_code); }
+      /**
+       * @brief 获取 HTTP 响应状态码整数表示
+       * @return unsigned 当前状态码整数表示
+       */
       unsigned result_int() const { return _res.result_int(); }
+      /**
+       * @brief 获取/设置 HTTP 响应原因短语
+       * @return std::string& 引用当前原因短语
+       */
       std::string &reason() { return _res.reason(); }
+      /**
+       * @brief 获取 HTTP 响应原因短语（只读）
+       * @return std::string const& 当前原因短语
+       */
       std::string const &reason() const { return _res.reason(); }
+      /**
+       * @brief 获取/设置 HTTP 响应原因短语
+       * @param s 要设置的原因短语
+       */
+      void reason(boost::beast::string_view s) { _res.reason(s); }
 
-      // 版本/长连接
+      /**
+       * @brief 获取/设置 HTTP 响应版本
+       * @return unsigned 当前版本
+       */
       unsigned version() const { return _res.version(); }
+      /**
+       * @brief 设置 HTTP 响应版本
+       * @param v 要设置的版本
+       */
       void version(unsigned v) { _res.version(v); }
+      /**
+       * @brief 获取/设置 HTTP 响应长连接状态
+       * @return bool 当前长连接状态
+       */
       bool keep_alive() const { return _res.keep_alive(); }
+      /**
+       * @brief 设置 HTTP 响应长连接状态
+       * @param v 要设置的长连接状态
+       */
       void keep_alive(bool v) { _res.keep_alive(v); }
 
-      // 头部字段快捷访问
-      void set(boost::beast::http::field f, boost::beast::string_view v) { _res.set(f, v); }
-      boost::beast::string_view at(boost::beast::http::field f) const { return _res.at(f); }
-      void erase(boost::beast::http::field f) { _res.erase(f); }
+      /**
+       * @brief 设置 HTTP 响应头部字段
+       * @param key 要设置的头部字段
+       * @param value 要设置的头部字段值
+       */
+      void set(boost::beast::http::field key, boost::beast::string_view value) { _res.set(key, value); }
+      /**
+       * @brief 获取 HTTP 响应头部字段值
+       * @param key 要获取的头部字段
+       * @return boost::beast::string_view 当前头部字段值
+       */
+      boost::beast::string_view at(boost::beast::http::field key) const { return _res.at(key); }
+      /**
+       * @brief 移除 HTTP 响应头部字段
+       * @param key 要移除的头部字段
+       */
+      void erase(boost::beast::http::field key) { _res.erase(key); }
 
-      // 正文与负载
+      /**
+       * @brief 获取/设置 HTTP 响应正文
+       * @return typename message_body::value_type& 引用当前正文
+       */
       typename message_body::value_type &body() { return _res.body(); }
+      /**
+       * @brief 获取 HTTP 响应正文（只读）
+       * @return typename message_body::value_type const& 当前正文
+       */
       typename message_body::value_type const &body() const { return _res.body(); }
+      /**
+       * @brief 获取/设置 HTTP 响应正文最大长度
+       * @return std::uint64_t 当前最大长度
+       */
       std::uint64_t body_limit() const { return _res.body_limit(); }
+      /**
+       * @brief 设置 HTTP 响应正文最大长度
+       * @param n 要设置的最大长度
+       */
       void body_limit(std::uint64_t n) { _res.body_limit(n); }
+      /**
+       * @brief 准备 HTTP 响应正文负载
+       * @details 计算并设置 Content-Length 头部字段
+       */
       void prepare_payload() { _res.prepare_payload(); }
+      /**
+       * @brief 检查 HTTP 响应是否包含 Content-Length 头部字段
+       * @return bool 是否包含 Content-Length 头部字段
+       */
       bool has_content_length() const { return _res.has_content_length(); }
+      /**
+       * @brief 获取 HTTP 响应 Content-Length 头部字段值
+       * @return std::uint64_t 当前 Content-Length 值
+       */
       std::uint64_t content_length() const { return _res.content_length(); }
 
-      // 序列化/反序列化
+      
       std::string to_string() const
       {
         std::ostringstream os;

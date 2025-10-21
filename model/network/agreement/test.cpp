@@ -103,13 +103,19 @@ int main()
     req.base().set(boost::beast::http::field::host, "localhost");
     req.target("/web");
     std::cout << req.to_string() << std::endl;
-
     protocol::http::request<boost::beast::http::string_body> resp;
     resp.from_string(req.to_string());
     std::cout << resp.to_string() << std::endl;
   }
   {
     boost::beast::http::request<boost::beast::http::string_body> req;
+    boost::beast::http::response<boost::beast::http::string_body> resp;
+    resp.result(boost::beast::http::status::ok);
+    resp.reason("OK");
+    resp.version(11);
+    resp.base().set(boost::beast::http::field::host, "localhost");
+    // resp.target("/web");
+    // std::cout << resp.to_string() << std::endl;
   }
   return 0;
 }
