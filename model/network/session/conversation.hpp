@@ -50,7 +50,7 @@ namespace conversation
   {
   public:
     using session_ptr = std::shared_ptr<fundamental::session<request_t, response_t>>;
-    using thread_pool = wan::thread_pool;
+    using thread_pool = wan::pool::thread_pool;
   private:
     std::atomic<bool> _running{false}; // 会话管理是否正在运行
     mutable std::shared_mutex _sessions_mutex; // 会话映射的互斥锁
@@ -84,7 +84,7 @@ namespace conversation
         thread_pool_config._scheduling_tactics = scheduling_tactics::adaptive;
         thread_pool_config._enable_monitoring = true;
         thread_pool_config._enable_performance_profiling = false;
-        _thread_pool = wan::make_thread_pool(thread_pool_config);
+        _thread_pool = wan::pool::make_thread_pool(thread_pool_config);
         if (_thread_pool && _thread_pool->start())
         {
           _thread_pool_running.store(true);

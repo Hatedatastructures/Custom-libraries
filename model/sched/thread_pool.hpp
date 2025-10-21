@@ -1647,14 +1647,14 @@ namespace internals::structure_t
 
 namespace wan
 {
-  using internals::structure_t::make_thread_pool;
-  using internals::structure_t::make_lightweight_pool;
-  using internals::structure_t::make_performance_pool;
 
-  using internals::structure_t::thread_pool;
-
-  namespace pol
+  namespace pool
   {
+    using internals::structure_t::make_thread_pool;
+    using internals::structure_t::make_lightweight_pool;
+    using internals::structure_t::make_performance_pool;
+
+    using internals::structure_t::thread_pool;
     using namespace internals::structure_t;
   }
 }
