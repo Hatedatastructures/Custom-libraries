@@ -62,7 +62,7 @@ namespace protocol
        * @brief 获取 HTTP 请求方法的字符串表示（只读）
        * @return boost::beast::string_view const& 当前请求方法的字符串表示
        */
-      boost::beast::string_view const &method_string() const { return _req.method_string(); }
+      boost::beast::string_view method_string() const { return _req.method_string(); }
       /**
        * @brief 获取/设置 HTTP 请求目标路径
        * @return boost::beast::string_view 引用当前请求目标路径
@@ -77,7 +77,7 @@ namespace protocol
        * @brief 获取 HTTP 请求目标路径（只读）
        * @return boost::beast::string_view 当前请求目标路径
        */
-      boost::beast::string_view const &target() const { return _req.target(); }
+      boost::beast::string_view target() const { return _req.target(); }
       /**
        * @brief 获取/设置 HTTP 请求版本
        * @return unsigned 当前请求版本
