@@ -4,7 +4,7 @@
 // {
 //   boost::asio::io_context io;
 //   represents::transponder forwarder(io);
-//   forwarder.add_or_update_upstream("example_upstream", "example.com", 80, false);
+//   forwarder.add_information("example_upstream", "example.com", 80, false);
 //   // forwarder.forward_sync();
   
 //   return 0;
@@ -54,7 +54,7 @@ public:
   void start()
   {
     _manager.start();
-    _forwarder.add_or_update_upstream("example_upstream", "www.baidu.com", 80, false);
+    _forwarder.add_information("www.baidu.com", "www.baidu.com", 80, false);
     // _webpage = extract(file_path);
     _do_accept();
   }

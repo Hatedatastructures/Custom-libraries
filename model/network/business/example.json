@@ -1,110 +1,14 @@
-{
-  "upstreams": [
-    {
-      "name": "main",
-      "host": "www.X.com",
-      "port": 80,
-      "use_https": false
-    },
-    {
-      "name": "secure",
-      "host": "www.github.com",
-      "port": 443,
-      "use_https": true
-    },
-    {
-      "name": "admin",
-      "host": "www.baidu.com",
-      "port": 443,
-      "use_https": true
-    }
-  ],
-  "routes": [
-    {
-      "match": {
-        "path_prefix": "/api/",
-        "methods": [
-          "GET",
-          "POST"
-        ]
-      },
-      "upstream": "main",
-      "ops": [
-        {
-          "set": {
-            "X-Forwarded-Host": "api.internal.local",
-            "X-Forwarded-Proto": "http"
-          }
-        }
-      ]
-    },
-    {
-      "match": {
-        "path_prefix": "/secure/"
-      },
-      "upstream": "secure",
-      "ops": [
-        {
-          "set": {
-            "X-Forwarded-Proto": "https"
-          }
-        }
-      ]
-    }
-  ],
-  "request_stage": [
-    {
-      "match": {
-        "path_prefix": "/admin"
-      },
-      "op": {
-        "type": "short_circuit",
-        "status": 403,
-        "body": "Forbidden",
-        "content_type": "text/plain",
-        "headers": {
-          "X-Reason": "policy"
-        }
-      }
-    },
-    {
-      "match": {
-        "path_prefix": "/api/"
-      },
-      "op": {
-        "type": "rewrite_headers",
-        "set": {
-          "X-Auth-Token": "example-token"
-        }
-      }
-    }
-  ],
-  "response_stage": [
-    {
-      "match": {
-        "content_type": "application/json"
-      },
-      "op": {
-        "type": "json_patch",
-        "ops": [
-          {
-            "op": "replace",
-            "path": "/traceId",
-            "value": "redacted"
-          }
-        ]
-      }
-    },
-    {
-      "match": {
-        "content_type": "application/json"
-      },
-      "op": {
-        "type": "rewrite_headers",
-        "set": {
-          "Cache-Control": "no-store"
-        }
-      }
-    }
-  ]
-}
+[
+  {
+    "domain": "www.baidu.com",
+    "ip": "127.0.0.1",
+    "port": "80",
+    "https": false
+  },
+  {
+    "domain": "www.taobao.com",
+    "ip": "127.0.0.1",
+    "port": "80",
+    "https": false
+  }
+]
