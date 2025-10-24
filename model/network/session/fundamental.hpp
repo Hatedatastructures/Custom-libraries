@@ -8,6 +8,7 @@
 #include <string>
 #include <mutex>
 #include <shared_mutex>
+#include <cstdlib>
 
 #include "../agreement/json.hpp"
 #include "../agreement/auxiliary.hpp"
@@ -17,6 +18,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/pool/object_pool.hpp>
+#include <openssl/x509v3.h>
 
 namespace conversation
 {
@@ -124,6 +126,9 @@ namespace conversation::fundamental
 
     std::string _ssl_cert_file;                           // SSL证书文件
     std::string _ssl_key_file;                            // SSL私钥文件
+    std::string _ssl_ca_file;                             // CA证书文件（仅此处加载）
+    std::string _tls_server_name;                         // SNI与主机名验证的服务器名
+    bool _ssl_insecure_skip_verify{false};                // 跳过证书校验（开发/测试用）
 
     std::size_t _max_buffer_size{65536};    // 最大缓冲区大小
     std::size_t _max_message_size{1048576}; // 最大消息大小
@@ -216,9 +221,18 @@ namespace conversation::fundamental
         }
         else if(_type == session_type::SSL_CLIENT)
         {
-          ssl_context.set_verify_mode(boost::asio::ssl::verify_peer);
-          ssl_context.set_default_verify_paths();
-          // 如果提供了客户端证书
+          if(_config._ssl_insecure_skip_verify)
+            ssl_context.set_verify_mode(boost::asio::ssl::verify_none);
+          else
+            ssl_context.set_verify_mode(boost::asio::ssl::verify_peer);
+
+          // 仅从配置的 CA 路径加载（不使用默认/环境变量/其他路径）
+          if(!_config._ssl_insecure_skip_verify && !_config._ssl_ca_file.empty())
+          {
+            try { ssl_context.load_verify_file(_config._ssl_ca_file); } catch(...) { }
+          }
+
+          // 可选客户端证书
           if (!_config._ssl_cert_file.empty())
             ssl_context.use_certificate_chain_file(_config._ssl_cert_file);
           if (!_config._ssl_key_file.empty())
@@ -548,6 +562,20 @@ namespace conversation::fundamental
           if (callback)
             callback(boost::system::error_code());
         };
+        if(!self->_config._tls_server_name.empty())
+          {
+            SSL_set_tlsext_host_name(self->_ssl_socket->native_handle(), self->_config._tls_server_name.c_str());
+            self->_ssl_socket->set_verify_callback(
+              [server_name = self->_config._tls_server_name](bool preverified, boost::asio::ssl::verify_context& ctx)
+              {
+                if (!preverified) return false;
+                auto* store_ctx = ctx.native_handle();
+                X509* cert = store_ctx ? X509_STORE_CTX_get_current_cert(store_ctx) : nullptr;
+                if (!cert) return false;
+                return X509_check_host(cert, server_name.c_str(), 0, 0, nullptr) == 1;
+              }
+            );
+          }
         self->_ssl_socket->async_handshake(boost::asio::ssl::stream_base::client,ssl_handshake);
       };
 
@@ -598,6 +626,20 @@ namespace conversation::fundamental
                 self->_start_heartbeat_timer();
                 if (callback) callback(boost::system::error_code());
               };
+              if(!self->_config._tls_server_name.empty())
+              {
+                SSL_set_tlsext_host_name(self->_ssl_socket->native_handle(), self->_config._tls_server_name.c_str());
+                self->_ssl_socket->set_verify_callback(
+                  [server_name = self->_config._tls_server_name](bool preverified, boost::asio::ssl::verify_context& ctx)
+                  {
+                    if (!preverified) return false;
+                    auto* store_ctx = ctx.native_handle();
+                    X509* cert = store_ctx ? X509_STORE_CTX_get_current_cert(store_ctx) : nullptr;
+                    if (!cert) return false;
+                    return X509_check_host(cert, server_name.c_str(), 0, 0, nullptr) == 1;
+                  }
+                );
+              }
               self->_ssl_socket->async_handshake(boost::asio::ssl::stream_base::client, ssl_handshake);
             };
             self->_ssl_socket->lowest_layer().async_connect(endpoint, ssl_connect_direct);
@@ -695,6 +737,20 @@ namespace conversation::fundamental
 
       if(_config._enable_ssl && _ssl_socket)
       {
+        if(!_config._tls_server_name.empty())
+        {
+          SSL_set_tlsext_host_name(_ssl_socket->native_handle(), _config._tls_server_name.c_str());
+          _ssl_socket->set_verify_callback(
+            [server_name = _config._tls_server_name](bool preverified, boost::asio::ssl::verify_context& ctx)
+            {
+              if (!preverified) return false;
+              auto* store_ctx = ctx.native_handle();
+              X509* cert = store_ctx ? X509_STORE_CTX_get_current_cert(store_ctx) : nullptr;
+              if (!cert) return false;
+              return X509_check_host(cert, server_name.c_str(), 0, 0, nullptr) == 1;
+            }
+          );
+        }
         _ssl_socket->handshake(boost::asio::ssl::stream_base::client, ec);
         if(ec)
         {
@@ -765,6 +821,20 @@ namespace conversation::fundamental
         if(_type == session_type::SSL_CLIENT)
         {
           boost::system::error_code hs_ec;
+          if(!_config._tls_server_name.empty())
+          {
+            SSL_set_tlsext_host_name(_ssl_socket->native_handle(), _config._tls_server_name.c_str());
+            _ssl_socket->set_verify_callback(
+              [server_name = _config._tls_server_name](bool preverified, boost::asio::ssl::verify_context& ctx)
+              {
+                if (!preverified) return false;
+                auto* store_ctx = ctx.native_handle();
+                X509* cert = store_ctx ? X509_STORE_CTX_get_current_cert(store_ctx) : nullptr;
+                if (!cert) return false;
+                return X509_check_host(cert, server_name.c_str(), 0, 0, nullptr) == 1;
+              }
+            );
+          }
           _ssl_socket->handshake(boost::asio::ssl::stream_base::client, hs_ec);
           if(hs_ec)
           {

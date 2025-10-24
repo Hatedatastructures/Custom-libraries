@@ -14,12 +14,14 @@
 #include "forwarder.hpp"
 #include <boost/asio/ts/buffer.hpp>
 #include <boost/asio/ts/internet.hpp>
+#include <boost/asio/post.hpp>
 #include <iostream>
 #include <format>
 #include <memory>
 #include <string>
 #include <fstream>
 #include <vector>
+#include <thread>
 
 const std::string file_path = "webpage.html";
 
@@ -54,7 +56,7 @@ public:
   void start()
   {
     _manager.start();
-    _forwarder.add_information("www.baidu.com", "www.baidu.com", 80, false);
+    _forwarder.add_upstream("www.baidu.com", "110.242.69.21", 443, true);
     // _webpage = extract(file_path);
     _do_accept();
   }
@@ -80,19 +82,32 @@ private:
         auto new_session = pair.second;
         if(new_session)
         {
-          auto auto_reception_processing = [this](std::shared_ptr<session<>> sess, std::string_view data)
-          { 
-            // const std::string& body = _webpage;
-            // std::string http_response =
-            // "HTTP/1.1 200 OK\r\n"
-            // "Content-Type: text/html; charset=utf-8\r\n"
-            // "Content-Length: " + std::to_string(body.size()) + "\r\n"
-            // "Connection: close\r\n"
-            // "\r\n" + body;
+          auto auto_reception_processing = [this](std::shared_ptr<session<>> sess, std::string_view /*data*/)
+          {
+            // 固定构造百度搜索页的 GET 请求，确保在受限环境下也能验证转发链路
+            std::string req_str =
+              "GET /s?wd=asio&ie=utf-8 HTTP/1.1\r\n"
+              "Host: www.baidu.com\r\n"
+              "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
+              "Accept: */*\r\n"
+              "Connection: close\r\n"
+              "\r\n";
             protocol::http::request<> http_request;
-            http_request.from_string(data);
-            auto req = _forwarder.forward_sync(http_request);
-            sess->async_send_bytes(req.to_string(), nullptr); 
+            http_request.from_string(req_str);
+
+            // 异步转发避免阻塞 io_context 线程
+            auto fut = _forwarder.forward_async(http_request);
+            std::weak_ptr<session<>> wsess = sess;
+            std::thread([this, wsess, fut = std::move(fut)]() mutable {
+              auto resp = fut.get();
+              auto s = resp.to_string();
+              if (auto sp = wsess.lock())
+              {
+                boost::asio::post(_io_context, [sp, s = std::move(s)]() mutable {
+                  sp->async_send_bytes(s, nullptr);
+                });
+              }
+            }).detach();
           };
           new_session->set_reception_processing(auto_reception_processing);
           new_session->start();
@@ -114,6 +129,8 @@ private:
 
 int main()
 {
+  // conversation::endpoint_config cfg;
+  // cfg.session_cfg._ssl_ca_file = std::string("G:\\git\\Git\\usr\\ssl\\certs\\ca-bundle.crt");
   try
   {
     boost::asio::io_context io;

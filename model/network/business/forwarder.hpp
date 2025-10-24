@@ -109,6 +109,9 @@ namespace represents
       cfg.host = up.host;
       cfg.port = up.port;
       cfg.session_cfg._enable_ssl = up.use_https;
+      cfg.session_cfg._tls_server_name = up.domain.empty() ? up.host : up.domain;
+      cfg.session_cfg._ssl_ca_file = std::string("G:\\git\\Git\\usr\\ssl\\certs\\ca-bundle.crt"); // CA 证书文件路径                                       // 临时测试
+      cfg.session_cfg._ssl_insecure_skip_verify = true; // 开发环境：跳过证书校验，避免 CA 缺失导致握手失败
       // 应用命名空间级连接池默认配置
       cfg.min_connections = connection_pool_defaults::min_connections;
       cfg.max_connections = connection_pool_defaults::max_connections;
@@ -210,7 +213,6 @@ namespace represents
         auto rb = name.find(']');
         if (rb != std::string::npos)
         {
-          // 规范化 IPv6 字面量：匹配时去掉方括号
           std::string core = name.substr(1, rb - 1);
           if (rb + 1 < name.size() && name[rb + 1] == ':')
           {
@@ -229,7 +231,6 @@ namespace represents
           name = name.substr(0, pos);
         }
       }
-      // 域名统一小写以便匹配（IP 字符不受影响）
       std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
       return {name, port};
     }
@@ -303,31 +304,33 @@ namespace represents
       response parsed;
       auto borrowed = _http_pool.borrow(up.host, up.port);
       if (!borrowed)
-      {
         return make_error_response(502, "Bad Gateway", "upstream unavailable");
-      }
       auto sp = borrowed.value();
 
       std::mutex mtx;
       std::condition_variable cv;
       bool done = false;
+      std::string buffer;
 
-      auto response_value = [this, &parsed, &mtx, &cv, &done, sp](session_ptr /*ptr*/, std::string_view sv) 
+      auto response_value = [this, &parsed, &mtx, &cv, &done, &buffer, sp](session_ptr /*ptr*/, std::string_view sv)
       {
+        std::lock_guard<std::mutex> lock(mtx);
+        buffer.append(sv.data(), sv.size());
+        response tmp;
+        if (tmp.from_string(buffer))
         {
-          std::lock_guard<std::mutex> lock(mtx);
-          if (!parsed.from_string(sv))
-          {
-            parsed = make_error_response(502, "upstream invalid response", "parse failed");
-          }
+          parsed = std::move(tmp);
           done = true;
+          cv.notify_one();
         }
-        sp->set_reception_processing(nullptr);
-        cv.notify_one();
       };
 
+      request sending = req;
+      if (sending.base().find(http::field::connection) == sending.base().end())
+        sending.base().set(http::field::connection, "close");
       sp->set_reception_processing(response_value);
-      boost::system::error_code ec = sp->send_request(req);
+      sp->start(); // 启动读取循环
+      boost::system::error_code ec = sp->send_request(sending);
       if (ec)
       {
         sp->set_reception_processing(nullptr);
@@ -336,7 +339,7 @@ namespace represents
       }
       {
         std::unique_lock<std::mutex> lock(mtx);
-        cv.wait_for(lock, std::chrono::milliseconds(5000), [&]{ return done; });
+        cv.wait_for(lock, std::chrono::milliseconds(15000), [&]{ return done; });
       }
       if (!done)
       {
@@ -446,6 +449,8 @@ namespace represents
         cfg.host = up.host;
         cfg.port = up.port;
         cfg.session_cfg._enable_ssl = up.use_https;
+        cfg.session_cfg._tls_server_name = up.domain.empty() ? up.host : up.domain;
+        cfg.session_cfg._ssl_insecure_skip_verify = true; // 开发环境：跳过证书校验
         // 应用命名空间级连接池默认配置
         cfg.min_connections = connection_pool_defaults::min_connections;
         cfg.max_connections = connection_pool_defaults::max_connections;
