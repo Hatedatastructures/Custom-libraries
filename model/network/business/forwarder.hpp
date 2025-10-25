@@ -3,6 +3,7 @@
 #include "../session/fundamental.hpp"
 #include "../session/conversation.hpp"
 #include "../agreement/json.hpp"
+#include "../../sched/thread_pool.hpp"
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -22,6 +23,9 @@
 #include <string_view>
 #include <future>
 #include <chrono>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 
 namespace represents
 {
@@ -33,6 +37,7 @@ namespace represents
     static inline std::chrono::milliseconds borrow_timeout{2000};
     static inline std::chrono::milliseconds connect_timeout{1500};
     static inline std::chrono::seconds health_check_interval{10};
+
   };
   
   /**
@@ -81,6 +86,14 @@ namespace represents
     std::unordered_multimap<std::string, upstream> _upstreams; // 上游代理名单，多IP：key=域名，value=上游配置
     conversation::connection_pool<request, response> _http_pool; // http连接池
     transponder_config _config{}; // 统一配置（可覆盖）
+
+    // 任务管理与执行器
+    std::atomic<bool> _stopping{false}; // 停止标志
+    std::atomic<std::size_t> _active_tasks{0}; // 当前活跃异步任务数
+    std::size_t _max_async_tasks{1024}; // 最大并发异步任务数，防止任务爆炸
+    std::mutex _tasks_mutex; // 任务计数互斥
+    std::condition_variable _tasks_cv; // 任务计数条件变量
+    std::shared_ptr<wan::pool::thread_pool> _async_pool; // 线程池
 
   public:
     explicit transponder(boost::asio::io_context& io_context, const transponder_config& config = transponder_config())
@@ -193,6 +206,50 @@ namespace represents
       return load_config_json(data);
     }
 
+    // 停止转发器（拒绝新异步任务，停止连接池）
+    bool stop()
+    {
+      if (_stopping.exchange(true))
+        return true;
+      _http_pool.stop();
+      return true;
+    }
+
+    // 关停转发器（等待在途任务完成，可选超时）
+    bool shutdown(std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
+    {
+      _stopping.store(true, std::memory_order_release);
+      _http_pool.stop();
+
+      auto deadline = std::chrono::steady_clock::now() + timeout;
+      std::unique_lock<std::mutex> lk(_tasks_mutex);
+      while (_active_tasks.load(std::memory_order_relaxed) > 0)
+      {
+        if (std::chrono::steady_clock::now() >= deadline)
+          break;
+        _tasks_cv.wait_until(lk, deadline, [this]{ return _active_tasks.load(std::memory_order_relaxed) == 0; });
+      }
+      lk.unlock();
+
+      if (_async_pool && _async_pool->is_running())
+      {
+        // 尝试关停外部线程池
+        _async_pool->shutdown(timeout);
+      }
+
+      return _active_tasks.load(std::memory_order_relaxed) == 0;
+    }
+
+    // 设置外部线程池
+    void set_async_executor(std::shared_ptr<wan::pool::thread_pool> pool)
+    {
+      _async_pool = std::move(pool);
+      if (_async_pool && !_async_pool->is_running())
+      {
+        _async_pool->start();
+      }
+    }
+
     /**
      * @brief 同步转发请求
      * @param req 请求
@@ -229,11 +286,54 @@ namespace represents
      */
     std::future<response> forward_async(request req,request_func request_filter = {},response_func response_filter = {})
     {
-      auto forwatrd_task = [this, req = std::move(req), request_filter, response_filter]() mutable
+      // 若正在停止，直接返回错误响应
+      if (_stopping.load(std::memory_order_acquire))
       {
+        std::promise<response> p;
+        p.set_value(make_error_response(503, "service stopping", "agent is stopping"));
+        return p.get_future();
+      }
+
+      // 简单并发门限，防止任务爆炸
+      while (_active_tasks.load(std::memory_order_relaxed) >= _max_async_tasks)
+      {
+        std::unique_lock<std::mutex> lk(_tasks_mutex);
+        _tasks_cv.wait_for(lk, std::chrono::milliseconds(5), [this]{
+          return _active_tasks.load(std::memory_order_relaxed) < _max_async_tasks || _stopping.load(std::memory_order_acquire);
+        });
+        if (_stopping.load(std::memory_order_acquire))
+        {
+          std::promise<response> p;
+          p.set_value(make_error_response(503, "service stopping", "agent is stopping"));
+          return p.get_future();
+        }
+      }
+
+      auto forward_task = [this, req = std::move(req), request_filter, response_filter]() mutable -> response
+      {
+        // 任务计数 +1
+        _active_tasks.fetch_add(1, std::memory_order_relaxed);
+        // RAII 计数 -1 并唤醒等待者
+        struct Guard 
+        { 
+          transponder* self; 
+          ~Guard(){ self->_active_tasks.fetch_sub(1, std::memory_order_relaxed); 
+          std::lock_guard<std::mutex> lk(self->_tasks_mutex); 
+          self->_tasks_cv.notify_all(); } 
+        };
+        Guard g{this};
+
+        if (_stopping.load(std::memory_order_acquire))
+          return make_error_response(503, "service stopping", "agent is stopping");
+
         return forward_sync(std::move(req), request_filter, response_filter);
       };
-      return std::async(std::launch::async, std::move(forwatrd_task));
+
+      if (_async_pool && _async_pool->is_running())
+      {
+        return _async_pool->submit(std::move(forward_task));
+      }
+      return std::async(std::launch::async, std::move(forward_task));
     }
 
   private:

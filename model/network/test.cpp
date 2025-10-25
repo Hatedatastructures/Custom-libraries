@@ -464,10 +464,24 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <iostream>
+#include "./business/forwarder.hpp"
+
 int main()
 {
-  boost::beast::http::request<boost::beast::http::string_body> request(boost::beast::http::verb::get, "/", 11);
+  // boost::beast::http::request<boost::beast::http::string_body> request(boost::beast::http::verb::get, "/", 11);
+  // request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+  // std::cout << request.to_string() << std::endl;
+  boost::asio::io_context io;
+  std::shared_ptr<wan::pool::thread_pool> thread_pool = wan::pool::make_lightweight_pool(100);
+  represents::transponder<boost::beast::http::string_body> transponder(io);
+  protocol::http::request<boost::beast::http::string_body> request;
   request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-  std::cout << request.to_string() << std::endl;
+  transponder.set_ssl_ca_file("");
+  transponder.set_async_executor(thread_pool);
+  auto future = transponder.forward_async(request);
+  auto response = future.get();
+  std::cout << response.to_string() << std::endl;
+  io.run();
+  std::this_thread::sleep_for(std::chrono::seconds(10));
   return 0;
 }

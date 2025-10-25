@@ -135,7 +135,8 @@ namespace instrument
     }
     friend std::ostream& operator<<(std::ostream& time_os, const chronix& tp);
   };
-  std::ostream& operator<<(std::ostream& time_os, const chronix& tp)
+
+  inline std::ostream& operator<<(std::ostream& time_os, const chronix& tp)
   {
     return time_os << tp.to_string();
   }

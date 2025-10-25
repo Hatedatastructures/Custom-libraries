@@ -13,7 +13,7 @@
 #include "./session/fundamental.hpp" // 会话封装
 #include "./session/conversation.hpp" // 会话管理
 
-#include "./business/forwarder.hpp" // 服务端http请求转发器
+#include "./business/forwarder.hpp" // 服务端http / https 代理类
 
 namespace wan
 {
