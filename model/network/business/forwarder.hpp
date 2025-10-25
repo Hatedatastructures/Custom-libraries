@@ -34,6 +34,18 @@ namespace represents
     static inline std::chrono::milliseconds connect_timeout{1500};
     static inline std::chrono::seconds health_check_interval{10};
   };
+  
+  /**
+   * @brief 文件密钥路径配置
+   * @details 用于配置代理类的 `ssl` 证书校验等
+   */
+  struct transponder_config
+  {
+    std::string ssl_ca_file;                 // CA 证书文件路径
+    std::string ssl_cert_file;               // 客户端证书链文件（可选，用于双向TLS）
+    std::string ssl_key_file;                // 客户端私钥文件（可选，用于双向TLS）
+    bool ssl_insecure_skip_verify{false};    // 是否跳过证书校验（默认关闭）
+  };
   /**
    * @brief 基于 `http` 协议的服务端 `http / https` 请求转发器(代理)
    * @details 用于将客户端的http请求转发到指定的http服务器，并将服务器的响应返回给客户端
@@ -68,9 +80,40 @@ namespace represents
     boost::asio::io_context& _io_context; // io上下文
     std::unordered_multimap<std::string, upstream> _upstreams; // 上游代理名单，多IP：key=域名，value=上游配置
     conversation::connection_pool<request, response> _http_pool; // http连接池
+    transponder_config _config{}; // 统一配置（可覆盖）
 
   public:
-    explicit transponder(boost::asio::io_context& io_context) : _io_context(io_context), _http_pool(io_context) { _http_pool.start(); }
+    explicit transponder(boost::asio::io_context& io_context, const transponder_config& config = transponder_config())
+      : _io_context(io_context), _http_pool(io_context), _config(config) { _http_pool.start(); }
+
+    /**
+     * @brief 设置 `CA` 证书文件路径
+     */
+    void set_ssl_ca_file(const std::string& path) 
+    { 
+      _config.ssl_ca_file = path; 
+    }
+    /**
+     * @brief 设置 `客户端证书链` 文件路径
+     */
+    void set_ssl_cert_file(const std::string& path) 
+    { 
+      _config.ssl_cert_file = path; 
+    }
+    /**
+     * @brief 设置 `客户端私钥` 文件路径
+     */
+    void set_ssl_key_file(const std::string& path) 
+    { 
+      _config.ssl_key_file = path; 
+    }
+    /**
+     * @brief 设置是否跳过 `服务器证书校验`
+     */
+    void set_ssl_insecure_skip_verify(bool v) 
+    { 
+      _config.ssl_insecure_skip_verify = v; 
+    }
 
     /**
      * @brief 添加或更新上游服务器配置
@@ -110,8 +153,10 @@ namespace represents
       cfg.port = up.port;
       cfg.session_cfg._enable_ssl = up.use_https;
       cfg.session_cfg._tls_server_name = up.domain.empty() ? up.host : up.domain;
-      cfg.session_cfg._ssl_ca_file = std::string("G:\\git\\Git\\usr\\ssl\\certs\\ca-bundle.crt"); // CA 证书文件路径                                       // 临时测试
-      cfg.session_cfg._ssl_insecure_skip_verify = true; // 开发环境：跳过证书校验，避免 CA 缺失导致握手失败
+      cfg.session_cfg._ssl_ca_file = _config.ssl_ca_file;
+      cfg.session_cfg._ssl_cert_file = _config.ssl_cert_file;
+      cfg.session_cfg._ssl_key_file = _config.ssl_key_file;
+      cfg.session_cfg._ssl_insecure_skip_verify = _config.ssl_insecure_skip_verify;
       // 应用命名空间级连接池默认配置
       cfg.min_connections = connection_pool_defaults::min_connections;
       cfg.max_connections = connection_pool_defaults::max_connections;
@@ -140,7 +185,7 @@ namespace represents
      * @param path json文件路径
      * @return 是否加载成功
      */
-    bool load_config_file(const std::string &path)
+    bool json_config_file(const std::string &path)
     {
       std::ifstream in(path, std::ios::binary);
       if (!in) return false;
@@ -347,6 +392,7 @@ namespace represents
         _http_pool.invalidate(sp);
         return make_error_response(504, "no response received", "upstream timeout");
       }
+      sp->set_reception_processing(nullptr);
       _http_pool.give_back(sp);
       return parsed;
     }
@@ -450,7 +496,10 @@ namespace represents
         cfg.port = up.port;
         cfg.session_cfg._enable_ssl = up.use_https;
         cfg.session_cfg._tls_server_name = up.domain.empty() ? up.host : up.domain;
-        cfg.session_cfg._ssl_insecure_skip_verify = true; // 开发环境：跳过证书校验
+         cfg.session_cfg._ssl_ca_file = _config.ssl_ca_file;
+         cfg.session_cfg._ssl_cert_file = _config.ssl_cert_file;
+         cfg.session_cfg._ssl_key_file = _config.ssl_key_file;
+         cfg.session_cfg._ssl_insecure_skip_verify = _config.ssl_insecure_skip_verify;
         // 应用命名空间级连接池默认配置
         cfg.min_connections = connection_pool_defaults::min_connections;
         cfg.max_connections = connection_pool_defaults::max_connections;

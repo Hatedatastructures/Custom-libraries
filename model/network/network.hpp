@@ -51,6 +51,6 @@ namespace wan
   } // end namespace session
   namespace business
   {
-  
+    using namespace represents;
   } // end namespace business
 } // end namespace wan

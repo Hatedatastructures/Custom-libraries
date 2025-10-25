@@ -1,13 +1,31 @@
 [
   {
     "domain": "www.baidu.com",
-    "ip": "127.0.0.1",
+    "ip": "",
     "port": "80",
     "https": false
   },
   {
     "domain": "www.taobao.com",
-    "ip": "127.0.0.1",
+    "ip": "",
+    "port": "80",
+    "https": false
+  },
+  {
+    "domain": "www.jd.com",
+    "ip": "",
+    "port": "80",
+    "https": false
+  },
+  {
+    "domain": "www.sina.com.cn",
+    "ip": "",
+    "port": "80",
+    "https": false
+  },
+  {
+    "domain": "www.163.com",
+    "ip": "",
     "port": "80",
     "https": false
   }
