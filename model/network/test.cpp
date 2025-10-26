@@ -485,3 +485,5 @@ int main()
   std::this_thread::sleep_for(std::chrono::seconds(10));
   return 0;
 }
+
+//-Bstatic -ljsoncpp -lcrypto -lssl -lcryptopp -lboost_json-mgw15-mt-s-x64-1_89 -lboost_filesystem-mgw15-mt-s-x64-1_89 -lboost_thread-mgw15-mt-s-x64-1_89 -lboost_date_time-mgw15-mt-s-x64-1_89 -lboost_regex-mgw15-mt-s-x64-1_89 -lboost_program_options-mgw15-mt-s-x64-1_89 -lboost_log-mgw15-mt-s-x64-1_89 -lboost_log_setup-mgw15-mt-s-x64-1_89 -lboost_serialization-mgw15-mt-s-x64-1_89 -lboost_wserialization-mgw15-mt-s-x64-1_89 -lboost_url-mgw15-mt-s-x64-1_89 -lboost_timer-mgw15-mt-s-x64-1_89 -lboost_chrono-mgw15-mt-s-x64-1_89 -lboost_random-mgw15-mt-s-x64-1_89 -lboost_process-mgw15-mt-s-x64-1_89 -lboost_container-mgw15-mt-s-x64-1_89 -lboost_coroutine-mgw15-mt-s-x64-1_89 -lboost_fiber-mgw15-mt-s-x64-1_89 -lboost_contract-mgw15-mt-s-x64-1_89 -lboost_type_erasure-mgw15-mt-s-x64-1_89 -lboost_unit_test_framework-mgw15-mt-s-x64-1_89 -Bdynamic -lpdh -lws2_32 -lmswsock
