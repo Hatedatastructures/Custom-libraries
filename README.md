@@ -1,110 +1,71 @@
-# Custom Libraries - 高性能 C++ 基础库集合
+# Custom Libraries · model 模块总览（高性能 C++20 头文件库）
 
 <div align="center">
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![C++](https://img.shields.io/badge/C%2B%2B-20%2B-blue.svg)](https://en.cppreference.com/w/cpp/20) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
 </div>
 
-## 项目简介
+## 介绍
 
-`Custom Libraries` 是一个以头文件为主的高性能 `C++` 基础库集合，提供：
-- 模拟实现`stl`的容器；
-- 基于标准库的线程安全封装（读写锁/互斥锁/条件变量）；
-- 调度与线程池框架；
-- 网络协议与会话框架；
-- 高性能日志系统。
+`model/` 是本仓库的核心子系统，采用 `C++20` 标准与“以头文件为主”的交付方式，聚合四类高性能基础组件：
+- `container/`：模拟实现 `STL` 容器，接口一致、低侵入替换；
+- `concurrent/`：标准容器的线程安全封装（读共享/写独占）；
+- `sched/`：可扩展的调度与线程池框架，支持动态扩缩容与任务编排；
+- `network/`：协议/会话/加密/转发组件，面向高并发网络应用。
 
-## 模块总览
+整体设计强调：模块解耦、统一接口风格、可插拔策略、易集成落地；适用于服务端开发、网络代理、数据处理与并发调度等场景。
 
-| 文件夹 | 角色 | 特性 |
-|--------|------|------|
-| `model/container` | 模拟实现`stl`的容器 | 保持 STL 风格接口、统一聚合头 `container.hpp` |
-| `model/concurrent` | 标准库容器的线程安全封装 | 互斥锁/读写锁/条件变量，接口同名同语义，提供阻塞/非阻塞与快照 |
-| `model/sched` | 框架：调度与线程池 | 动态扩缩容、`worker` 框架、调度/排名策略、任务编排 |
-| `model/network` | 框架：网络协议与会话 | 协议解析、编解码/转换、加密组件、客户端/服务端示例、会话管理 |
-| `chronicle` | 高性能日志系统 | 异步日志、多级输出、结构化记录（`Logbook.hpp`） |
+## 技术栈与外部依赖
 
-说明：
-- `model/sched` 与 `model/network` 为框架模块；
-- `model/container` 为模拟实现的容器实现逻辑；
-- `model/concurrent` 是对标准库容器的线程安全封装。
+- 标准库（C++20）：`std::shared_mutex`、`std::mutex`、`std::condition_variable`、`std::jthread`、`std::future` 等并发/异步基元。
+- Boost 生态：
+  - `Boost.Asio`：异步 `IO` 与 `TCP/UDP/SSL` 网络基础；
+  - `Boost.Beast`：`HTTP` 协议与流处理；
+  - `Boost.JSON`：高性能 `JSON` 解析与序列化；
+- 安全库：
+  - `OpenSSL`：`TLS/SSL` 握手与证书验证（`X509_check_host` 等）；
+  - `Crypto++`：对称/非对称加密、`HMAC`、`AES-GCM/CBC/CTR`、`RSA-PSS/OAEP`、`ElGamal`、`SHA256/MD5` 等。
 
-## 核心特性
+依赖建议：优先使用 `vcpkg` 或系统包管理安装上述库；链接时启用 `SSL` 与 `Crypto++`，并确保编译选项使用 `-std=c++20`。
 
-### 容器（模拟实现，`model/container`）
-- 提供 `vector/list/map/set/queue/stack/string/tree` 等容器的模拟实现；
-- 保持 STL 风格接口与一致语义，低侵入替换；
-- 配套仿真与算法工具（`simulate_*`：算法、哈希、布隆过滤器、异常等）；
-- 统一聚合头 `container.hpp`。
+## 模块说明（基于 `model/`）
 
-### 并发封装（标准库，`model/concurrent`）
-- 覆盖主流标准容器的线程安全封装（`deque/queue/stack/vector/list/map/set/unordered_*`、`priority_queue`、`forward_list`、`bitset`、`string`）；
-- 读共享写独占或互斥锁保护，提供阻塞/非阻塞接口与快照 `snapshot()`；
+### `container`/（模拟实现）
+- 提供 `vector/list/map/set/queue/stack/string/tree` 等容器的模拟实现。
+- 保持 `STL` 风格接口与一致语义，统一聚合头 `model/container/container.hpp`。
+- 配套仿真与算法工具（`simulate_*`：算法、哈希、布隆过滤器、异常、指针与迭代器模拟等）。
+
+### `concurrent`/（线程安全封装）
+- 覆盖主流标准容器：`deque/queue/stack/vector/list/map/set/unordered_map/unordered_set`、`priority_queue`、`forward_list`、`bitset`、`string`。
+- 采用 `std::shared_mutex` 实现读共享、写独占；队列与条件等待使用 `std::mutex + std::condition_variable`。
+- 提供一致接口与只读快照理念（迭代与统计优先使用 `snapshot()`）。
+
+### `sched`/（调度与线程池）
+- 核心组件：`thread_pool.hpp`（线程池）、`worker.hpp`（工作线程）、`rank.hpp`（队列/排名策略）、`scheduling.hpp`（调度策略）、`integration.hpp`（统一配置与统计）、`unit.hpp`（任务单元）。
+- 能力特性：
+  - 动态扩缩容（`set_thread_count / scale_up / scale_down`）；
+  - 多策略队列（`fifo/priority/adaptive` 等）；
+  - 任务编排（优先级/延迟/超时/依赖/批量提交）；
+  - 健康监控与性能采样（吞吐、队列利用率、活跃线程等）。
+
+### `network`/（协议与会话框架）
+- 协议：`agreement/*`（`http.hpp/json.hpp/protocol.hpp/conversion.hpp/auxiliary.hpp`），统一的头/体/编解码与转换工具。
+- 会话：`session/*`（`fundamental.hpp/conversation.hpp`），`TCP/SSL` 客户端/服务端、连接池与读写收发回调。
+- 业务：`business/forwarder.hpp` 提供 `HTTP/HTTPS` 代理转发和数据劫持与上游名单解析（域名解析与回退策略）。
+- 加密：`crypt/encryption.hpp` 提供对称/非对称/摘要算法与封装，支持密文封包格式与完整性校验。
 
 
+## 编译与集成建议
 
-### 调度框架（`model/sched`）
-- 动态线程池与 `worker` 框架（`thread_pool.hpp`、`worker.hpp`），弹性扩缩容；
-- 调度与排名策略（`scheduling.hpp`、`rank.hpp`），可扩展自定义策略；
-- 任务编排与集成（`integration.hpp`、`unit.hpp`），便捷组合与复用；
-- 参考文档：`docs/thread_pool_reference_document.md`、`docs/thread_pool_user_ manual.md`。
+- 编译：`C++20`，启用优化（如 `-O2`，不启用优化可能会出现标准库静态链接问题，在链接阶段加入 `OpenSSL` 与 `Crypto++`。
+- 头文件路径：将 `model/` 目录加入编译器 `include` 搜索路径；模块按需包含对应 `.hpp`。
+- 依赖管理：推荐 `vcpkg`（`boost-asio`, `boost-beast`, `boost-json`, `openssl`, `cryptopp`）。
+- 迭代器与并发：在写入并发下避免长期持有迭代器/引用；统计遍历优先走只读接口或快照。
+- 网络安全：启用 `TLS` 时配置 `SNI` 与证书验证，必要时加载 `CA` 文件并开启主机名检查。
 
-### 网络框架（`model/network`）
-- 协议与会话框架（`agreement/*`、`session/*`），含客户端/服务端示例；
-- 编解码与转换（`json.hpp`、`conversion.hpp`），统一协议处理；
-- 加密支持（`crypt/encryption.hpp`），可插拔安全组件；
-- 统一入口与封装（`network.hpp`），便于集成。
+## 许可
 
-### 日志系统（`chronicle`）
-- 异步日志、多级输出、结构化记录（`Logbook.hpp`），适合高并发场景观测。
-
-## 快速开始
-
-### 头文件包含示例
-
-```cpp
-// 容器（模拟实现）
-#include "model/container/container.hpp"
-
-// 并发封装（标准库）
-#include "model/concurrent/concurrent_vector.hpp"
-
-// 调度框架
-#include "model/sched/thread_pool.hpp"
-
-// 网络框架
-#include "model/network/network.hpp"
-
-// 日志系统
-#include "chronicle/Logbook.hpp"
-```
-
-### 编译要求
-- C++20 或以上编译器；
-- Windows / Linux；
-- 将 `model/` 与 `chronicle/` 目录加入头文件搜索路径即可使用（以头文件为主）。
-
-## 编译与集成
-- 以头文件为主，按需包含相应模块的 `.hpp`；
-- 模块间尽量解耦，便于单独集成；
-- 推荐为不同模块创建独立编译单元，并启用优化选项（如 `-O2`）。
-
-## 使用建议
-- 并发封装：遍历与统计优先使用 `snapshot()`；避免在写入并发下长期持有迭代器/引用；
-- 网络框架：协议/会话在业务入口统一封装，便于扩展与测试；
-- 日志系统：按级别区分输出，关键路径使用异步日志以降低延迟。
-
-## 文档
-- `docs/foundation.md`：基础容器与算法文档；
-- `docs/thread_pool_reference_document.md`：线程池技术文档；
-- `docs/thread_pool_user_ manual.md`：线程池使用指南；
-- `high_performance_servers.md`：高性能服务器开发指南。
-
-## 许可证
-
-本项目采用 [MIT 许可证](LICENSE)，允许自由使用、修改和分发。
-
----
-
-`Custom Libraries` — 为现代 `C++` 应用提供高性能、可靠的基础组件支持
+本项目采用 [MIT 许可证](LICENSE)，可自由使用、修改与分发。
