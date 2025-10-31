@@ -260,13 +260,26 @@ namespace conversation
       if(!_running.load())
       {
         _running.store(true);
-        if(_start_thread_pool())
+        if(!_thread_pool_running.load())
         {
-          _start_cleanup_timer();
-          return true;
+          if(!_thread_pool)
+          {
+            if(!_initialize_thread_pool())
+            {
+              _running.store(false);
+              return false;
+            }
+          }
+          else if(!_start_thread_pool())
+          {
+            _running.store(false);
+            return false;
+          }
         }
+        _start_cleanup_timer();
+        return true;
       }
-      return false;
+      return true;
     }
     /**
      * @brief 停止会话管理
