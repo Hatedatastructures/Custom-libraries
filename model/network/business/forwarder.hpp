@@ -1,4 +1,9 @@
 #pragma once
+/**
+ * @brief 基于 `http` 协议的服务端 `http / https` 请求转发器(代理)
+ * @details 用于将客户端的http请求转发到指定的http服务器，并将服务器的响应返回给客户端
+ * @note 支持 `http` 和 `https` 协议 , 并且可支持消息拦截过滤规则
+ */
 #include "../agreement/http.hpp"
 #include "../session/fundamental.hpp"
 #include "../session/conversation.hpp"

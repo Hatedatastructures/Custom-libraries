@@ -5,7 +5,7 @@
 
 #include "./agreement/http.hpp"  // http协议
 #include "./agreement/json.hpp"  // json协议
-#include "./agreement/auxiliary.hpp" // tcp协议头基类
+#include "./agreement/assist.hpp" // tcp协议头基类
 #include "./agreement/protocol.hpp"  // tcp协议头和协议封装
 #include "./agreement/conversion.hpp" // tcp协议转换
 
@@ -35,9 +35,9 @@ namespace wan
       using protocol::request_header;
       using protocol::response_header;
 
-      using protocol::auxiliary::checksum_type;
-      using protocol::auxiliary::protocol_type;
-      using protocol::auxiliary::protocol_header;
+      using protocol::assist::checksum_type;
+      using protocol::assist::protocol_type;
+      using protocol::assist::protocol_header;
 
       using protocol::conversion::protocol_converter;
     } // end namespace agreement

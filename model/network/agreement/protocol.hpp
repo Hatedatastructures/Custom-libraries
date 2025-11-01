@@ -18,7 +18,7 @@
 #include <utility>
 #include <boost/json.hpp>
 #include "./json.hpp"
-#include "./auxiliary.hpp"
+#include "./assist.hpp"
 #include "../crypt/encryption.hpp"
 
 namespace protocol
@@ -41,7 +41,7 @@ namespace protocol
    * @brief `TCP`协议请求头类
    * @details 实现`TCP`协议的请求头，支持自定义方法和高性能解析
    */
-  class request_header : public auxiliary::protocol_header
+  class request_header : public assist::protocol_header
   {
   private:
     std::string _method;                              // 请求方法
@@ -73,7 +73,7 @@ namespace protocol
     request_header()
     {
       _timestamp = std::chrono::system_clock::now();
-      _protocol_type = auxiliary::protocol_type::CUSTOM_TCP;
+      _protocol_type = assist::protocol_type::CUSTOM_TCP;
     }
 
     const std::string &get_method() const noexcept { return _method; }
@@ -166,7 +166,7 @@ namespace protocol
    * @brief `TCP`协议响应头类
    * @details 实现`TCP`协议的响应头
    */
-  class response_header : public auxiliary::protocol_header
+  class response_header : public assist::protocol_header
   {
   private:
     std::string _server;                              // 服务器信息
@@ -198,7 +198,7 @@ namespace protocol
     response_header()
     {
       _timestamp = std::chrono::system_clock::now();
-      _protocol_type = auxiliary::protocol_type::CUSTOM_TCP;
+      _protocol_type = assist::protocol_type::CUSTOM_TCP;
     }
     std::uint16_t get_status_code() const noexcept { return _status_code; }
     void set_status_code(std::uint16_t code) { _status_code = code; }
@@ -756,7 +756,7 @@ bool protocol::request_header::from_string(std::string_view data)
   std::unordered_map<std::string, std::string> temp_headers;
   std::string temp_method, temp_target, temp_user_agent;
   std::uint32_t temp_version = 0, temp_checksum_value = 0, temp_content_length = 0;
-  auxiliary::checksum_type temp_checksum_type = auxiliary::checksum_type::CRC32;
+  assist::checksum_type temp_checksum_type = assist::checksum_type::CRC32;
   std::chrono::system_clock::time_point temp_timestamp;
   
   std::size_t pos = 0;
@@ -807,11 +807,11 @@ bool protocol::request_header::from_string(std::string_view data)
     return false;
     
   // 验证枚举值的有效性（检查上下界）
-  if (ctype_val < static_cast<std::uint8_t>(auxiliary::checksum_type::CRC32) ||
-      ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
+  if (ctype_val < static_cast<std::uint8_t>(assist::checksum_type::CRC32) ||
+      ctype_val > static_cast<std::uint8_t>(assist::checksum_type::SHA256))
     return false;
     
-  temp_checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
+  temp_checksum_type = static_cast<assist::checksum_type>(ctype_val);
   pos = le + 2;
 
   // 安全的trim函数，添加边界检查
@@ -919,7 +919,7 @@ bool protocol::response_header::from_string(std::string_view data)
   std::string temp_status_message, temp_server;
   std::uint32_t temp_version = 0, temp_checksum_value = 0, temp_content_length = 0;
   std::uint16_t temp_status_code = 0;
-  auxiliary::checksum_type temp_checksum_type = auxiliary::checksum_type::CRC32;
+  assist::checksum_type temp_checksum_type = assist::checksum_type::CRC32;
   std::chrono::system_clock::time_point temp_timestamp;
   
   std::size_t pos = 0;
@@ -975,11 +975,11 @@ bool protocol::response_header::from_string(std::string_view data)
     return false;
     
   // 验证枚举值的有效性（检查上下界）
-  if (ctype_val < static_cast<std::uint8_t>(auxiliary::checksum_type::CRC32) ||
-      ctype_val > static_cast<std::uint8_t>(auxiliary::checksum_type::SHA256))
+  if (ctype_val < static_cast<std::uint8_t>(assist::checksum_type::CRC32) ||
+      ctype_val > static_cast<std::uint8_t>(assist::checksum_type::SHA256))
     return false;
     
-  temp_checksum_type = static_cast<auxiliary::checksum_type>(ctype_val);
+  temp_checksum_type = static_cast<assist::checksum_type>(ctype_val);
   pos = le + 2;
 
   // 安全的trim函数，添加边界检查

@@ -1,3 +1,8 @@
+/**
+ * @file http.hpp
+ * @brief HTTP 协议定义
+ * @details 提供 HTTP 请求、响应的封装和转换功能
+ */
 #pragma once
 #include <boost/beast/http.hpp>
 #include <boost/beast/core.hpp>

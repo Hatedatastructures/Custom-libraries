@@ -14,7 +14,7 @@ int main()
   map.insert({"hello","world"});
   std::cout << map.at(mco::concurrent_string("hello")).c_str() << std::endl;
   boost::asio::io_context io_context;
-  wan::business::transponder<boost::beast::http::string_body> transponder(io_context);
+  wan::network::business::transponder<boost::beast::http::string_body> transponder(io_context);
   wan::scl::string host("localhost");
   transponder.add_upstream("www.X.com","127.0.0.1",443,true);
   std::shared_ptr<wan::pool::thread_pool> thread_pool = wan::pool::make_performance_pool(20);

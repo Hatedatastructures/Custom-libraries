@@ -11,7 +11,7 @@
 #include <cstdlib>
 
 #include "../agreement/json.hpp"
-#include "../agreement/auxiliary.hpp"
+#include "../agreement/assist.hpp"
 #include "../agreement/protocol.hpp"
 #include "../agreement/conversion.hpp"
 

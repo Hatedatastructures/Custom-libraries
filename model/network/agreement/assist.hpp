@@ -1,9 +1,8 @@
 /**
- * @file auxiliary.hpp
+ * @file assist.hpp
  * @brief 协议辅助套件定义
  * @details 提供协议类型、校验类型、协议头等辅助功能
  */
-
 #pragma once
 #include <string>
 #include <optional>
@@ -19,10 +18,10 @@
 
 namespace protocol
 {
-  namespace auxiliary {}
+  namespace assist {}
 } // end namespace protocol
 
-namespace protocol::auxiliary
+namespace protocol::assist
 {
   /**
    * @brief 协议类型枚举
