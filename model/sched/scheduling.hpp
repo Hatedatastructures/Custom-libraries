@@ -360,6 +360,9 @@ namespace internals::structure_s
     {
       // 子类可以重写此方法
     }
+    /**
+     * @brief 评估缩放策略
+     */
     virtual void evaluate_scaling()
     {
       auto load_score = _metrics.calculate_load_score();
