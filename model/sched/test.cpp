@@ -6,6 +6,7 @@
 #include <numeric>
 #include <algorithm>
 #include <cstdint>
+#include <windows.h>
 #include "thread_pool.hpp"
 
 using namespace wan::pool;
@@ -132,6 +133,7 @@ static void print_result(const Result &r)
 
 int main()
 {
+    SetConsoleOutputCP(CP_UTF8);
     std::size_t repeat = 3;
     std::vector<Scenario> cases;
     cases.push_back({"FIFO-睡眠2ms-8线程", 8, 5000, 64, 2, 0, false, false, false, false});
