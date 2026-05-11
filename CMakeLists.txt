@@ -1,116 +1,220 @@
-# 1. 基础配置（兼容旧政策，解决 CMP0167 警告）
-cmake_minimum_required(VERSION 3.26)
-project(CustomLibrariestest)  # 项目名建议与可执行文件一致，避免混淆
+cmake_minimum_required(VERSION 3.23)
+project(CustomLibraries
+    VERSION 1.0.0
+    DESCRIPTION "High-performance C++ component library"
+    LANGUAGES C CXX
+)
 
-# 关键：兼容旧的 FindBoost 模块（解决 Policy CMP0167 警告）
-cmake_policy(SET CMP0167 OLD)
+# CMake 4.0+ 将 CMP0167 行为改为 NEW（FindBoost 弃用）
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
 
-# 2. C++ 标准与编译选项
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# 编译选项（保留你的 -Wall -O2 等）
-set(COMMON_COMPILE_FLAGS
-        -Wall
-        -Wextra
-        -g3
-        -O2
-        -march=native
+# 构建选项
+option(CUSTOM_LIBRARIES_BUILD_TESTS "Build unit tests" ON)
+option(CUSTOM_LIBRARIES_BUILD_EXAMPLES "Build examples" ON)
+
+# === 所有依赖均通过 FetchContent 从云端拉取 ===
+include(FetchContent)
+
+# --- Boost 1.89.0 ---
+# 从 Boost 官方归档下载完整源码包（header-only 使用）
+FetchContent_Declare(
+    Boost
+    URL https://archives.boost.io/release/1.89.0/source/boost_1_89_0.tar.bz2
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
-add_compile_options(${COMMON_COMPILE_FLAGS})  # 全局编译选项
+FetchContent_MakeAvailable(Boost)
 
+# --- BoringSSL (OpenSSL 兼容) ---
+# Google 维护的 TLS 库，API 兼容 OpenSSL
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BORINGSSL_BUILD_TOOL OFF CACHE BOOL "" FORCE)
+set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
+find_package(Threads REQUIRED)
 
-# 3. 手动指定 Boost 路径和版本（关键：解决 Boost 库找不到的问题）
-# 替换为你的 Boost 实际安装路径（例如 MSYS2 的 ucrt64 目录）
-set(BOOST_ROOT "C:/msys64/ucrt64")
-set(Boost_INCLUDE_DIR "${BOOST_ROOT}/include")
-set(Boost_LIBRARY_DIR "${BOOST_ROOT}/lib")
-set(Boost_VERSION "1.89.0")  # 对应你使用的 boost_1_89
-
-# 查找 Boost 组件（必须与你链接的库名匹配）
-find_package(Boost ${Boost_VERSION} REQUIRED
-        COMPONENTS
-        log_setup log regex filesystem thread
-        date_time chrono timer atomic program_options
-        json url process random container coroutine
-        fiber context contract type_erasure serialization
-        wserialization unit_test_framework
-)
-
-
-# 4. 定义可执行目标（确保源文件存在！）
-# 替换为你的实际源文件（如 server.cpp，不要写头文件）
-add_executable(${PROJECT_NAME}
-        test/test.cpp
-        # 其他源文件：xxx.cpp yyy.cpp
+FetchContent_Declare(
+    boringssl
+    URL https://github.com/google/boringssl/archive/beafe3db15e3213bbce1711f85f704b6c00413d1.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
+# CMP0169: 允许在 patch 场景下使用 FetchContent_Populate
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+FetchContent_Populate(boringssl)
 
-# 5. 链接选项（严格按你的静态/动态切换顺序）
-target_link_options(${PROJECT_NAME} PRIVATE
-        -Wl,-Bstatic                # 静态链接开始
-        -Wl,--start-group           # 解决库循环依赖
+# MinGW patch: 移除不支持 PE/COFF 格式的汇编文件
+if(MINGW)
+    set(SOURCES_CMAKE "${boringssl_SOURCE_DIR}/gen/sources.cmake")
+    file(READ ${SOURCES_CMAKE} SOURCES_CONTENT)
+    string(REPLACE "  third_party/fiat/asm/fiat_p256_adx_mul.S\n" "" SOURCES_CONTENT "${SOURCES_CONTENT}")
+    string(REPLACE "  third_party/fiat/asm/fiat_p256_adx_sqr.S\n" "" SOURCES_CONTENT "${SOURCES_CONTENT}")
+    file(WRITE ${SOURCES_CMAKE} "${SOURCES_CONTENT}")
+
+    set(P256_64_H "${boringssl_SOURCE_DIR}/third_party/fiat/p256_64.h")
+    file(READ ${P256_64_H} P256_CONTENT)
+    string(REPLACE
+        "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__)"
+        "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__) && !defined(OPENSSL_WINDOWS)"
+        P256_CONTENT "${P256_CONTENT}")
+    file(WRITE ${P256_64_H} "${P256_CONTENT}")
+endif()
+
+add_subdirectory(${boringssl_SOURCE_DIR} ${boringssl_BINARY_DIR})
+
+# 创建 OpenSSL 兼容别名
+if(NOT TARGET OpenSSL::SSL AND TARGET ssl)
+    add_library(OpenSSL::SSL ALIAS ssl)
+endif()
+if(NOT TARGET OpenSSL::Crypto AND TARGET crypto)
+    add_library(OpenSSL::Crypto ALIAS crypto)
+endif()
+
+# 排除不需要的 BoringSSL 目标
+set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
+if(TARGET decrepit)
+    set_target_properties(decrepit PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+
+# --- jsoncpp ---
+FetchContent_Declare(
+    jsoncpp
+    URL https://github.com/open-source-parsers/jsoncpp/archive/refs/tags/1.9.6.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
+set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(jsoncpp)
+
+# --- Crypto++ ---
+# 加密库，提供 AES/RSA/SHA/HMAC 等算法
+FetchContent_Declare(
+    cryptopp_src
+    URL https://github.com/weidai11/cryptopp/archive/refs/tags/CRYPTOPP_8_9_0.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(cryptopp_src)
+
+# 收集所有 cryptopp 源文件（排除 test 和 bench 程序）
+file(GLOB CRYPTOPP_SOURCES "${cryptopp_src_SOURCE_DIR}/*.cpp")
+list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*test\\.cpp$")
+list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*bench\\.cpp$")
+list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*validat[0-9]*\\.cpp$")
+list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*datatest\\.cpp$")
+list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*regtest\\.cpp$")
+list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*fipstest\\.cpp$")
+
+add_library(cryptopp STATIC ${CRYPTOPP_SOURCES})
+
+target_include_directories(cryptopp PUBLIC
+    $<BUILD_INTERFACE:${cryptopp_src_SOURCE_DIR}>
 )
 
-# 6. 链接静态库（--start-group 和 --end-group 之间）
-target_link_libraries(${PROJECT_NAME} PRIVATE
-        # 第三方库（jsoncpp、crypto 等）
-        jsoncpp
-        ssl
-        crypto
-        cryptopp
-
-        # Boost 库（使用 find_package 找到的目标，自动匹配版本）
-        Boost::log_setup
-        Boost::log
-        Boost::regex
-        Boost::filesystem
-        Boost::thread
-        Boost::date_time
-        Boost::chrono
-        Boost::timer
-        Boost::atomic
-        Boost::program_options
-        Boost::json
-        Boost::url
-        Boost::process
-        Boost::random
-        Boost::container
-        Boost::coroutine
-        Boost::fiber
-        Boost::context
-        Boost::contract
-        Boost::type_erasure
-        Boost::serialization
-        Boost::wserialization
-        Boost::unit_test_framework
+set_target_properties(cryptopp PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
 )
 
-# 7. 切换到动态链接并链接系统库
-target_link_options(${PROJECT_NAME} PRIVATE
-        -Wl,--end-group             # 结束库分组
-        -Wl,-Bdynamic               # 动态链接开始
+# 抑制 cryptopp 源码中的编译器警告
+if(MSVC)
+    target_compile_options(cryptopp PRIVATE /W0)
+else()
+    target_compile_options(cryptopp PRIVATE -w)
+    target_compile_definitions(cryptopp PRIVATE CRYPTOPP_DISABLE_ASM)
+endif()
+
+# --- Header-only 库目标 ---
+add_library(custom_libraries INTERFACE)
+add_library(CustomLibraries::CustomLibraries ALIAS custom_libraries)
+
+target_include_directories(custom_libraries INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
 )
 
-# 8. 链接动态库（系统库）
-target_link_libraries(${PROJECT_NAME} PRIVATE
-        pdh
+target_compile_features(custom_libraries INTERFACE cxx_std_20)
+
+# Boost header-only（直接添加 include 路径 + 宏定义）
+target_include_directories(custom_libraries INTERFACE ${boost_SOURCE_DIR})
+target_compile_definitions(custom_libraries INTERFACE
+    WIN32_LEAN_AND_MEAN
+    BOOST_ERROR_CODE_HEADER_ONLY
+    BOOST_SYSTEM_NO_LIB
+    BOOST_URL_NO_LIB
+    BOOST_LOG_NO_LIB
+    BOOST_REGEX_NO_LIB
+    BOOST_FILESYSTEM_NO_LIB
+    BOOST_THREAD_NO_LIB
+    BOOST_CHRONO_NO_LIB
+    BOOST_TIMER_NO_LIB
+    BOOST_ATOMIC_NO_LIB
+    BOOST_PROGRAM_OPTIONS_NO_LIB
+    BOOST_CONTAINER_NO_LIB
+    BOOST_DATE_TIME_NO_LIB
+    BOOST_COROUTINES_NO_LIB
+    BOOST_FIBER_NO_LIB
+    BOOST_CONTEXT_NO_LIB
+    BOOST_ASIO_HEADER_ONLY
+    BOOST_ASIO_USE_OPENSSL
+    BOOST_JSON_NO_LIB
+)
+
+target_link_libraries(custom_libraries INTERFACE
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    jsoncpp_lib
+    cryptopp
+    custom_libraries_boost_json_impl
+)
+
+# Boost.JSON 实现（在单个翻译单元中编译 boost/json/src.hpp）
+add_library(custom_libraries_boost_json_impl STATIC
+    wan/network/agreement/json.cpp
+)
+target_include_directories(custom_libraries_boost_json_impl PUBLIC ${boost_SOURCE_DIR})
+target_compile_definitions(custom_libraries_boost_json_impl PUBLIC
+    WIN32_LEAN_AND_MEAN
+    BOOST_ERROR_CODE_HEADER_ONLY
+    BOOST_SYSTEM_NO_LIB
+    BOOST_ASIO_HEADER_ONLY
+)
+target_compile_options(custom_libraries_boost_json_impl PRIVATE -w)
+target_compile_features(custom_libraries_boost_json_impl PUBLIC cxx_std_20)
+
+# 平台特定库
+if(WIN32)
+    target_link_libraries(custom_libraries INTERFACE
         ws2_32
         mswsock
         crypt32
         advapi32
         bcrypt
-        gdi32
-        user32
-        dbghelp
-        ole32
-        shell32
-)
+    )
+endif()
 
+# 子目录
+if(CUSTOM_LIBRARIES_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
-# 9. 确保编译器能找到头文件（Boost 等）
-target_include_directories(${PROJECT_NAME} PRIVATE
-        ${Boost_INCLUDE_DIR}  # Boost 头文件目录
-        # 其他头文件目录（如果需要）：${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+if(CUSTOM_LIBRARIES_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+# 安装规则（如需安装到系统，取消以下注释）
+# include(GNUInstallDirs)
+# include(CMakePackageConfigHelpers)
+# install(TARGETS custom_libraries EXPORT CustomLibrariesTargets)
+# install(DIRECTORY model/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.hpp")
+# install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.hpp")
+# install(EXPORT CustomLibrariesTargets FILE CustomLibrariesTargets.cmake
+#     NAMESPACE CustomLibraries:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CustomLibraries)

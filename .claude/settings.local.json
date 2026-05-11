@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git mv *)",
+      "Bash(echo '#include \"wan/container/container.hpp\" *)",
+      "Bash(C:/msys64/ucrt64/bin/g++.exe -std=c++20 -I\"C:/Users/C1373/Desktop/code/Custom-libraries\" -I\"C:/Users/C1373/Desktop/code/Custom-libraries/include\" -c /tmp/test.cpp -o /tmp/test.o)",
+      "Bash(rm -rf \"C:/Users/C1373/Desktop/code/Custom-libraries/out/build/debug\")",
+      "Bash(cmake --preset mingw-debug)",
+      "Bash(where g++)",
+      "Bash(where gcc *)",
+      "Bash(where clang++)",
+      "Bash(where cl *)",
+      "Bash(cmake --version)"
+    ]
+  }
+}

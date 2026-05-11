@@ -1,15 +1,35 @@
-# 操作系统生成的文件
+# CMake 用户预设（个人路径，不提交）
+CMakeUserPresets.json
+
+# 构建目录
+build/
+out/
+cmake-build-*/
+
+# IDE
+.trae/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 编译产物
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.ilk
+
+# OS
 .DS_Store
 Thumbs.db
-# 默认忽略的文件
-.vscode/ 
-.idea/
-*.exe
-output/
-/shelf/
-/workspace.xml
+
 # 基于编辑器的 HTTP 客户端请求
 /httpRequests/
-# Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
