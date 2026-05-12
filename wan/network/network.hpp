@@ -1,32 +1,36 @@
+/**
+ * @file network.hpp
+ * @brief 网络模块入口
+ * @details 提供网络协议、加密等功能
+ * @note 会话管理已迁移至 wan/web 模块
+ * @author Hatedatastructures
+ * @date 2026-05-11
+ */
 #pragma once
 
-#include "./crypt/encryption.hpp" // 加密 哈希
+// 加密模块
+#include "./crypt/encryption.hpp"
 
-
-#include "./agreement/http.hpp"  // http协议
-#include "./agreement/json.hpp"  // json协议
-#include "./agreement/assist.hpp" // tcp协议头基类
-#include "./agreement/protocol.hpp"  // tcp协议头和协议封装
-#include "./agreement/conversion.hpp" // tcp协议转换
-
-
-#include "./session/fundamental.hpp" // 会话封装
-#include "./session/conversation.hpp" // 会话管理
-
-#include "./business/forwarder.hpp" // 服务端http / https 代理类
+// 协议模块
+#include "./agreement/http.hpp"
+#include "./agreement/json.hpp"
+#include "./agreement/assist.hpp"
+#include "./agreement/protocol.hpp"
+#include "./agreement/conversion.hpp"
 
 namespace wan
 {
     /**
-      * @brief 网络模块
-      * @note 该模块提供网络协议、加密、会话管理、转发劫持等功能
-      */
+     * @brief 网络模块
+     * @note 提供网络协议、加密等功能
+     * @warning 会话管理已迁移至 wan::web 模块，请使用 wan/web/web.hpp
+     */
     namespace network
     {
         /**
-          * @brief 协议模块
-          * @note 提供`tcp`协议的定义、转换、校验等功能
-          */
+         * @brief 协议模块
+         * @note 提供 TCP 协议的定义、转换、校验等功能
+         */
         namespace agreement
         {
             using protocol::json;
@@ -40,44 +44,24 @@ namespace wan
             using protocol::assist::protocol_header;
 
             using protocol::conversion::protocol_converter;
-        } // end namespace agreement
+        }
+
         /**
-          * @brief http模块
-          * @note 提供http协议的封装等功能
-          */
+         * @brief HTTP 模块
+         * @note 提供 HTTP 协议的封装等功能
+         */
         namespace http
         {
             using namespace protocol::http;
-        } // end namespace http 
+        }
+
         /**
-          * @brief 加密模块
-          * @note 提供加密、解密、哈希等功能
-          */
+         * @brief 加密模块
+         * @note 提供加密、解密、哈希等功能
+         */
         namespace ciphertext
         {
-            using namespace encryption; 
-        } // end namespace ciphertext
-
-        /**
-          * @brief 会话模块
-          */
-        namespace session
-        {
-            using namespace conversation::fundamental;
-            
-            using conversation::connection_pool;
-            using conversation::endpoint_config;
-
-            using conversation::session_management;
-            using conversation::session_management_config;
-        } // end namespace session
-        /**
-          * @brief 代理模块
-          * @note 提供业务逻辑的实现，如http代理等
-          */
-        namespace business
-        {
-            using namespace represents;
-        } // end namespace business
-    } // end namespace wan
+            using namespace encryption;
+        }
+    }
 }

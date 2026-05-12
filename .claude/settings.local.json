@@ -10,7 +10,17 @@
       "Bash(where gcc *)",
       "Bash(where clang++)",
       "Bash(where cl *)",
-      "Bash(cmake --version)"
+      "Bash(cmake --version)",
+      "Bash(taskkill /F /IM web_server.exe)",
+      "Bash(rm -f \"I:\\\\code\\\\Custom-libraries\\\\build_test\\\\examples\\\\web_server.exe\")",
+      "Bash(mingw32-make web_server)",
+      "Bash(mingw32-make web_server VERBOSE=1)",
+      "Bash(cmake --build out/build/release)",
+      "Bash(cmake *)",
+      "Bash(mingw32-make tests/CMakeFiles/test_web.dir/test_web.cpp.obj)",
+      "Bash(C:/msys64/ucrt64/bin/c++.exe -DBOOST_ASIO_HEADER_ONLY -DBOOST_ASIO_USE_OPENSSL @CMakeFiles/test_web.dir/includes_CXX.rsp -g -std=c++20 -c I:/code/Custom-libraries/tests/test_web.cpp)",
+      "Bash(c++ @CMakeFiles/test_web.dir/includes_CXX.rsp -DBOOST_ASIO_HEADER_ONLY -DWIN32_LEAN_AND_MEAN -g -std=c++20 -c I:/code/Custom-libraries/tests/test_web.cpp -o test_web.cpp.obj)",
+      "Bash(tee /tmp/compile_err.txt)"
     ]
   }
 }

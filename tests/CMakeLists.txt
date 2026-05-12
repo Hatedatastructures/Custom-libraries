@@ -1,8 +1,8 @@
 # 测试源文件列表（按模块组织）
 set(TEST_SOURCES
     test_container.cpp
-    test_sched.cpp
     test_network.cpp
+    test_web.cpp
 )
 
 foreach(test_source ${TEST_SOURCES})

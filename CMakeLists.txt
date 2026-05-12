@@ -93,6 +93,17 @@ set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
 set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(jsoncpp)
 
+# 抑制 jsoncpp 源码中的编译器警告（MSVC pragma 和 uninitialized）
+if(MSVC)
+    target_compile_options(jsoncpp_lib PRIVATE /W0)
+    target_compile_options(jsoncpp_static PRIVATE /W0)
+    target_compile_options(jsoncpp_object PRIVATE /W0)
+else()
+    target_compile_options(jsoncpp_lib PRIVATE -Wno-unknown-pragmas -Wno-uninitialized)
+    target_compile_options(jsoncpp_static PRIVATE -Wno-unknown-pragmas -Wno-uninitialized)
+    target_compile_options(jsoncpp_object PRIVATE -Wno-unknown-pragmas -Wno-uninitialized)
+endif()
+
 # --- Crypto++ ---
 # 加密库，提供 AES/RSA/SHA/HMAC 等算法
 FetchContent_Declare(
@@ -130,7 +141,13 @@ else()
     target_compile_definitions(cryptopp PRIVATE CRYPTOPP_DISABLE_ASM)
 endif()
 
-# --- Header-only 库目标 ---
+# --- wan 库目标 ---
+# wan/web 为新增协程驱动 Web 模块
+# wan/network 为旧模块（逐步废弃）
+# wan/sched 为旧线程池模块（逐步废弃）
+# wan/container 为容器模块
+# wan/chronicle 为协程日志模块
+
 add_library(custom_libraries INTERFACE)
 add_library(CustomLibraries::CustomLibraries ALIAS custom_libraries)
 

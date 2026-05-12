@@ -33,3 +33,5 @@ Thumbs.db
 /httpRequests/
 /dataSources/
 /dataSources.local.xml
+/build_test/
+.claude/settings.local.json
