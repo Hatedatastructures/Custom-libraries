@@ -10,14 +10,18 @@ if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # 构建选项
-option(CUSTOM_LIBRARIES_BUILD_TESTS "Build unit tests" ON)
-option(CUSTOM_LIBRARIES_BUILD_EXAMPLES "Build examples" ON)
+option(CustomLibrariesBuildTests "Build unit tests" ON)
+option(CustomLibrariesBuildExamples "Build examples" ON)
+option(CustomLibrariesBuildBenchmarks "Build optional performance benchmarks" OFF)
+option(CustomLibrariesEnableSanitizers "Enable AddressSanitizer for project consumers" OFF)
+option(CustomLibrariesRequireDoxygen
+    "Fail configuration if Doxygen is unavailable" OFF)
 
 # === 所有依赖均通过 FetchContent 从云端拉取 ===
 include(FetchContent)
@@ -114,15 +118,15 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(cryptopp_src)
 
 # 收集所有 cryptopp 源文件（排除 test 和 bench 程序）
-file(GLOB CRYPTOPP_SOURCES "${cryptopp_src_SOURCE_DIR}/*.cpp")
-list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*test\\.cpp$")
-list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*bench\\.cpp$")
-list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*validat[0-9]*\\.cpp$")
-list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*datatest\\.cpp$")
-list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*regtest\\.cpp$")
-list(FILTER CRYPTOPP_SOURCES EXCLUDE REGEX ".*fipstest\\.cpp$")
+file(GLOB CryptoppSources "${cryptopp_src_SOURCE_DIR}/*.cpp")
+list(FILTER CryptoppSources EXCLUDE REGEX ".*test\\.cpp$")
+list(FILTER CryptoppSources EXCLUDE REGEX ".*bench\\.cpp$")
+list(FILTER CryptoppSources EXCLUDE REGEX ".*validat[0-9]*\\.cpp$")
+list(FILTER CryptoppSources EXCLUDE REGEX ".*datatest\\.cpp$")
+list(FILTER CryptoppSources EXCLUDE REGEX ".*regtest\\.cpp$")
+list(FILTER CryptoppSources EXCLUDE REGEX ".*fipstest\\.cpp$")
 
-add_library(cryptopp STATIC ${CRYPTOPP_SOURCES})
+add_library(cryptopp STATIC ${CryptoppSources})
 
 target_include_directories(cryptopp PUBLIC
     $<BUILD_INTERFACE:${cryptopp_src_SOURCE_DIR}>
@@ -138,30 +142,30 @@ if(MSVC)
     target_compile_options(cryptopp PRIVATE /W0)
 else()
     target_compile_options(cryptopp PRIVATE -w)
-    target_compile_definitions(cryptopp PRIVATE CRYPTOPP_DISABLE_ASM)
+    target_compile_definitions(cryptopp PUBLIC CRYPTOPP_DISABLE_ASM)
 endif()
 
-# --- wan 库目标 ---
-# wan/web 为新增协程驱动 Web 模块
-# wan/network 为旧模块（逐步废弃）
-# wan/sched 为旧线程池模块（逐步废弃）
-# wan/container 为容器模块
-# wan/chronicle 为协程日志模块
+# --- Wan 库目标 ---
+# Wan/Web 为新增协程驱动 Web 模块
+# Wan/Network 为旧模块（逐步废弃）
+# Wan/Sched 为旧线程池模块（逐步废弃）
+# Wan/Container 为容器模块
+# Wan/Chronicle 为协程日志模块
 
-add_library(custom_libraries INTERFACE)
-add_library(CustomLibraries::CustomLibraries ALIAS custom_libraries)
+add_library(CustomLibraries INTERFACE)
+add_library(CustomLibraries::CustomLibraries ALIAS CustomLibraries)
 
-target_include_directories(custom_libraries INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+target_include_directories(CustomLibraries INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:Include>
 )
 
-target_compile_features(custom_libraries INTERFACE cxx_std_20)
+target_compile_features(CustomLibraries INTERFACE cxx_std_23)
 
 # Boost header-only（直接添加 include 路径 + 宏定义）
-target_include_directories(custom_libraries INTERFACE ${boost_SOURCE_DIR})
-target_compile_definitions(custom_libraries INTERFACE
+target_include_directories(CustomLibraries INTERFACE ${boost_SOURCE_DIR})
+target_compile_definitions(CustomLibraries INTERFACE
     WIN32_LEAN_AND_MEAN
     BOOST_ERROR_CODE_HEADER_ONLY
     BOOST_SYSTEM_NO_LIB
@@ -184,31 +188,47 @@ target_compile_definitions(custom_libraries INTERFACE
     BOOST_JSON_NO_LIB
 )
 
-target_link_libraries(custom_libraries INTERFACE
+target_link_libraries(CustomLibraries INTERFACE
     OpenSSL::SSL
     OpenSSL::Crypto
     jsoncpp_lib
     cryptopp
-    custom_libraries_boost_json_impl
+    CustomLibrariesBoostJsonImpl
 )
 
+if(CustomLibrariesEnableSanitizers)
+    if(MSVC)
+        target_compile_options(CustomLibraries INTERFACE /fsanitize=address)
+        target_link_options(CustomLibraries INTERFACE /fsanitize=address)
+    else()
+        target_compile_options(CustomLibraries INTERFACE
+            -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(CustomLibraries INTERFACE -fsanitize=address)
+    endif()
+endif()
+
 # Boost.JSON 实现（在单个翻译单元中编译 boost/json/src.hpp）
-add_library(custom_libraries_boost_json_impl STATIC
-    wan/network/agreement/json.cpp
+# 新版: Wan/Json/Json.cpp
+add_library(CustomLibrariesBoostJsonImpl STATIC
+    Wan/Json/Json.cpp
 )
-target_include_directories(custom_libraries_boost_json_impl PUBLIC ${boost_SOURCE_DIR})
-target_compile_definitions(custom_libraries_boost_json_impl PUBLIC
+target_include_directories(CustomLibrariesBoostJsonImpl PUBLIC ${boost_SOURCE_DIR})
+target_compile_definitions(CustomLibrariesBoostJsonImpl PUBLIC
     WIN32_LEAN_AND_MEAN
     BOOST_ERROR_CODE_HEADER_ONLY
     BOOST_SYSTEM_NO_LIB
     BOOST_ASIO_HEADER_ONLY
 )
-target_compile_options(custom_libraries_boost_json_impl PRIVATE -w)
-target_compile_features(custom_libraries_boost_json_impl PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(CustomLibrariesBoostJsonImpl PRIVATE /W0)
+else()
+    target_compile_options(CustomLibrariesBoostJsonImpl PRIVATE -w)
+endif()
+target_compile_features(CustomLibrariesBoostJsonImpl PUBLIC cxx_std_23)
 
 # 平台特定库
 if(WIN32)
-    target_link_libraries(custom_libraries INTERFACE
+    target_link_libraries(CustomLibraries INTERFACE
         ws2_32
         mswsock
         crypt32
@@ -218,20 +238,59 @@ if(WIN32)
 endif()
 
 # 子目录
-if(CUSTOM_LIBRARIES_BUILD_TESTS)
+if(CustomLibrariesBuildTests)
     enable_testing()
-    add_subdirectory(tests)
+    add_subdirectory(Tests)
 endif()
 
-if(CUSTOM_LIBRARIES_BUILD_EXAMPLES)
-    add_subdirectory(examples)
+if(CustomLibrariesBuildExamples)
+    add_subdirectory(Examples)
+endif()
+
+if(CustomLibrariesBuildBenchmarks)
+    add_subdirectory(Benchmarks)
+endif()
+
+find_package(Doxygen QUIET)
+if(DOXYGEN_FOUND)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/Docs/Doxygen/Doxyfile.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile"
+        @ONLY
+    )
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/Docs/Doxygen/DoxyfileInternal.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/DoxyfileInternal"
+        @ONLY
+    )
+    add_custom_target(CustomLibrariesDoxygen
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/Documentation/Doxygen"
+        COMMAND "${DOXYGEN_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        VERBATIM
+    )
+    add_custom_target(CustomLibrariesDoxygenInternalAudit
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/Documentation/DoxygenInternalAudit"
+        COMMAND "${DOXYGEN_EXECUTABLE}"
+            "${CMAKE_CURRENT_BINARY_DIR}/DoxyfileInternal"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DWARNINGS_FILE=${CMAKE_CURRENT_BINARY_DIR}/Documentation/DoxygenInternalAudit/warnings.log"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/Docs/Doxygen/ValidateInternalWarnings.cmake"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        VERBATIM
+    )
+elseif(CustomLibrariesRequireDoxygen)
+    message(FATAL_ERROR
+        "CustomLibrariesRequireDoxygen is enabled, but Doxygen was not found")
 endif()
 
 # 安装规则（如需安装到系统，取消以下注释）
 # include(GNUInstallDirs)
 # include(CMakePackageConfigHelpers)
-# install(TARGETS custom_libraries EXPORT CustomLibrariesTargets)
-# install(DIRECTORY model/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.hpp")
-# install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.hpp")
+# install(TARGETS CustomLibraries EXPORT CustomLibrariesTargets)
+# install(DIRECTORY Wan/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.hpp")
+# install(DIRECTORY Include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.hpp")
 # install(EXPORT CustomLibrariesTargets FILE CustomLibrariesTargets.cmake
 #     NAMESPACE CustomLibraries:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/CustomLibraries)

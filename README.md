@@ -1,114 +1,112 @@
 # Custom Libraries
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
-[![CI](https://github.com/Hatedatastructures/Custom-libraries/actions/workflows/ci.yml/badge.svg)](https://github.com/Hatedatastructures/Custom-libraries/actions/workflows/ci.yml)
+[![许可证](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![C++](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
+![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
+[![CI](https://github.com/Hatedatastructures/Custom-libraries/actions/workflows/CI.yml/badge.svg)](https://github.com/Hatedatastructures/Custom-libraries/actions/workflows/CI.yml)
 
 ## 介绍
 
-`model/` 是本仓库的核心子系统，采用 `C++20` 标准与"以头文件为主"的交付方式，聚合四类高性能基础组件：
+本仓库提供名为 `wan` 的 C++23 基础组件库，采用头文件为主的交付方式，面向网络服务、异步任务和通用基础设施场景。公共源码位于 `Wan/`，统一入口位于 `Include/Wan.hpp`。
 
-- `container/`：模拟实现 `STL` 容器，接口一致、低侵入替换；
-- `concurrent/`：标准容器的线程安全封装（读共享/写独占）；
-- `sched/`：可扩展的调度与线程池框架，支持动态扩缩容与任务编排；
-- `network/`：协议/会话/加密/转发组件，面向高并发网络应用。
+当前的主要模块包括：
+
+- `Wan/Container/`：STL 风格的容器、算法、哈希、树和智能指针组件，详见[容器手册](Docs/Container/README.md)；
+- `Wan/Chronicle/`：协程驱动的日志组件；
+- `Wan/Fault/`：错误码、错误类别和错误处理工具；
+- `Wan/Json/`：基于 Boost.JSON 的 JSON 解析、序列化和文档封装；
+- `Wan/Sched/`：基于 Boost.Asio `thread_pool` 的任务调度封装；
+- `Wan/Transport/`：传输层抽象和可靠 TCP 传输实现；
+- `Wan/Network/`：协议、HTTP、JSON 转换和密码学组件；
+- `Wan/Web/`：基于 Boost.Asio/Boost.Beast 的协程 Web 框架。
 
 ## 快速开始
 
 ### 依赖
 
-- C++20 编译器（GCC 11+、Clang 14+、MSVC 2022+）
-- CMake 3.20+
-- [vcpkg](https://github.com/microsoft/vcpkg)（推荐）
+- CMake 3.23 或更高版本；
+- 支持 C++23 的编译器：GCC 11+、Clang 14+ 或 MSVC 2022+；
+- CMake 配置会通过 `FetchContent` 获取 Boost、BoringSSL、jsoncpp 和 Crypto++。
 
-### 安装依赖
+### 构建和测试
 
-```bash
-vcpkg install boost-asio boost-beast boost-json boost-log boost-coroutine boost-fiber openssl cryptopp
-```
-
-### 构建
+仓库只保留一个构建目录 `build/`：
 
 ```bash
 cmake --preset default
-cmake --build build
-```
-
-### 运行测试
-
-```bash
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-### 集成到你的项目
+### 集成到其他项目
 
 ```cmake
-# 方式一：作为子目录
 add_subdirectory(path/to/Custom-libraries)
-target_link_libraries(your_target PRIVATE CustomLibraries::CustomLibraries)
-
-# 方式二：安装后使用
-find_package(CustomLibraries REQUIRED)
 target_link_libraries(your_target PRIVATE CustomLibraries::CustomLibraries)
 ```
 
-### 代码示例
+统一入口示例：
 
 ```cpp
-#include "wan.hpp"
-#include <iostream>
+#include <Wan.hpp>
 
-int main() {
-    // 线程安全的并发 vector
-    wan::multi_concurrent::concurrent_vector<int> vec;
-    vec.push_back(1);
-    vec.push_back(2);
-    std::cout << "Size: " << vec.size() << "\n";
-
-    // 线程池
-    wan::sched::thread_pool pool(4);
-    pool.submit([]() { std::cout << "Hello from thread pool!\n"; });
-
+int main()
+{
+    Wan::Sched::Pool Pool{4};
+    Pool.Post([] {});
+    Pool.Join();
     return 0;
 }
 ```
 
 ## 模块说明
 
-### `container/`（模拟实现）
+### Container
 
-- 提供 `vector/list/map/set/queue/stack/string/tree` 等容器的模拟实现。
-- 保持 `STL` 风格接口与一致语义，统一聚合头 `model/container/container.hpp`。
-- 配套仿真与算法工具（`simulate_*`：算法、哈希、布隆过滤器、异常、指针与迭代器模拟等）。
+`Wan/Container/Container.hpp` 聚合容器模块，公开 `StandardCon::Vector`、`List`、`TreeMap`、`HashMap`、`Queue`、`Stack` 等类型；也可通过 `Wan::Scl` 访问。具体语义与复杂度见[容器手册](Docs/Container/README.md)。
 
-### `concurrent/`（线程安全封装）
+### Sched
 
-- 覆盖主流标准容器：`deque/queue/stack/vector/list/map/set/unordered_map/unordered_set`、`priority_queue`、`forward_list`、`bitset`、`string`。
-- 采用 `std::shared_mutex` 实现读共享、写独占；队列与条件等待使用 `std::mutex + std::condition_variable`。
-- 提供一致接口与只读快照理念（迭代与统计优先使用 `snapshot()`）。
+`Wan/Sched/Pool.hpp` 封装 `boost::asio::thread_pool`，提供执行器访问、任务提交、停止和等待接口，适合与 Asio 协程一起使用。
 
-### `sched/`（调度与线程池）
+### Transport
 
-- 核心组件：`thread_pool.hpp`（线程池）、`worker.hpp`（工作线程）、`rank.hpp`（队列/排名策略）、`scheduling.hpp`（调度策略）、`integration.hpp`（统一配置与统计）、`unit.hpp`（任务单元）。
-- 能力特性：
-  - 动态扩缩容（`set_thread_count / scale_up / scale_down`）；
-  - 多策略队列（`fifo/priority/adaptive` 等）；
-  - 任务编排（优先级/延迟/超时/依赖/批量提交）；
-  - 健康监控与性能采样（吞吐、队列利用率、活跃线程等）。
+`Wan/Transport/Transmission.hpp` 定义可组合的传输层抽象，`Wan/Transport/Reliable.hpp` 提供基于 TCP socket 的可靠传输实现，并支持协程和回调两种异步读写路径。
 
-### `network/`（协议与会话框架）
+### Network
 
-- 协议：`agreement/*`（`http.hpp/json.hpp/protocol.hpp/conversion.hpp/assist.hpp`），统一的头/体/编解码与转换工具。
-- 会话：`session/*`（`fundamental.hpp/conversation.hpp`），`TCP/SSL` 客户端/服务端、连接池与读写收发回调。
-- 业务：`business/forwarder.hpp` 提供 `HTTP/HTTPS` 代理转发和数据劫持与上游名单解析（域名解析与回退策略）。
-- 加密：`crypt/encryption.hpp` 提供对称/非对称/摘要算法与封装，支持密文封包格式与完整性校验。
+`Wan/Network/Network.hpp` 聚合协议和密码学接口。协议组件位于 `Wan/Network/Agreement/`，加密组件位于 `Wan/Network/Crypt/`。会话、路由和 HTTP 服务能力已经迁移到 `Wan/Web/`。
 
-## 技术栈
+### Web
 
-- 标准库（C++20）：`std::shared_mutex`、`std::mutex`、`std::condition_variable`、`std::jthread`、`std::future` 等并发/异步基元。
-- Boost 生态：`Boost.Asio`、`Boost.Beast`、`Boost.JSON`。
-- 安全库：`OpenSSL`、`Crypto++`。
+`Wan/Web/Web.hpp` 聚合当前 Web 框架，包含：
+
+- `Wan::Web::Application` 生命周期宿主和优雅停止；
+- `HttpClientConfig` 响应边界与超时控制；
+- `SessionConfig` 会话容量与键值限制；
+- 路由和路径参数；
+- HTTP Server 和 Client；
+- 请求/响应上下文；
+- JSON、文本和 HTML 响应；
+- Query 参数和 Cookie；
+- 中间件链；
+- 静态文件服务；
+- Session；
+- 服务指标和 Prometheus 格式输出。
+
+完整的 Web 生命周期、资源限制和直接 `Server` 使用说明见
+[`Docs/Web.md`](Docs/Web.md)。
+
+## 目录约定
+
+- `Include/`：公共聚合头文件；
+- `Wan/`：项目源码和公共模块；
+- `Tests/`：CTest 单元测试和本地网络回环测试；
+- `Docs/`：模块文档；
+- `Examples/`：示例目标配置，目前没有独立示例程序；
+- `build/`：唯一允许保留的构建目录，内部第三方依赖文件不参与项目命名迁移。
+
+项目源码、测试和文档的目录及文件名采用 PascalCase；CMake 和编辑器使用的固定发现文件名保持工具约定不变。
 
 ## 许可证
 

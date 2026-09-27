@@ -5,6 +5,7 @@ CMakeUserPresets.json
 build/
 out/
 cmake-build-*/
+.cache/
 
 # IDE
 .trae/
