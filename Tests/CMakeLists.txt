@@ -18,6 +18,10 @@ foreach(TestSource ${TestSources})
         CustomLibraries::CustomLibraries
     )
 
+    if(MSVC)
+        target_compile_options(${TestName} PRIVATE /bigobj)
+    endif()
+
     # 避免可执行文件的 .dll.a 导出文件冲突
     set_target_properties(${TestName} PROPERTIES
         ENABLE_EXPORTS OFF

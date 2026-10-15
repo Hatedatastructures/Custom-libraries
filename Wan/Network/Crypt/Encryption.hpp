@@ -40,6 +40,10 @@
 #include <limits>
 #include <string_view>
 
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+#include <intrin.h>
+#endif
+
 namespace Encryption
 {
 
@@ -1078,10 +1082,10 @@ namespace Encryption
 
 #if defined(__GNUC__) || defined(__clang__)
         uint64_t Tsc = __builtin_ia32_rdtsc();
-#elif defined(_MSC_VER)
-        uint64_t tsc = __rdtsc();
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+        uint64_t Tsc = __rdtsc();
 #else
-        uint64_t tsc = static_cast<uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        uint64_t Tsc = static_cast<uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
 #endif
         std::memcpy(Buf + 40, &Tsc, 8);
 
