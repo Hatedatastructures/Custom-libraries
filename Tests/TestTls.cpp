@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -489,12 +490,13 @@ BOOST_AUTO_TEST_CASE(TlsApplicationGracefullyDrainsAnActiveRequest)
 
     Wan::Web::Application Application{Config};
     const auto Port = AcquireLoopbackPort();
-    std::atomic_bool HandlerStarted{false};
+    std::promise<void> HandlerStartedPromise;
+    auto HandlerStarted = HandlerStartedPromise.get_future();
     Application.GetServer().Listen(Port).Get("/slow",
-        [&HandlerStarted](Wan::Web::Context& Context)
+        [&HandlerStartedPromise](Wan::Web::Context& Context)
             -> Net::awaitable<void>
         {
-            HandlerStarted.store(true, std::memory_order_release);
+            HandlerStartedPromise.set_value();
             Net::steady_timer Timer{
                 co_await Net::this_coro::executor,
                 std::chrono::milliseconds{100}};
@@ -518,16 +520,8 @@ BOOST_AUTO_TEST_CASE(TlsApplicationGracefullyDrainsAnActiveRequest)
         }
     }};
 
-    bool Started = false;
-    for (int Attempt = 0; Attempt < 200; ++Attempt)
-    {
-        if (HandlerStarted.load(std::memory_order_acquire))
-        {
-            Started = true;
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds{5});
-    }
+    const bool Started = HandlerStarted.wait_for(std::chrono::seconds{5})
+        == std::future_status::ready;
 
     if (Started)
     {
@@ -540,11 +534,12 @@ BOOST_AUTO_TEST_CASE(TlsApplicationGracefullyDrainsAnActiveRequest)
     ClientThread.join();
     Application.Wait();
 
-    BOOST_REQUIRE(Started);
     if (Failure)
     {
         std::rethrow_exception(Failure);
     }
+    BOOST_REQUIRE_MESSAGE(Started,
+        "TLS request handler did not start before the synchronization timeout");
     BOOST_REQUIRE(Response.has_value());
     BOOST_TEST(Response->Status == Http::status::ok);
     BOOST_TEST(Response->Body == "drained");
