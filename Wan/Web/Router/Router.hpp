@@ -33,7 +33,7 @@ namespace Wan::Web
     struct RouteMatch
     {
         /** @brief 匹配到的请求处理器。 */
-        Handler Handler;
+        Wan::Web::Handler Handler;
         /** @brief 参数名到捕获值的映射。 */
         std::map<std::string, std::string> Params;
     };
@@ -56,7 +56,7 @@ namespace Wan::Web
         /** @brief 子节点列表。 */
         std::vector<std::shared_ptr<RadixNode>> Children;
         /** @brief 此节点关联的请求处理器。 */
-        Handler Handler;
+        Wan::Web::Handler Handler;
         /** @brief 此节点的参数匹配类型。 */
         ParamType ParameterType = ParamType::None;
         /** @brief 参数节点使用的参数名。 */

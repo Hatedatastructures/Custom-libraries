@@ -6,6 +6,7 @@
 
 #include "Wan/Web/Core/Metrics.hpp"
 #include "Wan/Web/Server/Server.hpp"
+#include "Wan/Web/Server/TlsServer.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -13,6 +14,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -42,6 +44,8 @@ namespace Wan::Web
         ServerConfig Server;
         /** @brief 请求优雅停止后的最长等待时间。 */
         std::chrono::seconds DrainTimeout{10};
+        /** @brief 设置时由 Application 托管 TLS Server；未设置时使用普通 HTTP。 */
+        std::optional<TlsServerConfig> Tls;
     };
 
     /**
@@ -127,6 +131,14 @@ namespace Wan::Web
          * @throws std::invalid_argument 超时为负、超出计时器范围或资源上限为零时抛出。
          */
         void ValidateConfiguration() const;
+
+        /**
+         * @brief 根据配置创建普通或 TLS 服务器。
+         * @param Config 应用的监听与 TLS 配置。
+         * @return 与应用配置匹配的服务器实例。
+         */
+        [[nodiscard]] static auto CreateServer(
+            const ApplicationConfig& Config) -> std::shared_ptr<Server>;
     };
 }
 
@@ -134,8 +146,18 @@ namespace Wan::Web
 {
     inline Application::Application(ApplicationConfig Config)
         : MemberConfig(std::move(Config))
-        , MemberServer(std::make_shared<Server>(MemberConfig.Server))
+        , MemberServer(CreateServer(MemberConfig))
     {
+    }
+
+    inline auto Application::CreateServer(const ApplicationConfig& Config)
+        -> std::shared_ptr<Server>
+    {
+        if (Config.Tls)
+        {
+            return std::make_shared<TlsServer>(Config.Server, *Config.Tls);
+        }
+        return std::make_shared<Server>(Config.Server);
     }
 
     inline Application::~Application()

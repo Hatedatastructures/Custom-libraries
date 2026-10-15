@@ -7,6 +7,7 @@ set(TestSources
     TestPublicApi.cpp
     TestStress.cpp
     TestApplication.cpp
+    TestTls.cpp
 )
 
 foreach(TestSource ${TestSources})

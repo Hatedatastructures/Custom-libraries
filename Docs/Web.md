@@ -67,6 +67,57 @@ int main()
 
 直接使用 `Server` 时，可调用 `RunSync()`，或分步调用 `Start()`、`BeginGracefulStop()`、`ForceStop()` 和 `Wait()`。启动前完成配置；直接调用 `Stop()` 会立即停止，而 `Application` 使用优雅停止流程。
 
+## HTTPS / TLS
+
+`TlsServer` 使用与 `Server` 相同的路由、请求限制、指标和生命周期实现。`ApplicationConfig::Tls` 设置后，`Application` 会托管 TLS 服务器；未设置时仍使用普通 HTTP。`Application::GetServer()` 在两种模式下都可用于注册路由与设置监听端口。
+
+服务端证书链和私钥分别可从 PEM 文件或 PEM 内容加载，每项凭据需要且只需要一种来源。加密私钥可通过 `PrivateKeyPasswordCallback` 提供口令。证书或私钥加载失败会在创建监听器前报错。
+
+```cpp
+#include <Wan.hpp>
+
+#include <utility>
+
+Wan::Web::TlsServerConfig Tls;
+Tls.CertificateChainFile = "certs/fullchain.pem";
+Tls.PrivateKeyFile = "certs/private-key.pem";
+
+Wan::Web::ApplicationConfig Config;
+Config.Tls = std::move(Tls);
+Wan::Web::Application Application{std::move(Config)};
+Application.GetServer().Listen(8443).Get("/health",
+    [](Wan::Web::Context& Context) -> boost::asio::awaitable<void>
+    {
+        Context.Json(R"({"status":"ok"})");
+        co_return;
+    });
+Application.Start();
+```
+
+服务端要求 TLS 1.2 或更新版本。本期 HTTP 传输使用 HTTP/1.1。
+
+## HTTPS 客户端
+
+`HttpClient` 增加接收绝对 URL 的 `Get` 和 `Post` 重载，只接受 `http://` 与 `https://`。HTTPS 默认验证证书链和 URL 主机名，并为 DNS 主机发送 SNI。Windows 使用当前用户和本地计算机的 `ROOT` 证书库；Linux 使用 BoringSSL 默认 CA 路径。配置的 CA 文件和内存 PEM 会追加到系统根证书。
+
+```cpp
+#include <Wan.hpp>
+
+#include <utility>
+
+Wan::Web::HttpClientTlsConfig Tls;
+Tls.CaCertificateFiles.emplace_back("certs/private-root.pem");
+
+Wan::Web::HttpClientConfig Config;
+Config.Tls = std::move(Tls);
+Wan::Web::HttpClient Client{Executor, Config};
+auto Response = co_await Client.Get("https://api.example.com/health");
+```
+
+已有的 `Get(Host, Port, Target)` 和 `Post(Host, Port, Target, Body)` 保持明文 HTTP 行为。URL 重定向按 HTTP 规则解析相对地址；HTTP 到 HTTPS 可跟随，HTTPS 到 HTTP 默认返回当前重定向响应。只有将 `AllowInsecureRedirects` 设为 `true` 才允许降级。
+
+运行 `cmake --build build --target HttpsServer HttpsClient` 构建示例。`HttpsServer <certificate-chain.pem> <private-key.pem> [port]` 默认监听 8443，`/health` 返回 JSON；`HttpsClient <http(s)-url> [ca-certificate.pem]` 接受可选的私有 CA 文件。测试目录内的证书和私钥仅供回归测试，不能用于实际服务。
+
 ## HTTP 客户端限制
 
 `HttpClient` 保留现有构造方式及 `Get`/`Post` 参数形式。可传入 `HttpClientConfig` 设置正数超时、`MaxResponseHeaderSize` 和 `MaxResponseBodySize`：
@@ -98,7 +149,7 @@ Session TTL 必须为正且可由平台的 steady clock 表示。`Get()` 返回�
 
 ## 功能范围
 
-当前运行时提供 HTTP 路由、中间件、Session、指标、请求体限制、连接接入控制和生命周期管理。TLS、WebSocket、HTTP/2、插件加载及外部配置文件不属于此接口。
+当前运行时提供 HTTP/HTTPS 路由、中间件、Session、指标、请求体限制、连接接入控制和生命周期管理。mTLS、WebSocket/WSS、HTTP/2、插件加载及外部配置文件不属于此接口。
 
 ## 本地验证
 
@@ -110,4 +161,4 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-生命周期测试目标为 `TestApplication`。
+TLS 回环测试目标为 `TestTls`；生命周期测试目标为 `TestApplication`。

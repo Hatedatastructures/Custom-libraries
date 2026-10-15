@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -30,6 +31,8 @@ namespace Wan::Web
     public:
         /** @brief 已注册的 TCP 流类型。 */
         using Stream = std::shared_ptr<Beast::tcp_stream>;
+        /** @brief 负责取消并关闭一条连接的操作。 */
+        using CloseHandler = std::function<void()>;
         /** @brief 注册表条目标识类型。 */
         using Id = std::uint64_t;
         /** @brief 连接取消信号类型。 */
@@ -42,8 +45,10 @@ namespace Wan::Web
         /** @brief 注册表中单个活动连接的资源和状态。 */
         struct Entry
         {
-            /** @brief 被跟踪的 TCP 流。 */
-            Stream Connection;
+            /** @brief 连接关联的执行器。 */
+            boost::asio::any_io_executor Executor;
+            /** @brief 关闭底层传输的回调。 */
+            CloseHandler Close;
             /** @brief 取消该连接处理器的信号。 */
             Cancellation CancelSignal;
             /** @brief 指示处理器是否仍在等待的共享状态。 */
@@ -70,6 +75,37 @@ namespace Wan::Web
                 throw std::invalid_argument(
                     "connection registry cannot register a null stream");
             }
+            auto Executor = Connection->get_executor();
+            return RegisterClose(std::move(Executor),
+                [Connection = std::move(Connection)]() mutable
+                {
+                    boost::system::error_code Ec;
+                    Connection->socket().cancel(Ec);
+                    Connection->socket().close(Ec);
+                },
+                std::move(CancelSignal), std::move(IsHandlerActive));
+        }
+
+        /**
+         * @brief 注册一个由任意传输类型承载的连接。
+         * @param Executor 连接 I/O 操作关联的执行器。
+         * @param Close 取消并关闭底层传输的回调。
+         * @param CancelSignal 用于取消活动处理器的信号；为空时会自动创建。
+         * @param IsHandlerActive 处理器等待状态；为空时会自动创建。
+         * @return 新条目的唯一标识。
+         * @throws std::invalid_argument `Close` 为空时抛出。
+         * @throws std::overflow_error 标识空间耗尽时抛出。
+         */
+        [[nodiscard]] auto RegisterClose(
+            boost::asio::any_io_executor Executor, CloseHandler Close,
+            Cancellation CancelSignal = {}, HandlerActive IsHandlerActive = {})
+            -> Id
+        {
+            if (!Close)
+            {
+                throw std::invalid_argument(
+                    "connection registry cannot register an empty close handler");
+            }
             if (!CancelSignal)
             {
                 CancelSignal = std::make_shared<
@@ -88,7 +124,8 @@ namespace Wan::Web
             }
             const auto IdValue = MemberNextId++;
             MemberConnections.emplace(IdValue,
-                Entry{std::move(Connection), std::move(CancelSignal),
+                Entry{std::move(Executor), std::move(Close),
+                    std::move(CancelSignal),
                     std::move(IsHandlerActive)});
             return IdValue;
         }
@@ -128,17 +165,17 @@ namespace Wan::Web
             for (auto& [IdValue, ConnectionData] : Connections)
             {
                 (void)IdValue;
-                auto Connection = std::move(ConnectionData.Connection);
+                auto Executor = std::move(ConnectionData.Executor);
+                auto Close = std::move(ConnectionData.Close);
                 auto CancelSignal = std::move(ConnectionData.CancelSignal);
                 auto IsHandlerActive = std::move(
                     ConnectionData.IsHandlerActive);
-                if (!Connection)
+                if (!Close)
                 {
                     continue;
                 }
-                auto ConnectionExecutor = Connection->get_executor();
                 auto CloseConnection =
-                    [Connection = std::move(Connection),
+                    [Close = std::move(Close),
                         CancelSignal = std::move(CancelSignal),
                         IsHandlerActive = std::move(IsHandlerActive)]() mutable
                     {
@@ -149,12 +186,9 @@ namespace Wan::Web
                             CancelSignal->emit(
                                 boost::asio::cancellation_type::all);
                         }
-                        boost::system::error_code Ec;
-                        Connection->socket().cancel(Ec);
-                        Connection->socket().close(Ec);
+                        Close();
                     };
-                boost::asio::dispatch(ConnectionExecutor,
-                    std::move(CloseConnection));
+                boost::asio::dispatch(Executor, std::move(CloseConnection));
             }
         }
 
@@ -173,8 +207,7 @@ namespace Wan::Web
             for (auto& [IdValue, ConnectionData] : Connections)
             {
                 (void)IdValue;
-                if (ConnectionData.Connection
-                    && ConnectionData.CancelSignal
+                if (ConnectionData.Close && ConnectionData.CancelSignal
                     && ConnectionData.IsHandlerActive
                     && ConnectionData.IsHandlerActive->load(
                         std::memory_order_acquire))
@@ -182,11 +215,15 @@ namespace Wan::Web
                     ConnectionData.CancelSignal->emit(
                         boost::asio::cancellation_type::all);
                 }
-                if (ConnectionData.Connection)
+                if (ConnectionData.Close)
                 {
-                    boost::system::error_code Ec;
-                    ConnectionData.Connection->socket().cancel(Ec);
-                    ConnectionData.Connection->socket().close(Ec);
+                    try
+                    {
+                        ConnectionData.Close();
+                    }
+                    catch (...)
+                    {
+                    }
                 }
             }
         }

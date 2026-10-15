@@ -25,6 +25,7 @@
 
 // 服务器
 #include "Wan/Web/Server/Server.hpp"
+#include "Wan/Web/Server/TlsServer.hpp"
 #include "Wan/Web/Server/Static.hpp"
 
 // 客户端

@@ -18,7 +18,9 @@
 - `Wan/Sched/`：基于 Boost.Asio `thread_pool` 的任务调度封装；
 - `Wan/Transport/`：传输层抽象和可靠 TCP 传输实现；
 - `Wan/Network/`：协议、HTTP、JSON 转换和密码学组件；
-- `Wan/Web/`：基于 Boost.Asio/Boost.Beast 的协程 Web 框架。
+- `Wan/Web/`：基于 Boost.Asio/Boost.Beast 的协程 HTTP/HTTPS 框架，包含路由、中间件、Session、指标及 TLS 客户端。
+
+Linux 构建需要安装 `liburing-dev`，以提供 Boost.Asio 文件流使用的 io_uring 支持。
 
 ## 快速开始
 
@@ -82,6 +84,7 @@ int main()
 `Wan/Web/Web.hpp` 聚合当前 Web 框架，包含：
 
 - `Wan::Web::Application` 生命周期宿主和优雅停止；
+- `TlsServer` 与基于证书校验的 HTTPS 客户端；
 - `HttpClientConfig` 响应边界与超时控制；
 - `SessionConfig` 会话容量与键值限制；
 - 路由和路径参数；
@@ -94,8 +97,8 @@ int main()
 - Session；
 - 服务指标和 Prometheus 格式输出。
 
-完整的 Web 生命周期、资源限制和直接 `Server` 使用说明见
-[`Docs/Web.md`](Docs/Web.md)。
+完整的 Web 生命周期、TLS、资源限制和直接 `Server` 使用说明见
+[`Docs/Web.md`](Docs/Web.md)。可运行的 HTTPS 服务端与客户端示例位于 `Examples/`。
 
 ## 目录约定
 
@@ -103,7 +106,7 @@ int main()
 - `Wan/`：项目源码和公共模块；
 - `Tests/`：CTest 单元测试和本地网络回环测试；
 - `Docs/`：模块文档；
-- `Examples/`：示例目标配置，目前没有独立示例程序；
+- `Examples/`：普通和 HTTPS 客户端/服务端使用示例；
 - `build/`：唯一允许保留的构建目录，内部第三方依赖文件不参与项目命名迁移。
 
 项目源码、测试和文档的目录及文件名采用 PascalCase；CMake 和编辑器使用的固定发现文件名保持工具约定不变。

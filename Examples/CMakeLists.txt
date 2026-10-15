@@ -1,1 +1,5 @@
-# 暂无示例，待 Web 框架重写后添加
+add_executable(HttpsServer HttpsServer.cpp)
+target_link_libraries(HttpsServer PRIVATE CustomLibraries::CustomLibraries)
+
+add_executable(HttpsClient HttpsClient.cpp)
+target_link_libraries(HttpsClient PRIVATE CustomLibraries::CustomLibraries)

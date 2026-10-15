@@ -97,16 +97,28 @@ set(JSONCPP_WITH_TESTS OFF CACHE BOOL "" FORCE)
 set(JSONCPP_WITH_POST_BUILD_UNITTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(jsoncpp)
 
-# 抑制 jsoncpp 源码中的编译器警告（MSVC pragma 和 uninitialized）
-if(MSVC)
-    target_compile_options(jsoncpp_lib PRIVATE /W0)
-    target_compile_options(jsoncpp_static PRIVATE /W0)
-    target_compile_options(jsoncpp_object PRIVATE /W0)
+if(TARGET jsoncpp_lib)
+    set(CustomLibrariesJsonCppTarget jsoncpp_lib)
+elseif(TARGET jsoncpp_static)
+    set(CustomLibrariesJsonCppTarget jsoncpp_static)
 else()
-    target_compile_options(jsoncpp_lib PRIVATE -Wno-unknown-pragmas -Wno-uninitialized)
-    target_compile_options(jsoncpp_static PRIVATE -Wno-unknown-pragmas -Wno-uninitialized)
-    target_compile_options(jsoncpp_object PRIVATE -Wno-unknown-pragmas -Wno-uninitialized)
+    message(FATAL_ERROR "No usable JsonCpp library target was created")
 endif()
+
+# 抑制 jsoncpp 源码中的编译器警告（MSVC pragma 和 uninitialized）
+foreach(JsonCppTarget IN ITEMS jsoncpp_lib jsoncpp_static jsoncpp_object)
+    if(TARGET ${JsonCppTarget})
+        get_target_property(JsonCppAliasedTarget ${JsonCppTarget} ALIASED_TARGET)
+        if(NOT JsonCppAliasedTarget)
+            if(MSVC)
+                target_compile_options(${JsonCppTarget} PRIVATE /W0)
+            else()
+                target_compile_options(${JsonCppTarget} PRIVATE
+                    -Wno-unknown-pragmas -Wno-uninitialized)
+            endif()
+        endif()
+    endif()
+endforeach()
 
 # --- Crypto++ ---
 # 加密库，提供 AES/RSA/SHA/HMAC 等算法
@@ -191,10 +203,27 @@ target_compile_definitions(CustomLibraries INTERFACE
 target_link_libraries(CustomLibraries INTERFACE
     OpenSSL::SSL
     OpenSSL::Crypto
-    jsoncpp_lib
+    ${CustomLibrariesJsonCppTarget}
     cryptopp
     CustomLibrariesBoostJsonImpl
+    CustomLibrariesBoostUrlImpl
 )
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_path(CustomLibrariesLiburingIncludeDir liburing.h)
+    find_library(CustomLibrariesLiburingLibrary NAMES uring)
+    if(NOT CustomLibrariesLiburingIncludeDir
+        OR NOT CustomLibrariesLiburingLibrary)
+        message(FATAL_ERROR
+            "Linux builds require liburing development headers and library")
+    endif()
+    target_include_directories(CustomLibraries INTERFACE
+        "${CustomLibrariesLiburingIncludeDir}")
+    target_compile_definitions(CustomLibraries INTERFACE
+        BOOST_ASIO_HAS_IO_URING)
+    target_link_libraries(CustomLibraries INTERFACE
+        "${CustomLibrariesLiburingLibrary}")
+endif()
 
 if(CustomLibrariesEnableSanitizers)
     if(MSVC)
@@ -225,6 +254,22 @@ else()
     target_compile_options(CustomLibrariesBoostJsonImpl PRIVATE -w)
 endif()
 target_compile_features(CustomLibrariesBoostJsonImpl PUBLIC cxx_std_23)
+
+# Boost.URL 实现（Boost 1.89 已取消单翻译单元 src.hpp 集成）
+file(GLOB_RECURSE CustomLibrariesBoostUrlSources CONFIGURE_DEPENDS
+    "${boost_SOURCE_DIR}/libs/url/src/*.cpp"
+)
+add_library(CustomLibrariesBoostUrlImpl STATIC
+    ${CustomLibrariesBoostUrlSources}
+)
+target_include_directories(CustomLibrariesBoostUrlImpl PUBLIC ${boost_SOURCE_DIR})
+target_compile_definitions(CustomLibrariesBoostUrlImpl PUBLIC
+    BOOST_ERROR_CODE_HEADER_ONLY
+    BOOST_SYSTEM_NO_LIB
+    BOOST_URL_NO_LIB
+    PRIVATE BOOST_URL_SOURCE
+)
+target_compile_features(CustomLibrariesBoostUrlImpl PUBLIC cxx_std_23)
 
 # 平台特定库
 if(WIN32)

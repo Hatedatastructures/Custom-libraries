@@ -9,6 +9,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
 
 #include <atomic>
@@ -20,6 +21,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string_view>
+#include <type_traits>
 
 #include "Wan/Web/Core/Context.hpp"
 #include "Wan/Web/Core/Executor.hpp"
@@ -27,6 +29,7 @@
 #include "Wan/Web/Middleware/Middleware.hpp"
 #include "Wan/Web/Router/Router.hpp"
 #include "Wan/Web/Server/ConnectionRegistry.hpp"
+#include "Wan/Fault/Fault.hpp"
 
 namespace Wan::Web
 {
@@ -79,7 +82,20 @@ namespace Wan::Web
          * @param Config 服务器配置。
          */
         explicit Server(ServerConfig Config = {})
+            : Server(std::move(Config), {})
+        {
+        }
+
+    protected:
+        /**
+         * @brief 创建使用 TLS 上下文的服务器。
+         * @param Config HTTP 和连接资源配置。
+         * @param TlsContext 已验证服务器凭据的 TLS 上下文。
+         */
+        Server(ServerConfig Config,
+            std::shared_ptr<Net::ssl::context> TlsContext)
             : MemberConfig(std::move(Config))
+            , MemberTlsContext(std::move(TlsContext))
             , MemberExecutor(MemberConfig.Threads)
             , MemberAcceptStrand(
                 Net::make_strand(MemberExecutor.GetExecutor()))
@@ -87,6 +103,7 @@ namespace Wan::Web
         {
         }
 
+    public:
         /**
          * @brief 注册 GET 路由。
          * @param Pattern 路由路径模式。
@@ -378,49 +395,25 @@ namespace Wan::Web
                     break;
                 }
 
-                auto Stream = std::make_shared<Beast::tcp_stream>(
-                    std::move(Socket));
-                auto CancelSignal = std::make_shared<
-                    Net::cancellation_signal>();
-                auto IsHandlerActive = std::make_shared<std::atomic_bool>(
-                    false);
-                ConnectionRegistry::Id ConnectionId = 0;
                 try
                 {
-                    ConnectionId = MemberConnections.Register(
-                        Stream, CancelSignal, IsHandlerActive);
-                }
-                catch (...)
-                {
-                    MemberActiveConnections.fetch_sub(
-                        1, std::memory_order_acq_rel);
-                    boost::system::error_code SocketEc;
-                    SocketEc = Stream->socket().close(SocketEc);
-                    continue;
-                }
-                if (MemberConfig.EnableMetrics)
-                {
-                    MemberMetrics->IncActiveConnections();
-                }
-
-                try
-                {
-                    Net::co_spawn(Stream->get_executor(),
-                        Self->HandleConnection(Self, CancelSignal, Stream,
-                            ConnectionId, IsHandlerActive),
-                        Net::detached);
-                }
-                catch (...)
-                {
-                    MemberConnections.Remove(ConnectionId);
-                    MemberActiveConnections.fetch_sub(
-                        1, std::memory_order_acq_rel);
-                    if (MemberConfig.EnableMetrics)
+                    auto TcpStream = std::make_shared<Beast::tcp_stream>(
+                        std::move(Socket));
+                    if (MemberTlsContext)
                     {
-                        MemberMetrics->DecActiveConnections();
+                        auto Stream = std::make_shared<TlsStream>(
+                            std::move(*TcpStream), *MemberTlsContext);
+                        LaunchConnection(Self, std::move(Stream));
                     }
-                    boost::system::error_code SocketEc;
-                    Stream->socket().close(SocketEc);
+                    else
+                    {
+                        LaunchConnection(Self, std::move(TcpStream));
+                    }
+                }
+                catch (...)
+                {
+                    MemberActiveConnections.fetch_sub(
+                        1, std::memory_order_acq_rel);
                     throw;
                 }
                 }
@@ -494,8 +487,111 @@ namespace Wan::Web
         }
 
     private:
+        /** @brief TLS 连接使用的 Beast 传输流。 */
+        using TlsStream = Net::ssl::stream<Beast::tcp_stream>;
+
         /**
-         * @brief 处理一个 TCP 连接上的请求/响应与 keep-alive 循环。
+         * @brief 返回流中的 TCP 层。
+         * @param Value 普通 TCP 流或 TLS 流。
+         * @return 可设置超时并访问底层 socket 的 Beast TCP 流。
+         */
+        template <typename Stream>
+        [[nodiscard]] static auto TcpLayer(Stream& Value) noexcept
+            -> Beast::tcp_stream&
+        {
+            if constexpr (std::is_same_v<Stream, TlsStream>)
+            {
+                return Value.next_layer();
+            }
+            else
+            {
+                return Value;
+            }
+        }
+
+        /**
+         * @brief 设置当前网络操作的 TCP 超时。
+         * @param Value 活动连接流。
+         * @param Timeout 操作超时；零表示不设超时。
+         */
+        template <typename Stream>
+        static void SetStreamTimeout(Stream& Value,
+            std::chrono::seconds Timeout)
+        {
+            auto& Tcp = TcpLayer(Value);
+            if (Timeout.count() > 0)
+            {
+                Tcp.expires_after(Timeout);
+            }
+            else
+            {
+                Tcp.expires_never();
+            }
+        }
+
+        /**
+         * @brief 注册并启动一个连接处理协程。
+         * @param KeepAlive 保持服务器实例存活的共享指针。
+         * @param Connection 已接受的普通或 TLS 连接。
+         */
+        template <typename Stream>
+        void LaunchConnection(std::shared_ptr<Server> KeepAlive,
+            std::shared_ptr<Stream> Connection) noexcept
+        {
+            ConnectionRegistry::Id ConnectionId = 0;
+            bool MetricsCounted = false;
+            auto CloseTransport = [Connection]
+            {
+                auto& Tcp = TcpLayer(*Connection);
+                boost::system::error_code Ec;
+                Tcp.socket().cancel(Ec);
+                Tcp.socket().close(Ec);
+            };
+
+            try
+            {
+                auto CancelSignal = std::make_shared<
+                    Net::cancellation_signal>();
+                auto IsHandlerActive = std::make_shared<std::atomic_bool>(
+                    false);
+                ConnectionId = MemberConnections.RegisterClose(
+                    Connection->get_executor(), CloseTransport,
+                    CancelSignal, IsHandlerActive);
+                if (MemberConfig.EnableMetrics)
+                {
+                    MemberMetrics->IncActiveConnections();
+                    MetricsCounted = true;
+                }
+                Net::co_spawn(Connection->get_executor(),
+                    HandleConnection(std::move(KeepAlive), CancelSignal,
+                        Connection, ConnectionId, IsHandlerActive),
+                    Net::detached);
+            }
+            catch (...)
+            {
+                if (ConnectionId != 0)
+                {
+                    MemberConnections.Remove(ConnectionId);
+                }
+                if (MetricsCounted)
+                {
+                    MemberMetrics->DecActiveConnections();
+                    MemberMetrics->IncErrors();
+                }
+                MemberActiveConnections.fetch_sub(
+                    1, std::memory_order_acq_rel);
+                try
+                {
+                    CloseTransport();
+                }
+                catch (...)
+                {
+                }
+            }
+        }
+
+        /**
+         * @brief 处理一个 HTTP 连接上的 TLS 握手、请求/响应与 keep-alive 循环。
          * @param KeepAlive 保持服务器实例存活的共享指针。
          * @param Cancellation 连接处理器的取消信号。
          * @param Socket 当前连接的 TCP 流。
@@ -503,10 +599,11 @@ namespace Wan::Web
          * @param IsHandlerActive 连接处理器等待状态的共享标志。
          * @return 连接处理并清理完成时结束的 awaitable。
          */
+        template <typename Stream>
         auto HandleConnection(
             std::shared_ptr<Server> KeepAlive,
             std::shared_ptr<Net::cancellation_signal> Cancellation,
-            std::shared_ptr<Beast::tcp_stream> Socket,
+            std::shared_ptr<Stream> Socket,
             ConnectionRegistry::Id ConnectionId,
             ConnectionRegistry::HandlerActive IsHandlerActive)
             -> Net::awaitable<void>
@@ -517,13 +614,37 @@ namespace Wan::Web
             std::size_t RequestCount = 0;
             const auto HandlerExecutor =
                 co_await Net::this_coro::executor;
+            bool TlsHandshakeComplete = !std::is_same_v<Stream, TlsStream>;
 
             auto Close = [&]() -> Net::awaitable<void>
             {
+                if constexpr (std::is_same_v<Stream, TlsStream>)
+                {
+                    if (TlsHandshakeComplete)
+                    {
+                        SetStreamTimeout(*Socket,
+                            MemberConfig.WriteTimeout);
+                        boost::system::error_code ShutdownEc;
+                        co_await Socket->async_shutdown(
+                            Net::redirect_error(Net::use_awaitable,
+                                ShutdownEc));
+                        if (ShutdownEc
+                            && ShutdownEc != Net::error::operation_aborted
+                            && ShutdownEc != Net::error::eof
+                            && ShutdownEc
+                                != Net::ssl::error::stream_truncated
+                            && MemberConfig.EnableMetrics)
+                        {
+                            MemberMetrics->IncErrors();
+                        }
+                    }
+                }
+
                 boost::system::error_code Ec;
-                Ec = Socket->socket().shutdown(
+                auto& Tcp = TcpLayer(*Socket);
+                Ec = Tcp.socket().shutdown(
                     Net::ip::tcp::socket::shutdown_send, Ec);
-                Ec = Socket->socket().close(Ec);
+                Ec = Tcp.socket().close(Ec);
                 MemberConnections.Remove(ConnectionId);
                 MemberActiveConnections.fetch_sub(
                     1, std::memory_order_acq_rel);
@@ -538,6 +659,28 @@ namespace Wan::Web
             bool Failed = false;
             try
             {
+                if constexpr (std::is_same_v<Stream, TlsStream>)
+                {
+                    SetStreamTimeout(*Socket, MemberConfig.ReadTimeout);
+                    boost::system::error_code HandshakeEc;
+                    co_await Socket->async_handshake(
+                        Net::ssl::stream_base::server,
+                        Net::redirect_error(Net::use_awaitable,
+                            HandshakeEc));
+                    SetStreamTimeout(*Socket, std::chrono::seconds::zero());
+                    if (HandshakeEc)
+                    {
+                        if (HandshakeEc != Net::error::operation_aborted
+                            && MemberConfig.EnableMetrics)
+                        {
+                            MemberMetrics->IncErrors();
+                        }
+                        co_await Close();
+                        co_return;
+                    }
+                    TlsHandshakeComplete = true;
+                }
+
                 for (;;)
                 {
                     const auto ReadTimeout = RequestCount == 0
@@ -545,14 +688,7 @@ namespace Wan::Web
                         : (MemberConfig.KeepAliveEnabled
                             ? MemberConfig.KeepAliveTimeout
                             : MemberConfig.ReadTimeout);
-                    if (ReadTimeout.count() > 0)
-                    {
-                        Socket->expires_after(ReadTimeout);
-                    }
-                    else
-                    {
-                        Socket->expires_never();
-                    }
+                    SetStreamTimeout(*Socket, ReadTimeout);
 
                     Http::request_parser<Http::string_body> Parser;
                     Parser.header_limit(MemberConfig.MaxHeaderSize);
@@ -560,7 +696,8 @@ namespace Wan::Web
                     boost::system::error_code Ec;
                     co_await Http::async_read(*Socket, Buffer, Parser,
                         Net::redirect_error(Net::use_awaitable, Ec));
-                    Socket->expires_never();
+                    SetStreamTimeout(*Socket,
+                        std::chrono::seconds::zero());
 
                     if (Ec)
                     {
@@ -644,17 +781,11 @@ namespace Wan::Web
                     Ctx.Response().keep_alive(Ctx.KeepAlive());
                     Ctx.Response().prepare_payload();
 
-                    if (MemberConfig.WriteTimeout.count() > 0)
-                    {
-                        Socket->expires_after(MemberConfig.WriteTimeout);
-                    }
-                    else
-                    {
-                        Socket->expires_never();
-                    }
+                    SetStreamTimeout(*Socket, MemberConfig.WriteTimeout);
                     co_await Http::async_write(*Socket, Ctx.Response(),
                         Net::redirect_error(Net::use_awaitable, Ec));
-                    Socket->expires_never();
+                    SetStreamTimeout(*Socket,
+                        std::chrono::seconds::zero());
 
                     if (Ec)
                     {
@@ -699,6 +830,8 @@ namespace Wan::Web
 
         /** @brief 监听、超时、keep-alive 和资源上限配置。 */
         ServerConfig MemberConfig;
+        /** @brief 未设置时使用普通 HTTP；有值时使用 TLS 传输。 */
+        std::shared_ptr<Net::ssl::context> MemberTlsContext;
         /** @brief 执行 accept、连接处理器和定时器协程的执行器。 */
         Executor MemberExecutor;
         /** @brief 串行化 acceptor 和连接生命周期操作的 strand。 */
