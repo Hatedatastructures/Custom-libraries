@@ -154,11 +154,11 @@ set_target_properties(cryptopp PROPERTIES
 )
 
 # 抑制 cryptopp 源码中的编译器警告
+target_compile_definitions(cryptopp PUBLIC CRYPTOPP_DISABLE_ASM)
 if(MSVC)
     target_compile_options(cryptopp PRIVATE /W0)
 else()
     target_compile_options(cryptopp PRIVATE -w)
-    target_compile_definitions(cryptopp PUBLIC CRYPTOPP_DISABLE_ASM)
 endif()
 
 # --- Wan 库目标 ---
@@ -276,6 +276,7 @@ target_compile_definitions(CustomLibrariesBoostUrlImpl PUBLIC
     BOOST_ERROR_CODE_HEADER_ONLY
     BOOST_SYSTEM_NO_LIB
     BOOST_URL_NO_LIB
+    BOOST_CONTAINER_NO_LIB
     PRIVATE BOOST_URL_SOURCE
 )
 target_compile_features(CustomLibrariesBoostUrlImpl PUBLIC cxx_std_23)
