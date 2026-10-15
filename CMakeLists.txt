@@ -179,6 +179,10 @@ target_include_directories(CustomLibraries INTERFACE
 
 target_compile_features(CustomLibraries INTERFACE cxx_std_23)
 
+if(MSVC)
+    target_compile_options(CustomLibraries INTERFACE /bigobj)
+endif()
+
 # Boost header-only（直接添加 include 路径 + 宏定义）
 target_include_directories(CustomLibraries INTERFACE ${boost_SOURCE_DIR})
 target_compile_definitions(CustomLibraries INTERFACE
