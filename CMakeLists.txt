@@ -130,7 +130,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(cryptopp_src)
 
 if(MSVC)
-    include(CMake/PatchCryptoPPMsvcIterators.cmake)
+    include(CMake/PatchCryptoPPMsvcCompatibility.cmake)
 endif()
 
 # 收集所有 cryptopp 源文件（排除 test 和 bench 程序）
@@ -253,6 +253,7 @@ add_library(CustomLibrariesBoostJsonImpl STATIC
 target_include_directories(CustomLibrariesBoostJsonImpl PUBLIC ${boost_SOURCE_DIR})
 target_compile_definitions(CustomLibrariesBoostJsonImpl PUBLIC
     WIN32_LEAN_AND_MEAN
+    BOOST_CONTAINER_NO_LIB
     BOOST_ERROR_CODE_HEADER_ONLY
     BOOST_SYSTEM_NO_LIB
     BOOST_ASIO_HEADER_ONLY
