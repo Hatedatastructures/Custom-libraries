@@ -129,6 +129,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cryptopp_src)
 
+if(MSVC)
+    include(CMake/PatchCryptoPPMsvcIterators.cmake)
+endif()
+
 # 收集所有 cryptopp 源文件（排除 test 和 bench 程序）
 file(GLOB CryptoppSources "${cryptopp_src_SOURCE_DIR}/*.cpp")
 list(FILTER CryptoppSources EXCLUDE REGEX ".*test\\.cpp$")
