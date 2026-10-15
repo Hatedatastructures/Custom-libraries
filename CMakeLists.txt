@@ -183,6 +183,7 @@ target_compile_features(CustomLibraries INTERFACE cxx_std_23)
 target_include_directories(CustomLibraries INTERFACE ${boost_SOURCE_DIR})
 target_compile_definitions(CustomLibraries INTERFACE
     WIN32_LEAN_AND_MEAN
+    NOMINMAX
     BOOST_ERROR_CODE_HEADER_ONLY
     BOOST_SYSTEM_NO_LIB
     BOOST_URL_NO_LIB
